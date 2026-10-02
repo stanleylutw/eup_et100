@@ -148,10 +148,15 @@ BLE：手機 App → BLE GATT ─────┘           │
 
 **不受 MCU 資源限制**：96 MHz 下的並行負載、BLE 吞吐量、UART 流控、Flash 寫入實測後確認。
 
+**OTA 檔案實際存放**（詳見 §5.3a）：
+- 下載時：**外部 SPI NOR Flash（XM25QH256D 32 MiB）的 4 MiB staging partition**
+- 安裝時：bootloader 從外部 staging 讀 → copy 到內建 live app slot（§5.1）
+- 內建 Flash **不做 dual-bank**，整個 1016 KiB 給 live app（最大化 app 成長空間）
+
 **真正的最大未知**（非兩個介面）：
-- bootloader 的**安全安裝**流程
-- 斷電恢復（任何階段 power loss 都要可救）
-- **rollback** 條件與機制
+- bootloader 的**安全安裝**流程（**必須會從外部 SPI copy 到內部**）
+- 斷電恢復（任何階段 power loss 都要可救；外部 staging 寫壞不影響 live app）
+- **rollback** 條件與機制（external staging 保留上一版 image 可救援）
 
 **開發順序**：**先驗證 BLE OTA 的完整安裝流程 → 再接入 LTE 下載，共用已驗證的 OTA 核心**。
 
@@ -295,22 +300,21 @@ int  event_bus_subscribe(app_event_type_t type, QueueHandle_t inbox);
 Flash 容量**依現有 SDK linker 1016 KiB 計算**（非 datasheet 2 MB，等 Quectel 回 Q48 memory map 再擴）。
 SRAM 使用 Phase 1a-ext 已擴到 **512 KiB**。
 
-### 5.1 Flash 預算（總 1016 KiB，單位 KiB）
+### 5.1 內建 MCU Flash 預算（總 1016 KiB，單位 KiB）— **單 bank live app**
+
+> **設計決策 2026-10-02**：OTA staging **移到外部 SPI NOR**（見 §5.4）。內建 Flash 不做 dual-bank —— 可全部拿來放 live app，給 ET-100 app 最大成長空間。Bootloader 從外部 staging 的 image copy 到內建 live slot。
 
 | 區段 | 預算 | 累計 | 用途 |
 |---|:-:|:-:|---|
-| Bootloader | 若 Freqchip 原廠 bootloader 占 0-8 KiB（0x08000000-0x08002000） | — | 不在 linker 範圍 |
-| Reserved (header/CRC) | 8 | 8 | post_process.py 填 header |
-| **App A** | **~400** | 408 | ET-100 主韌體 slot A |
-| **App B** | **~400** | 808 | OTA 升級用 slot B |
-| **Config partition** | 32 | 840 | KVDB（NVS 類設定、SIM profile、cloud endpoint）|
-| **Log partition** | 128 | 968 | TSDB（30 天 log 的 flash cache；主 log 走外部 32 MB SPI Flash）|
-| Reserve | 48 | 1016 | 增長緩衝 |
+| Bootloader（0x08000000-0x08002000）| 8 (在 linker 範圍外) | — | Freqchip 原廠 bootloader；負責驗證 + 從 external staging 搬 image |
+| Reserved (header/CRC) | 8 | 8 | post_process.py 填 header（magic 0x51525251 + CRC）|
+| **Live App slot** | **~900** | 908 | ET-100 唯一 app 執行區域 |
+| **Boot metadata / rollback marker** | 8 | 916 | 標記上次 boot 成功 / version / rollback 狀態 |
+| Reserve | 100 | 1016 | 增長緩衝（若 Q48 回來 Flash 2 MB，整個 slot 可大幅擴大）|
 
-**單一 App slot ~400 KiB**：
-- Phase 1a 的 BLE example 占 260 KiB，Eupfin app 預估：
-  - 保留 LTE/NFC/CAN/GNSS driver + EUP protocol + log + OTA → 預估 **320-380 KiB**
-  - **margin 20-80 KiB**，EVT 階段若超要考慮 app slot 擴大或移到外部 flash
+**單一 Live App ~900 KiB** vs Phase 1a example 260 KiB → **~640 KiB margin** 給 ET-100 full app（LTE/NFC/CAN/GNSS/EUP proto/log/OTA client）。
+
+**內建 Flash 不放**：telemetry log、config KVDB、OTA image —— 全部移到外部 SPI NOR（§5.4）。
 
 ### 5.2 SRAM 預算（總 512 KiB，單位 KiB）
 
@@ -329,6 +333,29 @@ SRAM 使用 Phase 1a-ext 已擴到 **512 KiB**。
 | newlib malloc heap | 4 | 290 | printf, string ops |
 | **已用小計** | **290** | | **≈ 57%** |
 | **Reserve** | **222** | 512 | **~43% 給未來擴充** |
+
+### 5.3a 外部 SPI NOR Flash 預算（XM25QH256D，總 32 MiB）
+
+> 詳見 [`02_firmware_architecture_draft.md`](02_firmware_architecture_draft.md) §7。本節是 01 計畫的對應投影。
+
+| 區段 | 預算 | 用途 |
+|---|:-:|---|
+| **Telemetry ring** | **24 MiB** | 30 天 log 的主要存放（15 秒/128B 一筆 → 21 MiB，+ sector overhead）|
+| **★ OTA staging** | **4 MiB** | ★ **OTA 檔案存這裡** — 下載映像暫存、驗證、等 bootloader install |
+| Config / journal / diagnostics | 1 MiB | KVDB 類設定、SIM profile、cloud endpoint、crash dump |
+| Spare / erase rotation / growth | 3 MiB | wear leveling 緩衝 |
+
+**OTA staging 4 MiB 設計意圖**：
+- 單一 OTA image 最大 ~2 MiB（匹配未來 2 MB Flash 容量上限）
+- 留 2 MiB 給 **第二 slot 作 rollback image / 上一版備份**
+- 寫入 external 不干擾 live app 執行（SPI 另一條 bus）
+- Download 階段隨便 abort / resume，不碰 live app
+- Install 階段才由 bootloader 讀 external → write internal → verify → set boot marker
+
+**關鍵依賴**：
+- [`Q43` bootloader + install flow](../../../docs/03_hardware/sch_analysis/100_questions_for_quectel.md) 的 Quectel 答覆 — bootloader 必須會「從外部 SPI 讀 image copy 到內部」
+- XM25QH256D 的 **16 MiB 邊界**（32-bit addressing vs 24-bit）實測，避免 alias（Codex 02 §7 已標為待驗）
+- 外部 Flash 的 wear（erase cycle 100k typical for NOR）；OTA 若每月一次升級，20 年內遠低於 limit
 
 ### 5.3 PRAM 預算（總 128 KiB）
 
