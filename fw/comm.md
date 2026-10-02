@@ -17,16 +17,17 @@
 | comm.md 中的用語 | 本專案的具體值 |
 |---|---|
 | `src/ include/` | `fw/src/` `fw/include/`（本資料夾）|
-| `tools/` | `fw/tools/`（本資料夾）|
-| `docs/` | `fw/docs/`（本資料夾）|
+| **repo-level `tools/`**（跨子目錄共用，例：branch_status.sh） | `/tools/`（repo 根目錄，`fw/` 外）|
+| **FW-specific `tools/`**（SDK fetch、FW release 等） | `fw/tools/`（本資料夾）|
+| `docs/` | `fw/docs/`（本資料夾，FW-specific）；HW 相關見 `/docs/` |
 | `configs/` | `fw/configs/`（本資料夾） |
 | `boards/` | `fw/boards/` — EVB / EVT / DVT / PVT / MP |
-| 平台 plan MD | `fw/docs/00_project/00_et100_firmware_platform_plan.md`（待建） |
+| 平台 plan MD | `fw/docs/00_project/00_et100_firmware_platform_plan.md`（已建 v0.1） |
 | Changelog | `fw/docs/00_project/ET100_FIRMWARE_CHANGELOG.md`（待建） |
 | 預設 build 指令 `#b` | `cmake --build build`（P1 EVT target） |
-| 燒錄 `#f` | `JLinkExe -CommanderScript tools/flash.jlink`（待建） |
+| 燒錄 `#f` | `JLinkExe -CommanderScript fw/tools/flash.jlink`（待建） |
 | RTT debug `#rttb` | `cmake --build build_rtt_debug`（待建） |
-| Branch status `git status` | `sh fw/tools/branch_status.sh` |
+| Branch status `git status` 或 `#eup git status` | `sh tools/branch_status.sh`（repo-level 工具，權威來源：[`eup_rules/git_status/`](~/Firmware/EUP/eup_rules/git_status/)）|
 
 ## Antigravity 新增角色
 
