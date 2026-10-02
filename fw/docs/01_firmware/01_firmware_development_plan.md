@@ -1,5 +1,7 @@
 # ET-100 Firmware Development Plan — DRAFT
 
+> **2026-10-02 Codex 補充審查**：原草案保留。可實作的責任分工與 baseline 見 [架構草案](02_firmware_architecture_draft.md)、[硬體覆蓋／衝突矩陣](03_hardware_coverage_matrix.md)、[分階段執行計畫](04_development_execution_draft.md)。本檔的 task priority 10/11、固定 OTA partitions、部分 pin/rail 假設及記憶體預算不可直接作為施工設定；有衝突時先依補充文件的 gate 查證，並經批准後實作。
+
 **Version**：v0.1 DRAFT
 **Last updated**：2026-10-02
 **Author**：Claude Code + Stanley (Eupfin)
@@ -38,7 +40,7 @@
 | 15 | IO Expander AW9523 I²C（16 ch） | 11 | 🟢 低 |
 | 16 | 備援電池充電（YX4066HDN8AR） | 8 | 🟢 低（讀 CHRG/FULL） |
 | 17 | 電源管理 PMU 進出 sleep | FR3068E-C 內建 | 🔴 高 |
-| 18 | OTA 韌體更新（over BLE + over LTE） | 應用層 | 🔴 高 |
+| 18 | OTA 韌體更新（**兩路 transport：LTE + BLE，共用一套 core**，見 §2.0a）| 應用層 | 🔴 高 |
 | 19 | EUP 終端設備通訊協定（cloud comm） | 應用層 | 🔴 高（spec 未定）|
 | 20 | 30 天 log + 斷網重傳 | FlashDB + 外部 Flash | 🔴 高 |
 
@@ -112,6 +114,50 @@
 │  PWM×2(16ch) | RTC | PMU | Flash XIP | Watchdog | Cache (32KB)          │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
+
+### 2.0a OTA 設計：雙 transport + 共用一套 core（決策定案 2026-10-02）
+
+ET-100 的 OTA 走 **「兩個傳輸入口，共用一套 OTA 核心」** 原則，避免雙套流程維護負擔。
+
+```text
+LTE：伺服器 → EG800Q → UART ──┐
+                              ├─▶  OTA Manager  ─▶  Staging Flash
+BLE：手機 App → BLE GATT ─────┘           │
+                                           ▼
+                                  驗證 → 安裝 → 啟動確認
+```
+
+**transport 介面現況**：
+
+| 介面 | 可行性與現況 | 參考 |
+|---|---|---|
+| LTE OTA | EG800Q 負責網路下載，FR3068E-C 接收並儲存。原廠有 FTP(S)／HTTP(S) 文件；專案尚未完成這條流程 | Quectel FTP(S) 文件 |
+| BLE App OTA | SDK 已有 OTA GATT service（`service_ota.c`）支援資料寫入與通知回覆；手機 App 需實作對應協定；尚未實機驗證 | [`vendor/fr30xxc_sdk__202411/examples/common/ota/service_ota.c:59`](../../vendor/fr30xxc_sdk__202411/examples/common/ota/service_ota.c) |
+
+**兩條路徑必須共用**：
+
+- 同一份更新映像與版本／型號資訊
+- 同一套 Flash 暫存、hash／簽章驗證與安裝流程
+- 同一套斷點續傳、進度回報與斷電恢復狀態
+- **同時只允許一個 update session**（LTE/BLE 互斥），避免兩路同時寫同一區
+
+**使用情境分工**（不是 primary/secondary 階層，是**對等** transport）：
+
+- LTE：適合**遠端車隊更新**（fleet rollout）
+- BLE：適合**現場維修**；也可讓 App 使用預先下載的檔案，在無 LTE 網路時更新
+
+**不受 MCU 資源限制**：96 MHz 下的並行負載、BLE 吞吐量、UART 流控、Flash 寫入實測後確認。
+
+**真正的最大未知**（非兩個介面）：
+- bootloader 的**安全安裝**流程
+- 斷電恢復（任何階段 power loss 都要可救）
+- **rollback** 條件與機制
+
+**開發順序**：**先驗證 BLE OTA 的完整安裝流程 → 再接入 LTE 下載，共用已驗證的 OTA 核心**。
+
+對應補充文件：
+- [`02_firmware_architecture_draft.md`](02_firmware_architecture_draft.md) §services：`ota_manager` 統一 session + 進度 + 驗證 + install request（LTE/BLE 不各自改 boot metadata）
+- [`04_development_execution_draft.md`](04_development_execution_draft.md) M5：Common manager + 雙 transport + 驗簽 + staging + OEM install adapter + boot recovery
 
 ### 2.1 分層原則
 
@@ -425,7 +471,7 @@ T=500ms 系統 READY：
 | 3.2 | Time Sync（GNSS 1PPS 校正 + LTE NTP backup） | 2 天 |
 | 3.3 | Log/Storage（FlashDB TSDB + 外部 SPI Flash）| 4 天 |
 | 3.4 | EUP Protocol Stack（**等 EUP spec**）| 10 天 |
-| 3.5 | OTA framework（dual-bank + rollback + sign verify） | 7 天 |
+| 3.5 | OTA framework（**雙 transport 共用 core** — 見 §2.0a；BLE 先、LTE 後接；dual-bank + sign verify + power-fail recovery + rollback）| 10 天 |
 | 3.6 | Config Service（KVDB + BLE/RS232 config UI） | 3 天 |
 | **3 總計** | | **~29 天**（含等 EUP spec 的 blocker）|
 
@@ -497,7 +543,7 @@ T=500ms 系統 READY：
 | Freqchip FR3068E-C memory map | Q48 | SRAM/Flash 分配 § 5 |
 | Freqchip signed BSP source | Q39 | BLE QDID 歸屬 |
 | Secure boot signing key | Q42 | 量產板能否燒自寫 FW |
-| OTA bootloader + format | Q43 | § 3.5 OTA Service 設計 |
+| OTA bootloader + format + safe install + power-fail recovery + rollback | Q43 | § 2.0a 的「真正最大未知」；transport 層 LTE/BLE 設計已定（§2.0a），**真正阻擋項在 bootloader** |
 | **EUP 終端設備通訊協定 spec** | Eupfin 內部考古 | § 3.4、§ 4.2 全部 |
 | Quectel FW behavior spec | Q45 | § 4 相容性 |
 
@@ -520,7 +566,7 @@ T=500ms 系統 READY：
 2. **1-Wire bit-bang vs SDK**：SDK 無 1-Wire driver，自寫 bit-bang 需精確 µs timing；是否值得走 PWM/Timer 的 hw 加速？
 3. **BLE adv name 格式**：`ET-100-<serial>` 還是 `EUP-ET100-<MAC>`？與既有 Eupfin app 相容性？
 4. **Log 寫哪**：內建 2MB Flash 的 log partition（128 KiB）vs 外部 32MB SPI Flash？分流策略？
-5. **OTA source**：LTE 下載為主、BLE DFU 為備？還是雙模都要？
+5. ~~**OTA source**：LTE 下載為主、BLE DFU 為備？還是雙模都要？~~ **決策定案 2026-10-02**：雙路對等 + 共用一套 OTA core，見 §2.0a。
 6. **Config endpoint**：BLE + RS232 哪個是正式 UI？
 7. **UART 分配**：UART0-UART5 共 6 條，但本板只用 5 條（LTE/GNSS/RS232×3），UART0 給 Debug console 還是備用？
 8. **Watchdog policy**：3s 短 timeout vs 30s 長 timeout；FreeRTOS task-aware watchdog 自寫 or SDK 原生？
