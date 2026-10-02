@@ -1,0 +1,53 @@
+# Build outputs
+build/
+build_*/
+Objects/
+output/
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.axf
+*.list
+*.lst
+
+# Vendor SDK (fetched via tools/fetch_sdk.sh; not committed to keep repo small)
+vendor/fr30xxc_sdk*/
+vendor/sdk/
+vendor/.sdk_version
+
+# IDE
+.cache/
+compile_commands.json
+.ccls-cache/
+*.pyc
+__pycache__/
+
+# Keil (若誤用)
+*.uvoptx
+*.uvguix.*
+RTE/
+JLinkLog.txt
+JLinkSettings.ini
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / env
+tools/release.env
+tools/drive.env
+*.key
+*.pem
+
+# Temporary / scratch
+scratch/
+tmp/
+*.tmp
+*.bak
+*.swp
+
+# Release products
+release/

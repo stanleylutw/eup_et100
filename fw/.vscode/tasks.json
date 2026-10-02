@@ -1,0 +1,70 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "configure",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-G", "Ninja",
+        "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/cmake/arm-none-eabi.cmake",
+        "-B", "build",
+        "-S", "."
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "build"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "dependsOn": "configure",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "clean",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "build", "--target", "clean"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "flash (J-Link)",
+      "type": "shell",
+      "command": "JLinkExe",
+      "args": [
+        "-device", "Cortex-M33",
+        "-if", "SWD",
+        "-speed", "4000",
+        "-autoconnect", "1",
+        "-CommanderScript", "${workspaceFolder}/tools/flash.jlink"
+      ],
+      "group": "build",
+      "dependsOn": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "fetch SDK",
+      "type": "shell",
+      "command": "${workspaceFolder}/tools/fetch_sdk.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "branch status (#gitstatus)",
+      "type": "shell",
+      "command": "sh",
+      "args": ["${workspaceFolder}/tools/branch_status.sh"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "clear": true
+      }
+    }
+  ]
+}

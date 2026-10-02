@@ -1,0 +1,48 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug (J-Link)",
+      "cwd": "${workspaceFolder}",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "jlink",
+      "device": "Cortex-M33",
+      "interface": "swd",
+      "serialNumber": "",
+      "executable": "${workspaceFolder}/build/app.elf",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build",
+      "svdFile": "",
+      "showDevDebugOutput": "parsed",
+      "overrideResetCommands": [
+        "monitor reset",
+        "monitor halt"
+      ]
+    },
+    {
+      "name": "Debug (OpenOCD + DAPLink)",
+      "cwd": "${workspaceFolder}",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "configFiles": [
+        "interface/cmsis-dap.cfg",
+        "target/cortex-m33.cfg"
+      ],
+      "executable": "${workspaceFolder}/build/app.elf",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "build"
+    },
+    {
+      "name": "Attach (J-Link, no reset)",
+      "cwd": "${workspaceFolder}",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "jlink",
+      "device": "Cortex-M33",
+      "interface": "swd",
+      "executable": "${workspaceFolder}/build/app.elf"
+    }
+  ]
+}

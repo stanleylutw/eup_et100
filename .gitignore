@@ -1,0 +1,75 @@
+# ============================================================================
+# ET-100 Project — top-level .gitignore
+# ============================================================================
+
+# --- macOS cruft ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# --- IDE / editor ---
+.vscode/*.local
+.vscode/.ropeproject/
+.idea/
+*.swp
+*.swo
+*~
+.cache/
+
+# --- Compiled products (anywhere in tree) ---
+build/
+build_*/
+Objects/
+output/
+*.o
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.axf
+*.list
+*.lst
+
+# --- Vendor SDK (fetched via fw/tools/fetch_sdk.sh; 185 MB, not committed) ---
+fw/vendor/fr30xxc_sdk*/
+fw/vendor/sdk/
+fw/vendor/.sdk_version
+
+# --- Secrets / local config (host-specific) ---
+fw/tools/release.env
+fw/tools/drive.env
+**/*.key
+**/*.pem
+**/.env.local
+**/.env
+
+# --- Temporary / scratch ---
+/tmp/
+scratch/
+*.tmp
+*.bak
+
+# --- Keil / Windows SDK leftovers (若誤進) ---
+*.uvoptx
+*.uvguix.*
+RTE/
+JLinkLog.txt
+JLinkSettings.ini
+
+# --- Python caches ---
+__pycache__/
+*.pyc
+*.pyo
+
+# --- Release packaging ---
+release/
+*.dfu
+
+# --- Compile commands (regenerated per build) ---
+compile_commands.json
+.ccls-cache/

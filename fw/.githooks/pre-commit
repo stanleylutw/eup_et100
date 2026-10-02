@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# pre-commit hook — 擋 main 上的 commit
+#
+# 安裝：git config core.hooksPath .githooks
+#
+# 放行條件：
+#   - HEAD 不在 main
+#   - detached HEAD（rebase / bisect）
+#   - merge commit（git merge --no-ff 進 main 的正當管道）
+#   - ALLOW_COMMIT_ON_MAIN=1 環境變數明示跳過
+
+set -euo pipefail
+
+# 檢查是否 detached HEAD
+if ! git symbolic-ref -q HEAD >/dev/null; then
+    exit 0
+fi
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+if [[ "${BRANCH}" != "main" ]]; then
+    exit 0
+fi
+
+# 檢查是否 merge commit（透過 MERGE_HEAD 的存在判斷）
+if [[ -f .git/MERGE_HEAD ]]; then
+    exit 0
+fi
+
+# 逃生門
+if [[ "${ALLOW_COMMIT_ON_MAIN:-0}" == "1" ]]; then
+    echo "⚠️  ALLOW_COMMIT_ON_MAIN=1 — 允許 commit on main 一次"
+    exit 0
+fi
+
+cat >&2 <<EOF
+❌ 禁止在 main 上直接 commit。
+
+正確流程（comm.md §修改前置檢查）：
+  git checkout -b vX.Y.Z_short_topic
+  # 改檔案
+  git add <files>
+  git commit -m "..."
+
+若要 merge branch 進 main（git merge --no-ff）會自動放行。
+若真的要例外：ALLOW_COMMIT_ON_MAIN=1 git commit ...
+EOF
+exit 1

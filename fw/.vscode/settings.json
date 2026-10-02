@@ -1,0 +1,53 @@
+{
+  "cmake.configureOnOpen": false,
+  "cmake.generator": "Ninja",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configureArgs": [
+    "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/cmake/arm-none-eabi.cmake"
+  ],
+  "cmake.exportCompileCommandsFile": true,
+
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+  "C_Cpp.default.intelliSenseMode": "linux-gcc-arm",
+  "C_Cpp.default.cStandard": "gnu11",
+  "C_Cpp.default.cppStandard": "gnu++17",
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/include",
+    "${workspaceFolder}/vendor/fr30xxc_sdk__202411/components/drivers/cmsis",
+    "${workspaceFolder}/vendor/fr30xxc_sdk__202411/components/drivers/device/fr30xx",
+    "${workspaceFolder}/vendor/fr30xxc_sdk__202411/components/drivers/bsp",
+    "${workspaceFolder}/vendor/fr30xxc_sdk__202411/components/drivers/peripheral/Inc",
+    "${workspaceFolder}/vendor/fr30xxc_sdk__202411/components/btdm/include"
+  ],
+  "C_Cpp.default.defines": [
+    "CHIP_SEL_FR3068EC_V1=1"
+  ],
+
+  "editor.formatOnSave": false,
+  "editor.insertSpaces": true,
+  "editor.tabSize": 4,
+  "editor.detectIndentation": true,
+  "editor.rulers": [100],
+  "files.encoding": "utf8",
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+
+  "files.associations": {
+    "*.ld": "ld-script",
+    "*.S": "arm",
+    "fr30xx.h": "c"
+  },
+
+  "files.watcherExclude": {
+    "**/build/**": true,
+    "**/vendor/fr30xxc_sdk*/**": true
+  },
+
+  "search.exclude": {
+    "build/": true,
+    "vendor/fr30xxc_sdk*/components/modules/lwip-*/": true,
+    "vendor/fr30xxc_sdk*/components/modules/mbedtls/": true,
+    "vendor/fr30xxc_sdk*/components/modules/lvgl/": true
+  }
+}
