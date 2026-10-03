@@ -3,7 +3,7 @@
 Firmware for **EUP ET-100** vehicle tracker — Eupfin 自行開發，與 Quectel ODM 平行。
 Target MCU: **Freqchip (富芮坤) FR3068E-C**（Cortex-M33 最高 156 MHz + 32-bit RISC @48 MHz BT core，Bluetooth 5.3 BR/EDR/BLE，2 組 CAN FD，2 MB Flash、512 KB SRAM，QFN80 9×9 mm）。原廠 v0.4.9 p.7 訂購表的 AEC-Q100 欄為「否」，不能沿用系列 Grade 2 宣稱。
 
-規格依據：[FR306x 開發參考](../docs/03_hardware/fr306x_reference/README.md)。目前 SDK linker 仍為 1016 KiB Flash、256 KiB SRAM、128 KiB PRAM；這是本次 build 的配置，不是晶片總容量。完整 memory map、silicon revision 與 boot 流程待原廠確認，不直接擴大 linker。
+規格依據：[FR306x 開發參考](../docs/03_hardware/fr306x_reference/README.md)。最新 Phase 1a-ext SDK example linker 為 1016 KiB Flash、512 KiB SRAM、128 KiB PRAM，核心目標 96 MHz；見 [PATCHES.md](vendor/PATCHES.md)。這是 patched SDK 原生 Makefile 的 host build baseline，不代表 repo CMake 已等價驗證或晶片完整 memory map 已確認。Silicon revision、upper SRAM bank／retention、boot 與實機功能仍待確認。
 
 ## 專案狀態
 
@@ -81,6 +81,10 @@ ninja
 - 任何修改前先跑 `git status --short --branch`，不在 main 上改
 
 ## 相關文件
+
+- 韌體架構草案：[02_firmware_architecture_draft.md](docs/01_firmware/02_firmware_architecture_draft.md)
+- 全硬體覆蓋／驗證與文件衝突：[03_hardware_coverage_matrix.md](docs/01_firmware/03_hardware_coverage_matrix.md)
+- 開發里程碑與下一個施工範圍：[04_development_execution_draft.md](docs/01_firmware/04_development_execution_draft.md)
 
 - 硬體 review：[../docs/03_hardware/sch_analysis/00_索引.md](../docs/03_hardware/sch_analysis/00_索引.md)
 - 寄給 Quectel 的技術問題清單：[../docs/03_hardware/sch_analysis/100_questions_for_quectel.pdf](../docs/03_hardware/sch_analysis/100_questions_for_quectel.pdf)
