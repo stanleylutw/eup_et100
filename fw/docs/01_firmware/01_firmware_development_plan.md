@@ -507,7 +507,7 @@ T=500ms 系統 READY：
 | # | 工作 | 時間 |
 |:-:|---|:-:|
 | 4.1 | Positioning Service（GNSS tracking + fix quality + AGPS）| 3 天 |
-| 4.2 | Communication Service（LTE primary + BLE secondary + RS232 tertiary）| 4 天 |
+| 4.2 | Communication Service（LTE + BLE + RS232 三路）— **LTE modem_service 詳細設計見 [`05_modem_service_design.md`](05_modem_service_design.md)**（state machine、auto APN、PDP、TCP buffer mode、URC parser、PSM 等）| 4 天 |
 | 4.3 | Driver ID Service（NFC auth + session management） | 2 天 |
 | 4.4 | Vehicle Data Service（CAN J1939 PGN + 1-Wire temp + ADC）| 4 天 |
 | 4.5 | Alert Service（ACC/motion/power loss/shock/geofence） | 3 天 |
