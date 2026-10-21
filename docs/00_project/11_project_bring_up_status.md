@@ -93,13 +93,15 @@
 | 項目 | 狀態 |
 |---|:-:|
 | SDK 下載（`fr30xxc_sdk__202411`，165MB，3792 檔案） | ✅ 在 [fw/vendor/](../../fw/vendor/)（gitignored） |
-| **8 組本地 patch**（#1-#8；#7a／#7b 分開登錄，共 9 個 entry） | #5 的錯誤 FR303x selector 已撤回為 vendor default FR509x；#8 為 EVB debug 停用 sleep。完整限制見 PATCHES.md |
+| **8 組 active 本地 patch**（#1-#8；#7a／#7b 分開登錄，共 9 個 active entry） | #5 的錯誤 FR303x selector 已撤回為 vendor default FR509x；#8 為 EVB debug 停用 sleep。暫時診斷 Patch #9 已測試後撤回，不計入 active 數。完整限制見 PATCHES.md |
 | Patch 政策 ADR | 已記錄於 [ADR 02 — SDK Local Patch Policy](../../fw/docs/99_decisions/02_sdk_local_patch_policy.md) |
 | Patch 完整文件 | 已記錄於 [vendor/PATCHES.md](../../fw/vendor/PATCHES.md) |
 
 ---
 
 ## ⚙️ Category 8 — Build 產物（Reference BLE Peripheral Example）
+
+**目前 EVB 已燒錄版本**：2026-10-21 獨立 `fw/build_serial/` UART3 9600 target（`0.5.0-dev`），新增 GCID／SCID 保存、BLE scan、Type 1 GTIME/RSSI/XOR 回報；program/readback PASS，Stanley 實測 4 MAC／55 筆 Type 1、XOR 全通過，並確認 CID 切換與 CID／GTIME 手動 RST 後保存正常，見 [CID／scan 紀錄](../../fw/docs/04_testing/04_evb_cid_ble_scan.md)。前版 GTIME 驗證見 [GTIME 紀錄](../../fw/docs/04_testing/03_evb_gtime_settings.md)；GCHK 歷史見 [serial 紀錄](../../fw/docs/04_testing/02_evb_serial_gchk.md)。斷電／GC／長時間測試仍未驗收。此 target 無新增 SDK patch；下表仍保留原 reference BLE baseline metrics。
 
 **最新結果：Phase 1b，2026-10-21**。GCC 14.3.1 build 的 reference BLE example 已透過板載 DAPLink + SDK `FR30xx.FLM` 寫入 FR3068EP-C DEV1.4。整份 `Project_burn.bin` 從 `0x08000000` programming，66 sectors，readback 逐 byte PASS；reset 後 app 啟動，nRF Connect 可連線並看到預期 GATT。已確認 post-process 必須使用 vendor default **FR509x header layout**；先前推論的 FR303x layout 會讓 options 欄位錯位並造成 boot/SWD 卡死。
 
@@ -232,6 +234,7 @@ App Logic          ░░░░░░░░░░░░░░░░░░░░ 
 |---|:-:|---|
 | **重產 V1.3 HTML／PDF 後寄 Quectel** | 待排程 | Markdown 已同步；派生檔仍為舊版 |
 | **EVB UART + SWD 並行** | 完成 | 四個 jumper 已接；921600 log + SWD reset 同時 PASS |
+| **DEV1.4 K1-K3／D3-D4 mapping** | 待原理圖、continuity 或獲准設定 PMU input/pull 後重測 | 被動 PMU scan 僅得到 bit 0／2／3 候選且訊號不穩；Patch #9 已撤回 |
 | **EUP 終端設備通訊協定考古** | 30 分鐘找人 + 半天整理 | Stanley（內部 PM / wiki） |
 
 EVB 基本主幹已跑通；後續 GPIO/CAN/I2C bring-up 仍需各自的 `IMPLEMENTATION_PLAN.md` 與 Stanley 批准。

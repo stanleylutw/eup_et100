@@ -1,238 +1,184 @@
-# IMPLEMENTATION_PLAN — Phase 1a-ext: SRAM 512 KiB + Clock Guard + Rebuild
+# IMPLEMENTATION_PLAN — Phase 1b.4 CID 與 BLE Type 1 回報
+
+## 本次分支與授權
+
+- Branch：`v0.5.0_evb_cid_ble_scan`；base：`v0.4.0_evb_gtime_settings`。
+- Stanley 回報 GTIME 實機可用後，同意繼續 GCID／SCID、BLE scan 與 Type 1 回報。
+- 沿用分工：Codex 修改／build／flash，Stanley HTML 與真實 sensor 驗收；不 commit/merge/push。
+- SDK patch 預期 0；不改 sibling Gateway、clock、linker、FlashEnv 分區與 boot header。
+
+## 本次範圍
+
+- `fw/src/serial_gchk.c`／`.h`：四個 CID 欄位、預設 0639、FlashDB key 0x00030003，schema 1；版本 0.5.0-dev。
+- 新增 `fw/src/ble_reporter.c`／`.h`：AD 邊界解析、CID/UUID filter、32-entry cache、RSSI 排序、最多 min(GTIME,15) 筆、一秒節流、Type 1 XOR、EUP v1/v2 1500 ms 去重。
+- 新增 `fw/src/evb_serial_ble.c`：從 patched SDK peripheral app_ble.c 複製，廣播成功後啟動 SDK central 範例同款 general discovery active scan，scan event 轉交 cache。SDK 註解表示 observer mode 可能在 host 過濾 general-discoverable 封包，故採參考範例模式；SCAN_RSP 仍丟棄。保留原 peripheral profile，並行能力待實機驗證。
+- `fw/targets/evb_serial.mk`：替換 app_ble object，加入 reporter object。
+- 更新 `fw/tests/test_serial_gchk.c`、新增 `fw/tests/test_ble_reporter.c`；更新 optional UART tester 的版本與已支援命令，Codex 不執行該工具。
+- 更新 serial protocol、platform plan、REVIEW_REPORT、bring-up status、EVB README；新增 `fw/docs/04_testing/04_evb_cid_ble_scan.md`，補記前版 GTIME 的 Stanley 回覆。
+
+## 驗收與限制
+
+- 沿用 Gateway ASCII/CRLF/token、四個 CID 欄位及 Type 1 format；CID 比對 little-endian ID，支援 0xFF／0x16，符合者優先 MFG。
+- 只接收 legacy LE 1M advertising，忽略 scan response／extended／periodic reports；不依賴新 GATT central 連線。
+- CID 空欄／0000 為 unused，全部空欄代表不過濾，但仍只回報 MFG／Service Data。
+- 尚無 MAC whitelist／MAXRPT setting／realtime XYZ batch；依 min(GTIME,15) 決定每周期上限，不宣稱完整 Gateway 等價。
+- CID 變更成功後清除舊 cache/queue；GTIME 變更重設周期，保留 pending cache。
+- host sanitizer tests、AD malformed/fuzz、XOR vector、排程／去重／wraparound；build log `/tmp/et100_cid_scan_build.log`。
+- header／CRC／FlashEnv 範圍驗證後 flash，log `/tmp/et100_cid_scan_flash.log`；BLE scan／過濾／保存／真實 payload 由 Stanley 驗證。
+
+---
+
+# 歷史施工單 — Phase 1b.3 GTIME 查詢、設定與保存
+
+## 本次分支與授權
+
+- Branch：`v0.4.0_evb_gtime_settings`；base：`v0.3.0_evb_serial_gchk`。
+- Stanley 同意 GTIME 查詢、設定、FlashDB 保存；依前次已確認分工，Codex 修改／build／flash，Stanley 操作 UART／HTML 及 reset 測試。
+- 保留前次未提交變更，不 commit/merge/push。SDK patch 數量 0。
+
+## 本次範圍
+
+- 修改 `fw/src/serial_gchk.c`／`.h`：GGTIME、SGTIME、FlashDB user key `0x00030002`、版本 `0.4.0-dev`；預設 15、合法 1-1800 秒。
+- 修改 `fw/src/evb_serial_main.c`：保留原 FlashDB 初始化流程並傳遞成功狀態，避免失敗時假裝設定成功。
+- 修改 `fw/tests/test_serial_gchk.c`：值範圍、儲存失敗保留舊值、mock reload、parser regression。
+- 修改 `fw/tools/build_evb_serial.sh`：映像必須位於既有 FlashEnv offset 800 KiB 之前；不擴大 linker 或更改分區。
+- 修改未執行的 optional `fw/tools/evb/test_serial_gchk.py`，同步 GCHK 開發版識別。
+- 更新 `fw/docs/02_protocol/01_evb_serial_gchk.md`、新增 `fw/docs/04_testing/03_evb_gtime_settings.md`；同步 platform plan、REVIEW_REPORT、EVB README、bring-up status。
+
+## 行為與驗收
+
+- 沿用 SDK FlashEnv（internal flash offset 800 KiB、12 KiB），不清空 DB、不改 BT keys。
+- 初始化失敗：GGTIME／SGTIME valid=0；缺失／不合法 record 回到 15 秒，可由 SGTIME 重寫。
+- SGTIME 僅接受十進位數字，成功保存並讀回比對後才更新 RAM 與回覆 1；同值避免重寫。
+- GTIME 目前只保存設定，不啟動 BLE scan 或計時回報。MAXRPT 未實作，所以未提供 Gateway 的 MAXRPT cross-validation；需於後續 reporter/settings 階段一起加入。
+- host sanitizer tests、ARM build、header／CRC／payload 檢查後，依授權 flash/readback/reset。
+- build log `/tmp/et100_gtime_build.log`；flash log `/tmp/et100_gtime_flash.log`。HTML 設定／reset 保存測試由 Stanley 操作。
+
+---
+
+# 歷史施工單 — Phase 1b.2 UART3 GCHK 相容子集
+
+## 本次分支與授權
+
+- Branch：`v0.3.0_evb_serial_gchk`；base：`v0.2.2_evb_gpio_diag`。
+- Stanley 在本次對話同意執行 UART3 9600 + Gateway GCHK 相容子集，供既有 HTML tester 使用。
+- 前次 GPIO 診斷的未提交文件保留；下方保留其歷史施工單。
+- 本次 SDK patch 預期數量：0。使用專案 source 與 build overlay；ADR 02 仍適用。
+
+## 本次範圍
+
+- 新增 `fw/src/evb_serial_main.c`：從現有 patched BLE example main 複製，UART3 改成 9600，GCC `_write` 丟棄 debug log。
+- 新增 `fw/src/serial_gchk.c`／`.h`：bounded CRLF parser、四字元 token、GCHK、未支援命令失敗回覆、ISR ring buffer 與 task。
+- 新增 `fw/targets/evb_serial.mk`、`fw/tools/build_evb_serial.sh`：透過原 SDK Makefile 的 explicit object rules 替換 main/app_at，輸出獨立 `fw/build_serial/`。
+- 新增 `fw/tests/test_serial_gchk.c`；新增 `fw/docs/02_protocol/01_evb_serial_gchk.md`。
+- 新增 `fw/tools/evb/test_serial_gchk.py`：9600 UART 自動驗收；Stanley 已在本次對話明確同意燒錄並測試。
+- 新增 `fw/docs/04_testing/02_evb_serial_gchk.md`：本次 host／build／實機證據。
+- 更新 firmware platform plan、REVIEW_REPORT、EVB README、bring-up status，說明候選產物與未驗證項。
+- 保留 baseline SDK、921600 build、clock、sleep、linker、post-process 及既有 GPIO 診斷狀態。
+
+## 驗收與限制
+
+- Host parser tests 覆蓋拆包、黏包、token、非法輸入、超長行恢復與連續 100 次 query。
+- ARM GCC build；完整 log `/tmp/et100_serial_build.log`；獨立驗證 FR509x header、CRC、payload。
+- 協定規格以新文件為準；GCHK state 0 是 compatibility idle，沒有 Gateway central/GATT session 語意。
+- 本輪先交付可 review 的 build。EVB 燒錄需依既有明確授權規則執行；未實測不得宣稱 UART／BLE regression PASS。
+- 不修改 sibling Gateway repo，不實作 OTA、Gateway scanning/filter/settings，不 commit/merge/push。
+
+---
+
+# 歷史施工單 — Phase 1b.1 GPIO diagnostic: PMU key mapping
 
 ## Branch
 
-Phase 1a-ext 繼續在 main（git repo 尚未 init；本任務執行時無 branch 概念）。
-若之後決定 git init，整個 Phase 1a + 1a-ext 的改動一起進第一個 commit。
+Implementation branch: `v0.2.2_evb_gpio_diag`
 
-Base branch: main（git 尚未 init）
+Base branch: `v0.2.1_evb_bringup`
 
 ## Context
 
-- Phase 1a 已完成 host-side build（patches #1-#5），產出 `Project_burn.bin`
-- Codex 隨後審查發現 **GCC ldscript 的 SRAM 僅配 256 KiB，但 Keil scatter 同一顆晶片配 512 KiB**（FR3068E-C 實際有 512 KiB SRAM）
-- 本次 Phase 1a-ext：**保守擴容 + 加 clock sanity check + 重 build 驗證**
-- Stanley 2026-10-02 口頭授權（chat 內）
+- FR3068EP-C DEV1.4 EVB has LEDs D3/D4 and buttons K1-K3.
+- D3/D4 turn off on reset and turn on near the UART line `FR5090: ble_simple_peripheral.`.
+- K1-K3 do not affect the current BLE example.
+- Read-only SWD polling of GPIOA-E input registers showed no transitions while K1-K3 were pressed.
+- SDK board code for other revisions suggests buttons may use the PMU `PPx` domain, but that mapping is not accepted as DEV1.4 evidence.
+- Stanley authorized this diagnostic SDK behavior change and EVB flashing in chat on 2026-10-21.
 
-## Scope — 必做的事
+## Goal
 
-### Step 1 — Patch #6：擴 SRAM 到 512 KiB
+Identify the raw `PMU_REG_PIN_DATA` bits corresponding to K1, K2, and K3 while preserving the current BLE, UART, clock, boot-header, and debug behavior.
 
-**檔案 A**：`fw/vendor/fr30xxc_sdk__202411/components/tools/gcc/ldscript.ld`
+## Scope
 
-```ld
-# 原（第 18 行）：
-  SRAM (rw)     : ORIGIN = 0x20000000, LENGTH = 256K
-# 改為：
-  SRAM (rw)     : ORIGIN = 0x20000000, LENGTH = 512K      /* [eup-patch 2026-10-02] 256K→512K per datasheet p.7 + Keil .sct 一致 */
+### Firmware behavior
+
+Modify only:
+
+`fw/vendor/fr30xxc_sdk__202411/examples/application/ble_simple_periphreal/Src/main.c`
+
+Add one low-priority FreeRTOS diagnostic task that:
+
+1. Reads `ool_read16(PMU_REG_PIN_DATA)` every 20 ms.
+2. Prints one baseline line after startup.
+3. Prints only when the raw value changes, including tick, old value, new value, and changed mask.
+4. Does not configure PMU direction, pull, mux, XOR, wakeup, or interrupt registers.
+5. Does not drive D3/D4 or any unknown pin.
+
+The code must carry marker:
+
+```text
+[eup-patch 2026-10-21 patch #9]
 ```
 
-**檔案 B**：`fw/vendor/fr30xxc_sdk__202411/components/tools/gcc/ldscript_3068e.ld`
+### Documentation
 
-同樣修改（檔案第 18 行）。
+Update:
 
-**不改 `ldscript_3066d.ld`**（FR3066D-C 系列真的只有 256 KB SRAM，見 datasheet p.7）
-**不改 `ldscript_3092e.ld`**（不同晶片，不確定 memory map）
+- `fw/vendor/PATCHES.md` with Patch #9.
+- `fw/REVIEW_REPORT.md` with build/flash/runtime evidence and limitations.
+- `docs/03_hardware/FR3068EP-C Dev1.4/README.md` with confirmed K1-K3 mapping only if runtime evidence identifies it.
+- `docs/00_project/11_project_bring_up_status.md` with the diagnostic result.
 
-### Step 2 — Patch #7：降頻到 96 MHz + 156 MHz Runtime Guard
+### Build and hardware test
 
-**背景**（Codex 2026-10-02 發現並停下請示）：
-- example `main.c:116` 設 PLL_N=8, SOC_DIV=1, MCU_DIV=1
-- `fr30xx.h:249` 晶振 24 MHz
-- → 24 × 8 ÷ 1 ÷ 1 = **192 MHz 核心時脈**
-- **超過 datasheet p.7 列 FR3068E-C MC1(CM33) 最高 156 MHz 整整 36 MHz**
+1. Clean build the existing GCC example.
+2. Save the full build log to `/tmp/et100_gpio_diag_build.log`.
+3. Verify the FR509x burn-header layout before flashing.
+4. Flash `Project_burn.bin` with the existing `fw/tools/evb/fr3068_flash.py`.
+5. Capture UART3 at 921600 bps to `/tmp/et100_gpio_diag_uart.log`.
+6. Ask Stanley to press K1, K2, and K3 separately and correlate each key with a changed PMU bit.
+7. Confirm BLE startup still reaches `adv start :0x00`.
 
-**Stanley 2026-10-02 擴大授權範圍**：允許修改以下兩個 .c，目的是把時脈降到 datasheet 內的保守值 + 加 runtime 上限 guard。
+## Out of Scope
 
-**檔案 A**：`fw/vendor/fr30xxc_sdk__202411/examples/application/ble_simple_periphreal/Src/main.c` 約 line 116
+- No modification outside the files listed above.
+- No changes to linker scripts, Makefile, `post_process.py`, CHIP_TYPE, clock configuration, sleep Patch #8, or EVB tools.
+- No PMU pin configuration changes in this first diagnostic image.
+- No D3/D4 output control.
+- No ET-100 production BSP or application implementation.
+- No merge or push without a separate instruction.
 
-修改內容：把 `MCU_DIV = 1` 改為 `MCU_DIV = 2`
-- 新時脈 = 24 × 8 ÷ 1 ÷ 2 = **96 MHz**（遠低於 156 MHz 上限，margin 60 MHz）
-- 加 `[eup-patch 2026-10-02 patch #7a]` 註解 + 一行說明「datasheet p.7 limit 156 MHz」
-- **96 MHz 選用理由**：功耗省一半（P∝f）、BLE 性能充足（nRF52 系列也常跑 64 MHz）、留餘裕給未來若 datasheet 更新
+## SDK Patch Policy
 
-**檔案 B**：`fw/vendor/fr30xxc_sdk__202411/components/drivers/device/fr30xx/system_fr30xx.c`
+ADR 02 applies. Expected SDK patch count for this task: one behavior patch in `main.c`, Patch #9. Stanley explicitly approved it before modification. If passive PMU reads do not expose K1-K3, stop and report; do not add PMU configuration or another SDK change without renewed approval.
 
-找 clock init 函式入口（Codex 選最合適的，例如 `SystemCoreClockUpdate()` 或 `system_clock_set()` 等），加 runtime guard：
+## Acceptance Criteria
 
-```c
-/* [eup-patch 2026-10-02 patch #7b] FR3068E-C MC1 max 156 MHz per datasheet p.7 */
-#define FR3068EC_MC1_MAX_HZ  156000000U
-
-/* 在算出 target_core_clock_hz 之後、真正寫 PLL register 之前加 */
-if (target_core_clock_hz > FR3068EC_MC1_MAX_HZ) {
-    /* over-spec clock request; halt rather than silently over-clock */
-    while (1) { __BKPT(0); }   /* or assert() if available */
-}
-```
-
-**原則**：
-- 只加 **一** 處最靠近「真正寫入 PLL」的點
-- 若函式路徑複雜找不到唯一適合點 → 報告後 skipped（不要硬塞多處）
-- 不改函式邏輯、不改回傳值、不加 printf
-
-**標記**：`[eup-patch 2026-10-02 patch #7a + #7b]`
-
-### Step 3 — 完整重 build
-
-```bash
-export PATH="$HOME/.local/share/arm-gnu-toolchains/arm-gnu-toolchain-14.3.rel1-darwin-arm64-arm-none-eabi/bin:$PATH"
-cd /Users/stanley/Firmware/EUP/eup_et100/fw/vendor/fr30xxc_sdk__202411/examples/application/ble_simple_periphreal/GCC
-rm -rf Objects output
-make 2>&1 | tee /tmp/et100_build_v2.log
-```
-
-### Step 4 — 驗證
-
-```bash
-# 4a. 產物確認
-ls -la output/
-test -f output/Project_burn.bin && echo "✓ burn image produced"
-
-# 4b. Size + section layout 看到 SRAM 可用區變成 512 KiB
-arm-none-eabi-size Objects/Project.elf
-arm-none-eabi-size -A Objects/Project.elf | head -25
-
-# 4c. Linker map 檢查 SRAM 區域上限
-grep -E "SRAM|0x2007|0x2008" output/Project.map | head
-
-# 4d. burn.bin header CRC + magic 不變
-python3 -c "
-import struct
-with open('output/Project_burn.bin','rb') as f:
-    v = struct.unpack('I', f.read(4))[0]; print(f'version        : 0x{v:08x}')
-    v = struct.unpack('I', f.read(4))[0]; print(f'store_offset   : 0x{v:08x}')
-    v = struct.unpack('I', f.read(4))[0]; print(f'code_length    : {v}')
-    v = struct.unpack('I', f.read(4))[0]; print(f'exec_offset    : 0x{v:08x}')
-    v = struct.unpack('I', f.read(4))[0]; print(f'copy_unit      : {v}')
-    v = struct.unpack('I', f.read(4))[0]; print(f'copy_flag_step : {v}')
-    v = struct.unpack('I', f.read(4))[0]; print(f'image_crc      : 0x{v:08x}')
-    v = struct.unpack('I', f.read(4))[0]; print(f'magic (QRRQ)   : 0x{v:08x}')
-"
-```
-
-### Step 5 — 更新 PATCHES.md
-
-Append Patch #6（SRAM）+ Patch #7（Clock guard）兩個 entry，格式仿照 #1-#5：
-- 檔案路徑
-- 症狀 / 原因
-- 修改內容
-- 影響評估
-- 驗證方式
-
-### Step 6 — 更新 PROJECT_STATUS 的 Category 7、8
-
-- Category 7 新增 Patch #6 + #7（總共 7 處 patch）
-- Category 8 更新 size：**SRAM 使用從 97/256=37.1% 改為 97/512=18.9%**
-
-## Out of Scope — **禁止做的事**
-
-- ❌ 不要碰 `ldscript_3066d.ld` / `ldscript_3092e.ld`（不同晶片）
-- ❌ 不要改 CMakeLists.txt（本次只驗證 SDK 原生 Makefile）
-- ⚠️ 原本禁改 `.c`；本次**例外授權改 2 檔**（example main.c clock divider + system_fr30xx.c runtime guard），其他 .c 仍禁改
-- ❌ 不要碰應用層 BLE / AT / OTA 功能代碼
-- ❌ 不要跑 `git init` 或任何 git 操作
-- ❌ 不要重新下載 SDK
-- ❌ 不要調整 toolchain（arm-none-eabi-gcc 14.3.1 繼續用）
-- ❌ 不要修改 CHIP_TYPE 或其他 post_process.py 設定（Patch #5 已確認正確）
-- ❌ 不要新增 `__attribute__((section("sram_extended")))` 類應用層代碼使用新 SRAM 區（這是 Phase 2 的事）
-- ❌ **若 Patch #7 clock check 無合適插點，報告「skipped, no suitable injection point」而非硬塞**（不要為加 check 而破壞程式邏輯）
-
-## Deliverable — Report Format
-
-執行完請用以下格式回報：
-
-```markdown
-# Phase 1a-ext Report
-
-## Changes applied
-
-### Patch #6 — SRAM 512 KiB
-- ldscript.ld line X: <old> → <new>
-- ldscript_3068e.ld line X: <old> → <new>
-
-### Patch #7 — Clock 156 MHz guard
-- 插入位置: <file:line> OR "skipped: no suitable injection point"
-- 原始碼: <paste the inserted lines>
-
-## Build Result
-- make exit code: <0 / nonzero>
-- .elf produced: yes/no
-- .burn.bin produced: yes/no
-
-## Size Comparison
-Before (Phase 1a):
-   text     data     bss     dec     filename
- 225072    35272   61976  322320    Project.elf
- SRAM use: 97 KB / 256 KB = 37.1%
-
-After (Phase 1a-ext):
-   text     data     bss     dec     filename
-   XXXX     XXXX    XXXX    XXXX    Project.elf
- SRAM use: XX KB / 512 KB = XX.X%
- Flash use: XX KB / 1016 KB = XX.X%
-
-## burn.bin Header Verification
-<paste python decode output>
-- magic (QRRQ): <0x51525251 expected>
-- image_crc: <value>
-
-## PATCHES.md updated: yes/no
-## 11_project_bring_up_status.md updated: yes/no
-
-## Issues / Warnings
-<any new warnings; expected to be only the known RWX LOAD segment warning>
-
-## Full build log location
-/tmp/et100_build_v2.log
-```
-
-## Verification（Stanley 這邊怎麼驗）
-
-Codex 回報後，Stanley 檢查：
-1. Patch #6 Numbers correct（兩個 .ld 各改 1 行）
-2. Patch #7 要嘛加成功要嘛明確 skipped（不含糊）
-3. Size 應顯示 SRAM 512K pool 可用（而非 256K）；bss 不變或略變
-4. burn.bin header magic 仍是 0x51525251，CRC 可能變（因 .data 位置可能微調）
-5. `/tmp/et100_build_v2.log` 不含 fatal error
+- Build exits 0 and produces `Project.elf` and `Project_burn.bin`.
+- Burn header word 7 and word 11 are `0x51525251`; word 8 is `0x00000000`.
+- Flash programming and byte-for-byte verify pass.
+- UART contains the normal BLE startup log and one `[KEY-SCAN] baseline` line.
+- Pressing K1-K3 either yields distinct repeatable changed masks or is explicitly reported as inconclusive.
+- No unexpected reset, assertion, BLE startup regression, or continuous UART flooding.
 
 ## Rollback
 
-本任務全部可逆：
-- 若 build 失敗 → `git diff` 看兩個 .ld + 一個 header 的改動，手動 revert
-- 若 .elf 燒不進（EVB 到之後才驗，本任務不涉及）→ 退回 Patch #5 版本的 build
+Remove the Patch #9 diagnostic task and task creation from `main.c`, rebuild the previously validated Phase 1b image, and flash it with the existing tool.
 
-## 完成後下一步
+## Deliverable
 
-- ✅ 若成功 → ADR 02 的 patches 擴到 7 處；Phase 1a-ext 關閉
-- ⚠️ 若 Patch #7 clock check skipped → 記錄為 Phase 1b 的 TODO（等有 SDK 文件確認 clock init 流程再補）
-- ⚠️ 若 build 失敗 → 分析錯誤，可能是我們以為 SRAM 可到 512K 但實際 BSP 內部有 hardcoded 256K 邊界
+Report:
 
-## 授權依據
-
-Stanley 2026-10-02 chat 內口頭授權（兩次）：
-1. 初次：「授權我讓 Codex 做『保守 rebuild』（升級 SRAM 到 512 KiB、加 156 MHz 檢查、重出 Project_burn.bin）」
-2. 擴大：Codex 發現 example 預設 192 MHz 超 datasheet 156 MHz 上限後，Stanley 擴大授權允許修改 `main.c` + `system_fr30xx.c` 兩 .c 降頻到 96 MHz 並加 runtime guard
-
-依 [ADR 02](docs/99_decisions/02_sdk_local_patch_policy.md) §4 Transparency 本次新增 SDK patches 需顯式授權，兩次條件皆滿足。
-
-**Codex 2026-10-02 process excellence 加分**：發現 192 MHz over-spec 立即停下請示，而非悶頭跑完才報告。這是 ADR 02 §4 要的理想行為。
-
-## 附帶動作 — 加 Q50 到 Quectel 問題清單
-
-請把以下題目加進 [`100_questions_for_quectel.md`](../docs/03_hardware/sch_analysis/100_questions_for_quectel.md) 的 P0-FW 區：
-
-### Q50-P0-FW — FR3068E-C 實際可用時脈上限 vs datasheet
-
-**背景**：
-- Datasheet p.7 列 FR3068E-C MC1(CM33) **最高 156 MHz**
-- Freqchip SDK 的 `ble_simple_periphreal` example 預設 PLL_N=8 / MCU_DIV=1 → **實際跑 192 MHz**
-- 超規 36 MHz（23%）
-- Eupfin FW 已把 example clock divider 從 1 改到 2，降到 96 MHz 保守值
-
-**問題 Q50-1**：192 MHz 配置是 SDK bug、是 silicon rev 差異、還是 datasheet marketing 降規？
-**問題 Q50-2**：FR3068E-C 的實際 absolute max core clock（含 over-spec 可用但不保證範圍）？
-**問題 Q50-3**：Quectel 的 FW 跑在多少 MHz？若非 datasheet 內的 ≤156 MHz，依據為何？
-**問題 Q50-4**：96 MHz 是否足以支撐 BT 5.3 BR/EDR + BLE 多連線 + CAN FD + LTE AT 的 runtime load？
-
-本題不列入 Phase 1a-ext scope，僅在本 plan 文件化。寫 Q50 由 Claude 另行處理。
+- Changed files and exact diagnostic behavior.
+- Build, header, flash, UART, BLE, and K1-K3 mapping results.
+- Build and UART log paths.
+- Any remaining uncertainty about D3/D4 or PMU pin configuration.

@@ -157,6 +157,11 @@ adv start :0x00
 
 ## 11. 待辦
 
+2026-10-21 已新增獨立 UART3 **9600 bps** serial target 並燒入 EVB。目前板上為 `0.5.0-dev`，GCID／SCID FlashDB 保存、general discovery scan 與 Type 1 GTIME/RSSI/XOR 回報已實作，program/readback 通過；Stanley HTML log 已確認 4 個真實 MAC、55 筆 Type 1 且 XOR 全通過，並確認 CID 切換與 CID／GTIME 手動 RST 後保存正常。斷電／GC／長時間測試仍未驗收。此 target 不輸出 921600 vendor log；上方 921600 指令適用原 BLE baseline。規格見 [serial 協定](../../../fw/docs/02_protocol/01_evb_serial_gchk.md)，最新證據見 [CID／scan 紀錄](../../../fw/docs/04_testing/04_evb_cid_ble_scan.md)。
+
+- 2026-10-21 D3/D4 觀察：按 RST 後兩燈先熄滅，約 3 秒後與 `FR5090: ble_simple_peripheral.` UART log 大致同時亮起。這只證明 application 啟動與 LED 狀態具有時間關聯；尚未確認 LED pin、active level 或是否由既有 all-port pull 設定間接造成。
+- 2026-10-21 K1-K3 被動 PMU scan：暫時 Patch #9 每 20 ms 唯讀 `PMU_REG_PIN_DATA`。受控長按測試看見 bit 0、2、3 候選變化，但電位持續跳動，無法可靠建立 K1-K3 mapping。診斷 patch 已撤回並燒回 Phase 1b baseline。
+- 取得 DEV1.4 原理圖或做斷電 continuity measurement；若要以 firmware 繼續定位，需另行授權只對候選 PMU pins 設定 input/pull，再重做逐鍵長按測試。
 - 做 96 MHz 下 BLE 長時間連線與 throughput 測試。
 - 驗證 Patch #7b runtime guard 在 EVB 不誤觸發。
-- 依獨立 `IMPLEMENTATION_PLAN.md` 逐步進行 GPIO/LED、CAN、I2C bring-up。
+- 確認 K1-K3 與 D3/D4 mapping 後，再依獨立 `IMPLEMENTATION_PLAN.md` 進行 GPIO interrupt、LED drive、CAN、I2C bring-up。

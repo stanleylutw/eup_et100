@@ -218,6 +218,24 @@ system_prevent_sleep_clear(SYSTEM_PREVENT_SLEEP_TYPE_DISABLE);
 
 **驗證**：patched example build 後，以 FR509x header 的 `Project_burn.bin` 寫入 EVB；reset 後 app 正常啟動，SWD 可再次 attach，手機可連線 BLE 並看到 FFF0／FFF3 與 128-bit characteristic。尚未驗證長時間 BLE 穩定性或低功耗流程。
 
+---
+
+## Patch #9（暫時診斷，已撤回）— BLE 範例 main.c：DEV1.4 PMU 按鍵 mapping
+
+**檔案**：`fr30xxc_sdk__202411/examples/application/ble_simple_periphreal/Src/main.c`
+
+**症狀／原因**：FR3068EP-C DEV1.4 EVB 的 K1-K3 不會觸發現有 BLE example 行為，repo 也沒有此板 revision 的原理圖。唯讀 SWD 輪詢 GPIOA-E input registers 時沒有觀察到按鍵變化；SDK 其他 board profile 暗示按鍵可能位於 PMU `PPx` domain，但不能直接當成 DEV1.4 mapping。
+
+**暫時修改**：依 Stanley 2026-10-21 明確授權，曾新增低優先序 `key_scan_task`：每 20 ms 被動讀取 `ool_read16(PMU_REG_PIN_DATA)`，啟動時印一次 baseline，之後僅在值改變時輸出 tick、old/new value 與 changed mask。程式以 `[eup-patch 2026-10-21 patch #9]` 標記。
+
+**診斷結果**：diagnostic image clean build、FR509x header/payload 檢查、program 與 readback 均 PASS。K1、K2、K3 依序長按的 497 行 UART capture 中，PMU bit 0、2、3 都曾改變，但 bit 0／3 在按住期間仍以約 20-40 ms 反覆跳動，bit 2 也沒有形成可重複的穩定電位。因此只能保留 `0x0008`、`0x0001`、`0x0004` 為三顆按鍵的候選 changed mask，**不能確認 K1-K3 對應關係、active level 或 debounce 行為**。被動讀取時沒有設定 PMU direction／pull／mux；輸入浮動或 pin ownership 衝突是可能原因，但尚未證實。
+
+**影響**：診斷期間增加一個 128-word FreeRTOS task stack、週期性 PMU read 與狀態改變時的 UART output；沒有設定 PMU direction、pull、mux、XOR、wakeup 或 interrupt registers，也沒有驅動 D3/D4。依 plan 在結果無法定論後停止，未自行增加 PMU configuration patch。
+
+**Rollback（已完成）**：已移除 `key_scan_task` 與 `main()` 中對應的 `xTaskCreate`，clean rebuild 並燒回 Phase 1b baseline。baseline `Project_burn.bin` 為 268,560 bytes，SHA-256 `0710a7e79de7ac2dd6c1f930119f1b82c4400a64a1d1ea76086da9e08be76fc2`；program/readback PASS。Patch #9 不在目前 SDK source，也不計入 active patch 數。
+
+**Logs**：diagnostic build `/tmp/et100_gpio_diag_build.log`；受控按鍵 capture `/tmp/et100_gpio_diag_uart.log`；rollback build `/tmp/et100_gpio_diag_rollback_build.log`。
+
 ### Phase 1a-ext 驗證（2026-10-02）
 
 此階段新增 #6、#7a、#7b；當時合計 7 組 patch（#7 有 a／b 兩個子項，登錄共 8 個 entry）。SDK 手動修改限兩個 GCC linker 與兩個 .c；Makefile、post_process.py／CHIP_TYPE、其他晶片 linker 均維持 Phase 1a 當時狀態。CHIP_TYPE 的錯誤於 2026-10-21 撤回，見 Patch #5。

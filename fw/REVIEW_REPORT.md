@@ -302,3 +302,79 @@ _None remaining after restoring the FR509x header selector._
 ## Overall
 
 **PASS for Phase 1b basic EVB bring-up**。macOS + GCC patched SDK 的 burn image 已完成真實硬體 programming、boot 與 BLE GATT 驗證；Phase 1a 的「候選映像、未驗證」狀態可針對此 EVB 組合解除。產品板、量產流程與 OTA 仍是獨立驗收項目。
+
+---
+
+# Addendum — Phase 1b.1 DEV1.4 GPIO/Key Passive Diagnosis（2026-10-21）
+
+## Scope
+
+- 暫時 Patch #9：每 20 ms 唯讀 `PMU_REG_PIN_DATA`，僅在值改變時輸出 UART log。
+- 不設定 PMU direction、pull、mux、wakeup 或 interrupt，不驅動 D3/D4。
+- clean build、FR509x image 檢查、EVB program/readback、K1-K3 逐鍵長按 capture；若無法辨識便停止並 rollback。
+
+## Result
+
+| 項目 | 結果 |
+|---|---|
+| Diagnostic build | PASS；text 225,304、data 35,272、bss 61,976 bytes |
+| Diagnostic image | `Project_burn.bin` 268,776 bytes；header、CRC 與 payload consistency PASS |
+| EVB program/readback | PASS |
+| UART evidence | 受控測試 497 行；PMU bit 0、2、3 曾變化，但沒有按住期間的穩定 level |
+| Key mapping | **INCONCLUSIVE**；`0x0008`、`0x0001`、`0x0004` 只能列為候選 mask，不能對應到 K1／K2／K3 |
+| Rollback | PASS；Patch #9 已從 SDK source 移除，baseline clean rebuild 並重新燒錄／verify |
+| Current image | baseline `Project_burn.bin` 268,560 bytes；SHA-256 `0710a7e79de7ac2dd6c1f930119f1b82c4400a64a1d1ea76086da9e08be76fc2` |
+
+## Findings
+
+- 被動 PMU read 不足以識別按鍵。input/pull 未設定造成浮動是合理假說，但目前沒有 register readback、原理圖或 continuity 證據可以確認。
+- D3/D4 在 reset 後熄滅，約 3 秒後與 application banner 大致同時亮起；仍不能據此斷言 LED pin 或 active polarity。
+- 依 plan 與 ADR 02，沒有擴大成 PMU configuration patch。若要繼續，需 Stanley 另行授權，並把修改限制在候選 pins 的 input/pull 設定。
+
+## Overall
+
+**PASS for bounded diagnosis and rollback; key mapping not established.** 臨時診斷、紀錄與 rollback 均完成，active SDK patch 數仍為 8 組。完整 log：`/tmp/et100_gpio_diag_build.log`、`/tmp/et100_gpio_diag_uart.log`、`/tmp/et100_gpio_diag_rollback_build.log`。
+
+---
+
+# Addendum — Phase 1b.2 Serial GCHK（2026-10-21）
+
+專案自有 source 與 Makefile overlay 提供 UART3 9600/8N1、CRLF bounded parser、GCHK 及未支援命令失敗回覆。SDK 新增 patch：0；active SDK patches 仍為 8 組。原 SDK target 與 baseline image 保留。
+
+**自我檢查結果**：host sanitizer tests、ARM build、FR509x header／獨立 CRC／payload、EVB program/readback 通過。Stanley HTML log 證明 GCHK 成功、5 個未支援命令回覆失敗，token 均正確。未發現阻擋此最小範圍的問題；尚未進行獨立 reviewer 審查。
+
+**限制**：GCHK state 0 僅是 compatibility idle，不代表完整 Gateway state machine。RTOS serial task 另占 runtime heap stack；大量命令可能溢出 bounded ring，需 host 逐筆等待回覆。依 Stanley 指示未執行 Codex 自動 UART 測試，硬體 stress、reset reconnect、BLE regression 仍待驗證。詳細數值、hash 與原始 log 見 [測試紀錄](docs/04_testing/02_evb_serial_gchk.md)。
+
+**Overall**：基本 GCHK UART/HTML 路徑 PASS；完整 Gateway 功能及產品 RS232 電路不在本次驗收範圍。
+
+---
+
+# Addendum — Phase 1b.3 GTIME Persistence（2026-10-21）
+
+新增 GGTIME／SGTIME，採 Gateway frame 與 token；預設 15，接受十進位整數 1-1800。沿用既有 FlashEnv，使用獨立 key `0x00030002`、schema 1。FlashDB 初始化狀態會傳至 serial task；set 成功且讀回吻合後才更新 RAM／回覆成功，相同 record 不重寫。serial task stack 增至 1024 words。
+
+**自我檢查**：host sanitizer tests、ARM build、header／CRC／payload、FlashEnv 邊界檢查 PASS。SDK 新增 patch 0。未執行獨立 reviewer 審查；燒錄結果與硬體驗收狀態以 [GTIME 測試紀錄](docs/04_testing/03_evb_gtime_settings.md) 為準。
+
+**限制**：MAXRPT 尚未實作，暫無 Gateway 的 GTIME ≥ MAXRPT 交叉約束；GTIME 不啟動 BLE reporter。Flash driver/FAL 為原 SDK 路徑；write 後讀回降低假成功風險，不能代替斷電恢復與實際持久性驗收。保留最後確認 RAM 值不等於 Flash 失敗後必定保留舊 durable record。Stanley 負責 HTML／reset 測試，Codex 不操作 UART tester。
+
+**燒錄結果**：0.4.0-dev program／逐 byte readback／reset resume PASS。HTML 設定及 reset 後保存仍待 Stanley 測試，尚不宣稱實體 FlashDB 持久性驗收通過。沒有 commit／merge／push。
+
+**後續 Stanley 驗收**：Stanley 回覆「OK. it works.」並要求繼續 CID／BLE scan；因此 GTIME 本輪手動設定／reset 保存記為通過，未取得逐筆 log，詳見 [GTIME 紀錄](docs/04_testing/03_evb_gtime_settings.md)。
+
+---
+
+# Addendum — Phase 1b.4 CID／BLE Scan（2026-10-21）
+
+新增四欄 GCID／SCID 與 FlashDB 保存、general discovery scan、0xFF／0x16 payload 過濾、32-entry cache、GTIME snapshot、RSSI 排序、Type 1 XOR、一秒節流及 EUP v1/v2 1500 ms burst 去重。採專案自有 BLE profile 副本與 build overlay，SDK patch 新增 0。
+
+**自我檢查**：host sanitizer tests、5,000 AD fuzz、Gateway checksum vector、ARM build、FR509x header／CRC／payload／FlashEnv 範圍檢查 PASS。尚未經獨立 reviewer 審查；flash 與 radio 驗收詳見 [CID／scan 測試紀錄](docs/04_testing/04_evb_cid_ble_scan.md)。
+
+**實作選擇**：SDK 註解表示 observer mode 可能在 host 過濾 general-discoverable 封包，因此改用 SDK central example 同款 general discovery active scan。保留原 peripheral profile，scan 由 ADV_START 成功事件啟動，並行能力仍須 EVB 證實。
+
+**限制**：沒有 MAC whitelist／MAXRPT setting／realtime XYZ batch，採 min(GTIME,15) 周期上限。SCID 不合法參數回覆空欄，不等同 Gateway 所有 error-echo 細節。SDK scan API 失敗／SCAN_END 不自動無限重試，以 SWD status/counters 診斷。Radio 真實收包、CID 保存、filter、回報時序、FlashDB GC／斷電與 stack 餘量均由 Stanley 後續測試。
+
+**燒錄結果**：0.5.0-dev program／逐 byte readback／reset resume PASS；未執行 Codex UART／HTML 測試，無真實 radio 驗收宣稱。沒有 commit／merge／push。
+
+**Stanley 實測更新**：`rs232_log_20261021_165642.txt` 證明 4 個 MAC、55 筆真實 Type 1，55/55 XOR 正確；23 筆命令 response/token 全部吻合。基本 scan→Type 1→HTML 路徑 PASS。SAUTOGATT 等未支援功能 valid=0 為預期；不同 CID 的負向／清空對照與 CID reset 保存仍待驗證。完整統計及推論限制見 [實測紀錄](docs/04_testing/04_evb_cid_ble_scan.md)。
+
+**驗收補充**：後續 17:00 export 顯示切至 CID 1234 後停止 Type 1、讀回 CID=1234／GTIME=3，再恢復 0639 成功。Stanley 明確確認查詢前有按 RST 且整體正常；因此 CID／GTIME 手動 reset 保存 PASS。突然斷電、GC 與長時間測試仍未驗收，詳見同份測試紀錄。

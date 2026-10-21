@@ -1,7 +1,7 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.2
-Last updated: 2026-10-02 Codex
+Version: v0.5
+Last updated: 2026-10-21 Codex
 
 ## Revision History
 
@@ -9,6 +9,9 @@ Last updated: 2026-10-02 Codex
 |---|---|---|---|---|
 | v0.1 | 2026-10-02 10:00:00 | Initial skeleton — project kick-off，Phase 0 scaffold only | Stanley | main |
 | v0.2 | 2026-10-02 | 依 FR306x v0.4.9 同步 MCU 規格；區分晶片總容量與 SDK 配置，未修改 firmware | Codex | 未執行 git 操作 |
+| v0.3 | 2026-10-21 | 新增 DEV1.4 獨立 9600 UART3 target 與 GCHK 相容子集；program/readback、Stanley HTML GCHK 及未支援命令回覆通過 | Codex | v0.3.0_evb_serial_gchk |
+| v0.4 | 2026-10-21 | 新增 GTIME query/set、FlashDB key/schema、寫入後讀回及錯誤處理；9600 target 更新為 0.4.0-dev，硬體保存測試由 Stanley 執行 | Codex | v0.4.0_evb_gtime_settings |
+| v0.5 | 2026-10-21 | 新增 GCID／SCID 保存、BLE scan 與 Type 1；實測 4 MAC、55 筆 Type 1／XOR 全通過，CID 切換及 CID／GTIME 手動 reset 保存獲 Stanley 確認 | Codex | v0.5.0_evb_cid_ble_scan |
 
 ## 1. 專案定位
 
@@ -63,6 +66,10 @@ Last updated: 2026-10-02 Codex
 ```
 
 ## 4. Toolchain / Build
+
+DEV1.4 已新增專案自有 UART3 serial target：`bash fw/tools/build_evb_serial.sh`，獨立產物在 `fw/build_serial/output/`。透過 build overlay 替換 example main／AT／BLE source，不修改 SDK。UART3 使用 9600/8N1，GCC vendor printf 被丟棄；原 SDK target 保留 921600 log。GCHK 回覆 EVB 板型與 SDK-derived BLE identity；state 0 為此相容層 idle。GTIME 沿用 key `0x00030002`（預設 15，1-1800 秒）；0.5.0-dev 新增 CID key `0x00030003`（四欄、預設 0639），均以 FlashDB 寫入與讀回確認後才更新 RAM。Stanley 已確認前版 GTIME 保存可用。
+
+0.5.0-dev 使用 general discovery active scan（LE 1M、25 ms interval／18.75 ms window），只處理 legacy ADV。以 CID/UUID 過濾 0xFF／0x16，快取 32 個 address type＋MAC，依 GTIME 及 RSSI 回報最多 min(GTIME,15) 筆 Type 1、每筆間隔一秒，支援 EUP v1/v2 1500 ms burst 去重。原 peripheral profile 保留，radio 並行仍待 EVB 驗收。未實作 MAC whitelist、MAXRPT setting、GATT central session、realtime XYZ batch 或 OTA。規格見 [serial 協定](../02_protocol/01_evb_serial_gchk.md)，最新證據見 [CID／scan 測試紀錄](../04_testing/04_evb_cid_ble_scan.md)。
 
 - **Compiler**：ARM GNU Toolchain `arm-none-eabi-gcc` 13+
 - **Build**：CMake + Ninja（可相容 SDK 原生 Makefile）
