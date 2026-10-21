@@ -8,6 +8,8 @@
 
 > **2026-10-02 文件同步（Codex）**：依 FR306x v0.4.9 校正容量來源、使用率與未驗證宣稱；未重新 build、未修改 SDK，以下產物數據保留既有結果。晶片總容量為 2 MB Flash／512 KB SRAM，但 linker 可用區與總容量的對應仍待確認，見 [開發對照](../docs/03_hardware/fr306x_reference/05_et100_development_reference.md)。
 
+> **2026-10-21 Phase 1b 更新**：本檔前半保留 Phase 1a／1a-ext 當時的 review 紀錄；文中 `FR303x` selector 與「EVB 尚未驗證」已被文末 Phase 1b addendum 取代。實機證據確認正確 burn header 為 vendor default **FR509x layout**，見 [`vendor/PATCHES.md`](vendor/PATCHES.md) Patch #5。
+
 ## Summary（修訂）
 
 ✅ **ADR 01 經實證可行**，條件如下：
@@ -51,7 +53,7 @@ bss:    61,976 bytes  (GNU size 分類，含靜態 heap 配置)
 _None._
 
 ### Major
-- **MJ1（Codex review 揭露，已修）**：Patch #4 一開始只改 `python.exe → python3` + 加 `-` 讓失敗不致命，實際上 **post_process.py 本身因 Windows backslash 失敗，`Project_burn.bin` 從未產生**；initial REVIEW_REPORT 誤稱「可直接燒錄」是 overclaim。本次補 Patch #5 修 post_process.py 跨平台路徑 + 改 CHIP_TYPE 為 FR303x，`Project_burn.bin` 現已產出。
+- **MJ1（Codex review 揭露，已修）**：Patch #4 一開始只改 `python.exe → python3` + 加 `-` 讓失敗不致命，實際上 **post_process.py 本身因 Windows backslash 失敗，`Project_burn.bin` 從未產生**；initial REVIEW_REPORT 誤稱「可直接燒錄」是 overclaim。Patch #5 補上跨平台路徑；當時另改 CHIP_TYPE 為 FR303x 的決定已於 2026-10-21 證明錯誤並撤回。
 - **MJ2（Codex review 揭露，已處理）**：Phase 1a 原 `IMPLEMENTATION_PLAN.md` Out of Scope 明示「不要修改 SDK」，但實作過程改了 5 個 SDK 檔案。此為 **scope creep**。已補寫 [`ADR 02 — SDK Local Patch Policy`](docs/99_decisions/02_sdk_local_patch_policy.md) 追認並立下未來規則：將來若 patch > plan 預期量，Claude Code 必須停下請示。
 - **MJ3（Codex review 揭露）**：原 REVIEW_REPORT 的 **「完整成功、可直接燒錄」為 overclaim**。精確的宣稱應為「patched SDK 的 host-side build pass；啟動 + BLE 廣播 + 硬體除錯仍待 EVB 驗證」。本修訂版已改。
 
@@ -127,7 +129,7 @@ Full build log: `/tmp/et100_build.log`
 2. `ldscript.ld` + `.ram_code_front` section
 3. `cpu_context_gcc.S` + `.thumb_func` / `.type` / 搬 `.size`
 4. `Makefile` python.exe → python3
-5. `post_process.py` 跨平台路徑 + CHIP_TYPE FR303x
+5. `post_process.py` 跨平台路徑；當時誤改 CHIP_TYPE FR303x，已於 2026-10-21 撤回為 FR509x layout
 
 ## Overall（修訂後）
 
@@ -138,14 +140,14 @@ Full build log: `/tmp/et100_build.log`
 ### 立即（Stanley）
 1. ✅ PATH 已加 `~/.zshrc`
 2. ⬜ 重產 100_questions V1.3 HTML／PDF 後寄 Quectel（目前僅 Markdown 同步）
-3. ⬜ 購 Freqchip FR3068E-C EVB（taobao / 面包板）
+3. ✅ FR3068EP-C DEV1.4 EVB 已到貨
 
 ### EVB 到貨後的 Phase 1b
-4. ⬜ 用 Freqchip 原廠燒錄工具或 J-Link 燒 `Project_burn.bin` 到 EVB
-5. ⬜ 開 serial / 看 UART log，驗證 app 跑到 main()
-6. ⬜ 用 nRF Connect / LightBlue 掃 BLE，確認廣播存在
-7. ⬜ 驗證 J-Link SWD debug 可連線
-8. ⬜ **若 Phase 1b 證實 _burn.bin 可燒錄啟動** → ADR 02 + Phase 1a 的 patches 全面確認；否則回頭看 header 格式對不對
+4. ✅ 透過板載 DAPLink + SDK FLM 燒 `Project_burn.bin` 到 EVB
+5. ⬜ 補 jumper 後確認 921600 application UART log；目前以 SWD PC 與 BLE 證明 app 執行
+6. ✅ 用 nRF Connect 連線並確認 GATT
+7. ✅ 驗證 DAPLink SWD 可連線
+8. ✅ 證實 FR509x layout 的 `_burn.bin` 可啟動；錯誤 FR303x selector 已撤回
 
 ### 並行
 9. ⬜ EUP 終端設備通訊協定考古（不需 EVB）
@@ -225,5 +227,78 @@ Phase 1a-ext 展示了 Codex 兩個進化：
 - ⬜ 把 Q49（AEC-Q100 否）+ Q50（SDK 192 MHz vs datasheet 156 MHz）加進 100_questions_for_quectel V1.4
 - ⬜ 重 render HTML + PDF V1.4
 - ⬜ Stanley 寄 Quectel PDF（V1.4，取代 V1.3 send）
-- ⬜ 更新 [`docs/00_project/11_project_bring_up_status.md`](../docs/00_project/11_project_bring_up_status.md) Category 7（7 處 patch）+ Category 8（SRAM 使用率 18.9%）
-- ⬜ 其餘 Next Steps（EVB 購買、EUP 協定考古）不變
+- ✅ 更新 [`docs/00_project/11_project_bring_up_status.md`](../docs/00_project/11_project_bring_up_status.md) Category 7／8；Phase 1b 再同步實機結論
+- EVB 已到貨；EUP 協定考古仍待處理
+
+---
+
+# Addendum — Phase 1b EVB Bring-up（2026-10-21）
+
+## Scope
+
+- FR3068EP-C DEV1.4 EVB 基本辨識與 jumper mapping
+- 板載 DAPLink SWD attach、internal flash programming 與 readback
+- `Project_burn.bin` boot header layout 實機判定
+- Reference BLE peripheral 開機、廣播、連線與 GATT discovery
+- 96 MHz development configuration 基本啟動驗證
+
+本階段未驗證 ET-100 PCB、量產燒錄、OTA update/rollback、外部 NOR、低功耗、BLE 長時間穩定性或 512 KiB SRAM upper bank。
+
+## Result
+
+| 項目 | Phase 1b 結果 |
+|---|---|
+| EVB | FR3068EP-C DEV1.4；EP-C 含 2 MB PSRAM，產品 E-C firmware 不得依賴 |
+| SWD | DP IDCODE `0x0BE12477`、AHB5-AP、CPUID `0x410FD214` = Cortex-M33 r0p4 |
+| Flash loader | SDK `components/tools/keil/FR30xx.FLM` |
+| Programming | `Project_burn.bin` 寫入 `0x08000000`；66 sectors；readback byte-for-byte PASS |
+| Boot | reset 後 PC 曾觀察於 PRAM `0x1FFE3A90` 的 `__RAM_CODE` idle 路徑；app 正常執行 |
+| BLE | nRF Connect 可連上 `30xx_Ble_Periphreal` |
+| GATT | 可看到 FFF0、FFF3（Read/Write/Notify）與預期 128-bit characteristic |
+| 96 MHz | Patch #7a configuration 可開機與建立 BLE 連線；未量測實際 clock、功耗或長期穩定性 |
+
+## Critical Finding — Burn Header Selector
+
+Phase 1a Patch #5 曾在沒有原廠證據下把 `post_process.py` 的 selector 從 vendor default `CHIP_TYPE_FR509x` 改成 `CHIP_TYPE_FR303x`。這是錯誤修改：
+
+- FR303x layout 少了 `tlv_length` word，導致 options 欄位錯位。
+- 錯誤 image 讓 ROM flash access 卡死，表現為 BLE 不啟動、SWD AP WAIT ACK。
+- SDK 內原廠 Keil burn image 使用 FR509x layout。
+- 恢復 FR509x 後，header word 7 = `0x51525251`、word 8 = `0`、word 11 = `0x51525251`，實機 programming、boot 與 BLE PASS。
+
+**結論**：Patch #5 只保留跨平台 `os.path.join()`、非零 error exit 與診斷訊息；CHIP_TYPE 變更已撤回。`FR509x` 在此是 header layout selector，不是 MCU 型號判定。
+
+## SDK Patch #8
+
+BLE example 的 `main.c` 在 EVB development build 中保留 `SYSTEM_PREVENT_SLEEP_TYPE_DISABLE`，不再清除該 sleep prevention bit。原因是板載 DAPLink 沒有 nRESET 線，sleep/壞 image 狀態下無法使用 under-reset attach。
+
+此 patch 改變 runtime power behavior，只能用於 EVB debug；ET-100 production firmware 不得直接採用。Patch 已以 `[eup-patch 2026-10-21 patch #8]` 標記並登錄於 [`vendor/PATCHES.md`](vendor/PATCHES.md)。
+
+## Tooling
+
+新增 [`tools/evb/`](tools/evb/)：
+
+- `uart_listen.py`：限時 UART capture
+- `swd_probe.py` / `swd_retry.py`：唯讀 attach 診斷
+- `fr3068_flash.py`：正常 program + verify + reset
+- `rescue_and_flash.py`：DPv2 dormant wake + reset-release catch + 同 session 救援燒錄
+
+燒錄工具會拒絕非 FR509x layout image，並以 repo-relative defaults 尋找 SDK、FLM 與 image。Phase 1b 板卡與操作細節見 [`../docs/03_hardware/FR3068EP-C Dev1.4/README.md`](../docs/03_hardware/FR3068EP-C%20Dev1.4/README.md)。
+
+## Findings
+
+### Critical / Major
+
+_None remaining after restoring the FR509x header selector._
+
+### Minor / Remaining Risk
+
+- DAPLink 沒有 nRESET；壞 image 仍可能需要手動 RST timing rescue。
+- 目前只有兩個 jumper cap，UART 與 SWD 不能同時接通。
+- Patch #8 停用 sleep，因此本次不能代表產品待機功耗。
+- BLE 只完成基本連線/GATT discovery，尚未做 soak、throughput、disconnect/reconnect 或 OTA。
+- EVB 外部 Flash 與 ET-100 型號、容量、電壓和 addressing 不同。
+
+## Overall
+
+**PASS for Phase 1b basic EVB bring-up**。macOS + GCC patched SDK 的 burn image 已完成真實硬體 programming、boot 與 BLE GATT 驗證；Phase 1a 的「候選映像、未驗證」狀態可針對此 EVB 組合解除。產品板、量產流程與 OTA 仍是獨立驗收項目。

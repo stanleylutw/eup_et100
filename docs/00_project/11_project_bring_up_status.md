@@ -1,7 +1,7 @@
 # ET-100 Project Bring-up — 已完成項目總覽
 
 **起算日期**：2026-10-01
-**最後更新**：2026-10-02
+**最後更新**：2026-10-21
 **維護者**：Stanley（Eupfin） + Claude Code + Codex
 
 > 本檔是跨 HW + FW 的專案層級狀態儀表板。詳細技術文件連結分散在 [`docs/03_hardware/sch_analysis/`](../03_hardware/sch_analysis/) 與 [`fw/`](../../fw/)。
@@ -80,7 +80,7 @@
 | [fw/.vscode/](../../fw/.vscode/) | settings/launch/tasks (Cortex-Debug + JLink/OpenOCD) | ✅ |
 | [fw/.githooks/pre-commit](../../fw/.githooks/pre-commit) | 擋 main commit | ✅ |
 | [fw/tools/](../../fw/tools/) | fetch_sdk.sh / branch_status.sh / release.sh / check_plan_vs_code.py | ✅ |
-| [fw/src/main.c](../../fw/src/main.c) | placeholder（等 EVB） | ✅ |
+| [fw/src/main.c](../../fw/src/main.c) | placeholder（等 ET-100 application implementation） | ✅ |
 | [fw/.gitignore](../../fw/.gitignore) | 排除 vendor/、build/、IDE 檔 | ✅ |
 | [fw/comm.md](../../fw/comm.md) | 指回 `../comm.md`（Antigravity 新角色定義） | ✅ |
 | [fw/docs/00_project/00_et100_firmware_platform_plan.md](../../fw/docs/00_project/00_et100_firmware_platform_plan.md) | 平台計畫 v0.1 | ✅ |
@@ -93,7 +93,7 @@
 | 項目 | 狀態 |
 |---|:-:|
 | SDK 下載（`fr30xxc_sdk__202411`，165MB，3792 檔案） | ✅ 在 [fw/vendor/](../../fw/vendor/)（gitignored） |
-| **7 組本地 patch 完成**（#1-#6 + #7；#7a／#7b 分開登錄，共 8 個 entry） | Phase 1a-ext clean build PASS；#6 SRAM 512 KiB、#7a 96 MHz 目標、#7b runtime 156 MHz guard；實機待驗 |
+| **8 組本地 patch**（#1-#8；#7a／#7b 分開登錄，共 9 個 entry） | #5 的錯誤 FR303x selector 已撤回為 vendor default FR509x；#8 為 EVB debug 停用 sleep。完整限制見 PATCHES.md |
 | Patch 政策 ADR | 已記錄於 [ADR 02 — SDK Local Patch Policy](../../fw/docs/99_decisions/02_sdk_local_patch_policy.md) |
 | Patch 完整文件 | 已記錄於 [vendor/PATCHES.md](../../fw/vendor/PATCHES.md) |
 
@@ -101,18 +101,18 @@
 
 ## ⚙️ Category 8 — Build 產物（Reference BLE Peripheral Example）
 
-**最新結果：Phase 1a-ext，2026-10-02**。GCC 14.3.1／SDK 原生 Makefile 完整重編譯 exit 0；完整 log：`/tmp/et100_build_v2.log`。SPLL 保留 192 MHz，MCU_DIV=2 的核心目標為 96 MHz，未實機量測。SRAM linker 改為 512 KiB，PRAM／Flash window 不變；沒有啟用額外 heap 或驗證 upper-bank。下方 Category 11 保留 Phase 1a 分析，舊容量／產物數字不是本次最新結果。
+**最新結果：Phase 1b，2026-10-21**。GCC 14.3.1 build 的 reference BLE example 已透過板載 DAPLink + SDK `FR30xx.FLM` 寫入 FR3068EP-C DEV1.4。整份 `Project_burn.bin` 從 `0x08000000` programming，66 sectors，readback 逐 byte PASS；reset 後 app 啟動，nRF Connect 可連線並看到預期 GATT。已確認 post-process 必須使用 vendor default **FR509x header layout**；先前推論的 FR303x layout 會讓 options 欄位錯位並造成 boot/SWD 卡死。
 
 | 檔案 | 大小 | 用途 | 狀態 |
 |---|:-:|---|:-:|
-| `Project.elf` | 1.3 MB | GDB symbols | ✅ |
-| `Project.bin` | 260,376 bytes | raw image；燒錄／boot 流程待原廠確認 | 本次已產出，實機未驗 |
-| `Project.hex` | 732,469 bytes | Intel HEX | 本次已產出 |
-| **`Project_burn.bin`** | **268,568 bytes** | post-process 封裝候選映像（header + CRC），bootloader 相容性待驗 | payload／CRC host 驗證通過，實機未驗 |
-| Flash 使用 | 25.0% | 254.273 KiB / 1016 KiB linker window，不是晶片 2 MB 總容量 | 已量測產物 |
+| `Project.elf` | 1,339,200 bytes | GDB symbols | Phase 1b local build |
+| `Project.bin` | 260,368 bytes | raw image | 已產出；未做 direct-flash boot test |
+| `Project.hex` | 732,427 bytes | Intel HEX | 已產出；未作為本次 programming input |
+| **`Project_burn.bin`** | **268,560 bytes** | FR509x layout header + CRC + payload | **EVB @ `0x08000000` programming／readback／boot PASS** |
+| Flash 使用 | 25.0% | 254.266 KiB / 1016 KiB linker window，不是晶片 2 MB 總容量 | 已量測產物 |
 | SRAM 使用 | **18.5%**（原 37.1%） | 97,232 bytes = 94.953 KiB / **512 KiB** linker window | 靜態配置不變；不是 runtime heap 餘量 |
 
-Size：text **225,096**、data **35,272**、bss **61,976** bytes；map SRAM `0x20000000`／length `0x80000`，上限 `0x20080000`（exclusive）。Guard 9 組 host 路徑測試與 ARM disassembly 檢查通過；只有既有 RWX warning。Burn header magic `0x51525251`、CRC32 `0x5b1a2ae6`、code_length `260376`、exec_offset `0x2000` 通過 host 一致性檢查。實際功耗下降比例及 BLE／CAN／LTE 並行性能未驗證。
+Size：text **225,088**、data **35,272**、bss **61,976** bytes。Burn header word 7 = `0x51525251`、word 8 = `0x00000000`（TLV length）、word 9 = options、word 11 = `0x51525251`。MCU_DIV=2 的 96 MHz configuration 已完成開機與 BLE 基本連線，但實際 clock、功耗、長時間穩定性及 BLE／CAN／LTE 並行性能未驗證。Patch #8 讓 EVB development build 不進 sleep，故本次結果不代表產品低功耗。
 
 ---
 
@@ -136,7 +136,7 @@ Size：text **225,096**、data **35,272**、bss **61,976** bytes；map SRAM `0x2
 
 ## 📱 Category 11 — Reference BLE Build 的功能內容與資源分佈
 
-**目前已 host build 的 example**：`ble_simple_periphreal`（SDK 範例，Patch 後 Mac GCC build pass）；尚未在 EVB 或 ET-100 上運行。以下功能為 source 描述，不是實機驗收結果；`fw/src/main.c` 仍為 placeholder。
+**目前已 host build 並在 EVB 啟動的 example**：`ble_simple_periphreal`。Phase 1b 已驗證 boot、BLE 連線與基本 GATT discovery；UART command、BLE OTA、長時間運行與 ET-100 硬體仍未驗證。`fw/src/main.c` 仍為 placeholder。
 
 ### A. 開機序列（Boot Sequence）
 
@@ -156,7 +156,7 @@ Size：text **225,096**、data **35,272**、bss **61,976** bytes；map SRAM `0x2
 
 | 項目 | UUID / Attribute | 內容 |
 |---|---|---|
-| 裝置名稱 | adv_data | `30xx_Ble_Periphreal`（source 配置；手機掃描待實機驗證） |
+| 裝置名稱 | adv_data | `30xx_Ble_Periphreal`（nRF Connect 已實機連線） |
 | GATT Service | **0xFFF0**（Simple Profile） | 2 個 characteristic |
 | CHAR1 | **0xFFF3** | 20 bytes，可讀 / 可寫 / 可 notify |
 | CHAR2 | 0xBA5C-FFF4-04A3-4071-A0B5-3585-3EB0-8307（128-bit） | 5 bytes，預設值 `11 22 33 44 55` |
@@ -184,7 +184,7 @@ Size：text **225,096**、data **35,272**、bss **61,976** bytes；map SRAM `0x2
 | FreeRTOS kernel | 尚未按 map 歸屬統計 | tasks／queues／timers、heap、CM33 port 等 |
 | FlashDB／FAL；FatFS 編譯輸入 | 尚未按 map 歸屬統計 | 不代表 FatFS API 已保留於最終 ELF 或檔案系統已啟用 |
 | Drivers／libc／app／startup／共用工具 | 尚未按 map 歸屬統計 | 舊 130／15／25 KB 等分類估算撤回，避免當成量測數據 |
-| **Project.bin 實測** | **260,352 bytes = 254.25 KiB** | **25.0% / 1016 KiB linker window；名義差額 761.75 KiB，不等於已規劃的 OTA／log 空間** |
+| **Project.bin 實測** | **260,368 bytes = 254.266 KiB** | **25.0% / 1016 KiB linker window；名義差額不等於已規劃的 OTA／log 空間** |
 
 ### E. SRAM 97 KB 分配
 
@@ -192,8 +192,8 @@ Size：text **225,096**、data **35,272**、bss **61,976** bytes；map SRAM `0x2
 |---|:-:|---|
 | GNU size 的 data | 35,272 bytes | 含 `.data`／`.dram_section` 等；不是純 app 變數 |
 | GNU size 的 bss | 61,976 bytes | 包含靜態配置的 RTOS heap 等；不能只解讀為 runtime 已用量 |
-| **靜態合計** | **97,232 bytes = 94.953 KiB** | **37.1% / 256 KiB linker SRAM window** |
-| **名義差額** | **161.047 KiB** | 不是自動可 malloc 的容量；FreeRTOS heap 目前配置 50 KiB，且已含於上述配置，runtime 餘量需量測 |
+| **靜態合計** | **97,232 bytes = 94.953 KiB** | **18.5% / 512 KiB linker SRAM window** |
+| **名義差額** | **417.047 KiB** | 不是自動可 malloc 的容量；FreeRTOS heap 目前配置 50 KiB，且已含於上述配置，runtime 餘量需量測 |
 
 **附加**：`.ram_code` **14.4 KB** 從 flash copy 到 **PRAM**（高速 RAM 0x1FFE0000）執行 — 含 low-power 進出、XIP flash 操作等對 timing 敏感的 code。
 
@@ -216,11 +216,11 @@ HW Review          ████████████████████ 
 Vendor Comms       ███████████████░░░░░  75% (PDF 準備好，未寄)
 Toolchain          ████████████████████ 100% (GCC 14.3.1 Mac 上 build pass)
 FW Skeleton        ████████████████████ 100% (comm.md tooling 齊備)
-SDK Integration    ████████████████████ 100% (165MB + 5 patches)
-Build Validation   ████████████████████ 100% (Project_burn.bin 產出)
-Hardware (EVB)     ░░░░░░░░░░░░░░░░░░░░   0% (未購)
+SDK Integration    ████████████████████ 100% (165MB + 8 patch groups documented)
+Build Validation   ████████████████████ 100% (Project_burn.bin EVB boot + BLE PASS)
+Hardware (EVB)     ████████████████████ 100% (basic SWD/flash/boot/BLE GATT)
 Hardware (EVT)     ░░░░░░░░░░░░░░░░░░░░   0% (SOW 前)
-Driver Bring-up    ░░░░░░░░░░░░░░░░░░░░   0% (等 EVB)
+Driver Bring-up    ██░░░░░░░░░░░░░░░░░░░  10% (EVB debug/flash/BLE baseline ready)
 App Logic          ░░░░░░░░░░░░░░░░░░░░   0% (等 EUP 協定)
 ```
 
@@ -231,10 +231,10 @@ App Logic          ░░░░░░░░░░░░░░░░░░░░ 
 | 阻擋項 | 時間成本 | 依賴 |
 |---|:-:|---|
 | **重產 V1.3 HTML／PDF 後寄 Quectel** | 待排程 | Markdown 已同步；派生檔仍為舊版 |
-| **買 Freqchip FR3068E-C EVB** | 10 分鐘下單 + 3-7 天到貨 | Stanley（email Freqchip sales 或淘寶/Quectel 要） |
+| **補 EVB DEBUG jumper，UART + SWD 同時接通** | 少量硬體準備 | Stanley；之後驗證 921600 app log |
 | **EUP 終端設備通訊協定考古** | 30 分鐘找人 + 半天整理 | Stanley（內部 PM / wiki） |
 
-**三件事全部不依賴我，但 FW 專案任何進一步工作都需要上面至少 1-2 件完成**。
+EVB 基本主幹已跑通；後續 GPIO/CAN/I2C bring-up 仍需各自的 `IMPLEMENTATION_PLAN.md` 與 Stanley 批准。
 
 ---
 
@@ -245,5 +245,6 @@ App Logic          ░░░░░░░░░░░░░░░░░░░░ 
 - FW 平台計畫：[`fw/docs/00_project/00_et100_firmware_platform_plan.md`](../../fw/docs/00_project/00_et100_firmware_platform_plan.md)
 - FW README + Quickstart：[`fw/README.md`](../../fw/README.md)
 - SDK Patches：[`fw/vendor/PATCHES.md`](../../fw/vendor/PATCHES.md)
+- EVB Bring-up：[`FR3068EP-C Dev1.4/README.md`](../03_hardware/FR3068EP-C%20Dev1.4/README.md)
 - ADR 清單：[`fw/docs/99_decisions/`](../../fw/docs/99_decisions/)
 - Workspace workflow：[`comm.md`](../../comm.md)
