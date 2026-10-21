@@ -2,16 +2,18 @@
 
 > **2026-10-02 Codex 補充審查**：原草案保留。可實作的責任分工與 baseline 見 [架構草案](02_firmware_architecture_draft.md)、[硬體覆蓋／衝突矩陣](03_hardware_coverage_matrix.md)、[分階段執行計畫](04_development_execution_draft.md)。本檔的 task priority 10/11、固定 OTA partitions、部分 pin/rail 假設及記憶體預算不可直接作為施工設定；有衝突時先依補充文件的 gate 查證，並經批准後實作。
 
-**Version**：v0.1 DRAFT
-**Last updated**：2026-10-02
+**Version**：v0.2 DRAFT
+**Last updated**：2026-10-21
 **Author**：Claude Code + Stanley (Eupfin)
-**Status**：Draft — subject to revision as Quectel/Freqchip answers come back from [100_questions_for_quectel V1.3](../../../docs/03_hardware/sch_analysis/100_questions_for_quectel.md)
+**Status**：Draft — subject to revision as Quectel/Freqchip answers come back from [100_questions_for_quectel V1.4](../../../docs/03_hardware/sch_analysis/100_questions_for_quectel.md)
 
 > **本檔定位**：ET-100 韌體**開發計畫 + 架構草案**，承接 [00 Platform Plan](../00_project/00_et100_firmware_platform_plan.md) 的 WHY/WHAT，寫 HOW。
 > **與相鄰文件分工**：
 > - [fr306x_reference/05 ET-100 開發對照](../../../docs/03_hardware/fr306x_reference/05_et100_development_reference.md)：bring-up 順序 + 各功能 check list（**本檔不重複**）
 > - [sch_analysis/](../../../docs/03_hardware/sch_analysis/)：HW 真實樣貌（本檔引用，不複製）
 > - 本檔：**4 層架構、FreeRTOS task 拓撲、驅動矩陣、記憶體預算、階段產出、build matrix**
+
+> **2026-10-21 OTA 決策**：Stanley 採完整 2 MB 邏輯規劃、外部 NOR Candidate／Rollback／Sensor slot、LTE／BLE／RS232 三入口；不採晶片內 A/B。[OTA 儲存規格](06_ota_storage_design.md) 為本議題的唯一詳細契約；仍須 Q43-5／Q48-6 與實測，沒有 SDK／linker／FlashDB 修改授權。舊草案將 header 當原廠 bootloader、雙扣 header／假定 ROM 會從 NOR 安裝的說法由本版更正。
 
 ---
 
@@ -40,7 +42,7 @@
 | 15 | IO Expander AW9523 I²C（16 ch） | 11 | 🟢 低 |
 | 16 | 備援電池充電（YX4066HDN8AR） | 8 | 🟢 低（讀 CHRG/FULL） |
 | 17 | 電源管理 PMU 進出 sleep | FR3068E-C 內建 | 🔴 高 |
-| 18 | OTA 韌體更新（**兩路 transport：LTE + BLE，共用一套 core**，見 §2.0a）| 應用層 | 🔴 高 |
+| 18 | 韌體更新（**LTE + BLE + RS232 三入口，共用一套 core**，另支援 sensor relay，見 §2.0a）| 應用層 | 🔴 高 |
 | 19 | EUP 終端設備通訊協定（cloud comm） | 應用層 | 🔴 高（spec 未定）|
 | 20 | 30 天 log + 斷網重傳 | FlashDB + 外部 Flash | 🔴 高 |
 
@@ -115,14 +117,14 @@
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.0a OTA 設計：雙 transport + 共用一套 core（決策定案 2026-10-02）
+### 2.0a OTA 設計：三入口 + 共用一套 core（更新決策 2026-10-21）
 
-ET-100 的 OTA 走 **「兩個傳輸入口，共用一套 OTA 核心」** 原則，避免雙套流程維護負擔。
+ET-100 走 **「LTE／FTP、BLE、RS232 三個入口，共用一套更新核心」**。RS232 是有線更新，正常 9600、協商後 115200／8N1；需求及取消 Factory recovery／改留 sensor slot 均由 Stanley 在本對話明確指定，不是 Codex 擅自增加。
 
 ```text
 LTE：伺服器 → EG800Q → UART ──┐
-                              ├─▶  OTA Manager  ─▶  Staging Flash
-BLE：手機 App → BLE GATT ─────┘           │
+BLE：手機 App → BLE GATT ─────┼─▶  OTA Manager  ─▶  NOR Candidate／Sensor slot
+RS232：有線 host → UART ──────┘           │
                                            ▼
                                   驗證 → 安裝 → 啟動確認
 ```
@@ -133,36 +135,40 @@ BLE：手機 App → BLE GATT ─────┘           │
 |---|---|---|
 | LTE OTA | EG800Q 負責網路下載，FR3068E-C 接收並儲存。原廠有 FTP(S)／HTTP(S) 文件；專案尚未完成這條流程 | Quectel FTP(S) 文件 |
 | BLE App OTA | SDK 已有 OTA GATT service（`service_ota.c`）支援資料寫入與通知回覆；手機 App 需實作對應協定；尚未實機驗證 | [`vendor/fr30xxc_sdk__202411/examples/common/ota/service_ota.c:59`](../../vendor/fr30xxc_sdk__202411/examples/common/ota/service_ota.c) |
+| RS232 update | 正常 9600 協商後切 115200／8N1；binary chunk／offset／CRC／ACK／續傳，取消／逾時回正常速率；尚未實作 | [OTA 儲存規格 §6](06_ota_storage_design.md#6-三個-transport兩種-target) |
 
-**兩條路徑必須共用**：
+**三條路徑必須共用**：
 
 - 同一份更新映像與版本／型號資訊
 - 同一套 Flash 暫存、hash／簽章驗證與安裝流程
 - 同一套斷點續傳、進度回報與斷電恢復狀態
-- **同時只允許一個 update session**（LTE/BLE 互斥），避免兩路同時寫同一區
+- **同時只允許一個 update session**（LTE/BLE/RS232、ET100/sensor target 均互斥），不交錯覆寫資料；內建 state 是安裝／boot 唯一權威，NOR journal 只管下載
 
 **使用情境分工**（不是 primary/secondary 階層，是**對等** transport）：
 
 - LTE：適合**遠端車隊更新**（fleet rollout）
 - BLE：適合**現場維修**；也可讓 App 使用預先下載的檔案，在無 LTE 網路時更新
+- RS232：適合有線維修／受控更新；不因此把所有 RS232 ports 都當 OTA console
 
-**不受 MCU 資源限制**：96 MHz 下的並行負載、BLE 吞吐量、UART 流控、Flash 寫入實測後確認。
+**資源／吞吐量尚待驗證**：96 MHz 下的並行負載、BLE 吞吐量、UART 流控、Flash 寫入需實測，不能因選外部 staging 就斷言沒有 MCU 資源限制。
 
 **OTA 檔案實際存放**（詳見 §5.3a）：
-- 下載時：**外部 SPI NOR Flash（XM25QH256D 32 MiB）的 4 MiB staging partition**
-- 安裝時：bootloader 從外部 staging 讀 → copy 到內建 live app slot（§5.1）
-- 內建 Flash **不做 dual-bank**，整個 1016 KiB 給 live app（最大化 app 成長空間）
+- 下載時：外部 NOR 的 ET100 Candidate 2 MB 或 Sensor slot 256 KB；ET100 Rollback 另留 2 MB
+- 安裝時：**Eupfin 自有 installer** 從 NOR staging 讀 → copy 到內建 App slot（§5.1）；不是原廠 ROM 負責 NOR copy
+- 內建 Flash **不做 App A/B**；新候選為 header 8 KB＋installer 120 KB＋App 1792 KB＋Settings 112 KB＋boot state 16 KB，總 2 MB；現行 1016 KB linker／FlashEnv 尚未變更
 
-**真正的最大未知**（非兩個介面）：
-- bootloader 的**安全安裝**流程（**必須會從外部 SPI copy 到內部**）
+**真正的最大未知**（非三個傳輸入口本身）：
+- **Eupfin 自有 installer** 的安全安裝實作：NOR → 內部 App copy、驗簽、先備份再 erase、斷電恢復；不能假定原廠 ROM 會執行這條流程
+- **Q43-5 只確認 ROM／installer 邊界**：ROM header code_length／CRC 範圍、options 與啟動自有 installer 的規則，不是等待原廠提供 NOR copy 功能
 - 斷電恢復（任何階段 power loss 都要可救；外部 staging 寫壞不影響 live app）
 - **rollback** 條件與機制（external staging 保留上一版 image 可救援）
 
-**開發順序**：**先驗證 BLE OTA 的完整安裝流程 → 再接入 LTE 下載，共用已驗證的 OTA 核心**。
+**開發順序**：host model／NOR → installer／斷電復原 → RS232 → BLE → LTE → sensor relay。需先證實 installer 可獨立恢復，不能拿 transport 下載成功代替安全安裝驗收。
 
 對應補充文件：
-- [`02_firmware_architecture_draft.md`](02_firmware_architecture_draft.md) §services：`ota_manager` 統一 session + 進度 + 驗證 + install request（LTE/BLE 不各自改 boot metadata）
-- [`04_development_execution_draft.md`](04_development_execution_draft.md) M5：Common manager + 雙 transport + 驗簽 + staging + OEM install adapter + boot recovery
+- [`06_ota_storage_design.md`](06_ota_storage_design.md)：候選地址、state 權威、rollback／VTOR 與 ROM gates
+- [`02_firmware_architecture_draft.md`](02_firmware_architecture_draft.md) §services：ota_manager 統一 session／下載／驗證／install request，三入口不各自改 boot state
+- [`04_development_execution_draft.md`](04_development_execution_draft.md) M5：三入口、驗簽、NOR staging、自有 installer 與 boot recovery
 
 ### 2.1 分層原則
 
@@ -297,24 +303,27 @@ int  event_bus_subscribe(app_event_type_t type, QueueHandle_t inbox);
 
 ## 5. 記憶體預算（初版）
 
-Flash 容量**依現有 SDK linker 1016 KiB 計算**（非 datasheet 2 MB，等 Quectel 回 Q48 memory map 再擴）。
+現行 runtime 配置仍依 SDK linker 1016 KB；新產品候選以完整 **2 MB** 規劃，兩者分開列示。[08 實測報告](../04_testing/08_evb_internal_flash_size.md)記錄 EP-C EVB 2 MB 容量及上半區 sector erase／program，相關[唯讀 probe](../../tools/evb/flash_size_probe.py)／[sector 工具](../../tools/evb/flash_sector_test.py)已恢復、本輪未執行。產品 E-C 完整 map 與 runtime writes 仍待 Q48-6；Q43-5 只確認 ROM／installer 邊界。
 SRAM 使用 Phase 1a-ext 已擴到 **512 KiB**。
 
-### 5.1 內建 MCU Flash 預算（總 1016 KiB，單位 KiB）— **單 bank live app**
+### 5.1 內建 MCU Flash 候選（總 2 MB）— **單一 App＋NOR staging**
 
-> **設計決策 2026-10-02**：OTA staging **移到外部 SPI NOR**（見 §5.4）。內建 Flash 不做 dual-bank —— 可全部拿來放 live app，給 ET-100 app 最大成長空間。Bootloader 從外部 staging 的 image copy 到內建 live slot。
+> **設計決策 2026-10-21**：延續原 NOR staging 方向，取消內部 A/B 候選；自有 installer 從外部 NOR 安裝，不宣稱原廠 mask ROM 已支援 NOR 安裝。詳細契約見 [06 §2／§4／§5](06_ota_storage_design.md)。
 
-| 區段 | 預算 | 累計 | 用途 |
-|---|:-:|:-:|---|
-| Bootloader（0x08000000-0x08002000）| 8 (在 linker 範圍外) | — | Freqchip 原廠 bootloader；負責驗證 + 從 external staging 搬 image |
-| Reserved (header/CRC) | 8 | 8 | post_process.py 填 header（magic 0x51525251 + CRC）|
-| **Live App slot** | **~900** | 908 | ET-100 唯一 app 執行區域 |
-| **Boot metadata / rollback marker** | 8 | 916 | 標記上次 boot 成功 / version / rollback 狀態 |
-| Reserve | 100 | 1016 | 增長緩衝（若 Q48 回來 Flash 2 MB，整個 slot 可大幅擴大）|
+| 區域 | 起始 | 結束（含） | KB |
+|---|---|---|---:|
+| FR509x header | 0x08000000 | 0x08001FFF | 8 |
+| Installer | 0x08002000 | 0x0801FFFF | 120 |
+| **App slot** | **0x08020000** | **0x081DFFFF** | **1792** |
+| Settings／KV | 0x081E0000 | 0x081FBFFF | 112 |
+| Boot／Update state | 0x081FC000 | 0x081FFFFF | 16 |
+| **總計** | 0x08000000 | 0x081FFFFF | **2048** |
 
-**單一 Live App ~900 KiB** vs Phase 1a example 260 KiB → **~640 KiB margin** 給 ET-100 full app（LTE/NFC/CAN/GNSS/EUP proto/log/OTA client）。
+Header＋installer 合計 128 KB，App 上限包含 App 驗證／封裝開銷。ROM header 的 code_length／CRC 只涵蓋 installer 的方案須 Q43-5 確認；一般 OTA 不重寫 header。Installer 自帶 NOR／Flash driver 與驗簽，安裝途中不可依賴 App。App relocation／VTOR／睡眠還原須驗證。
 
-**內建 Flash 不放**：telemetry log、config KVDB、OTA image —— 全部移到外部 SPI NOR（§5.4）。
+內建 state 是安裝／trial／確認／rollback 唯一權威；NOR journal 只管下載。正常 confirmed boot 不初始化 NOR。16 KB state 暫分雙份 8 KB banks（各兩個 4 KB sectors），須驗證 record／GC／wear。Settings 留內部 112 KB；telemetry 與候選／rollback／sensor package 放外部 NOR。
+
+**現行 FlashDB 風險**：FlashEnv 仍在 0x080C8000、12 KB，與 SDK linker app window 重疊。現有 build guard 禁止 burn image 越過 offset 800 KB。新 App slot 會覆蓋舊 FlashEnv，因此 schema／bonding／設定的可重入遷移是前置 gate；本輪不改 FAL／linker，不可把候選表當已落地分區。
 
 ### 5.2 SRAM 預算（總 512 KiB，單位 KiB）
 
@@ -338,24 +347,27 @@ SRAM 使用 Phase 1a-ext 已擴到 **512 KiB**。
 
 > 詳見 [`02_firmware_architecture_draft.md`](02_firmware_architecture_draft.md) §7。本節是 01 計畫的對應投影。
 
-| 區段 | 預算 | 用途 |
-|---|:-:|---|
-| **Telemetry ring** | **24 MiB** | 30 天 log 的主要存放（15 秒/128B 一筆 → 21 MiB，+ sector overhead）|
-| **★ OTA staging** | **4 MiB** | ★ **OTA 檔案存這裡** — 下載映像暫存、驗證、等 bootloader install |
-| Config / journal / diagnostics | 1 MiB | KVDB 類設定、SIM profile、cloud endpoint、crash dump |
-| Spare / erase rotation / growth | 3 MiB | wear leveling 緩衝 |
+| 區域 | NOR offset（起始..結束，含） | 容量 |
+|---|---|---:|
+| Download journal／metadata | 0x000000..0x01FFFF | 128 KB |
+| ET100 Candidate | 0x020000..0x21FFFF | 2 MB |
+| ET100 Rollback | 0x220000..0x41FFFF | 2 MB |
+| Sensor OTA | 0x420000..0x45FFFF | 256 KB |
+| Logs／其他資料 | 0x460000..0x1FFFFFF | 27.625 MB |
 
-**OTA staging 4 MiB 設計意圖**：
-- 單一 OTA image 最大 ~2 MiB（匹配未來 2 MB Flash 容量上限）
-- 留 2 MiB 給 **第二 slot 作 rollback image / 上一版備份**
+**Candidate／Rollback 設計意圖**：
+- Candidate 2 MB 須容納完整包裝，但內部 App slot 仍限 1792 KB（含 App image overhead），不能按 2 MB 目的區安裝
+- 安裝前把內部 confirmed App 複製到 Rollback 並讀回驗 hash；已有相同 hash 的實際有效備份可跳過重寫；trial App 不可取代 confirmed 備份
+- Sensor 實體 slot 256 KB，但 package 必須 **≤225280 B（含 256 B header）**，沿用 Gateway 上限，不接受放得下但不相容的檔案
+- Logs／其他內部仍需切 24 MB telemetry、diagnostics 與 wear reserve；容量不等於已驗證 30 天保存
 - 寫入 external 不干擾 live app 執行（SPI 另一條 bus）
 - Download 階段隨便 abort / resume，不碰 live app
-- Install 階段才由 bootloader 讀 external → write internal → verify → set boot marker
+- Install 階段由自有 installer 讀 NOR → write internal → verify → trial／confirm；一般 confirmed boot 不讀 NOR，完整安全條件見 06
 
 **關鍵依賴**：
-- [`Q43` bootloader + install flow](../../../docs/03_hardware/sch_analysis/100_questions_for_quectel.md) 的 Quectel 答覆 — bootloader 必須會「從外部 SPI 讀 image copy 到內部」
+- **自有 installer 實作**：由 Eupfin installer 負責 NOR → 內部 App copy／驗證／rollback，不要求原廠 ROM 具有 NOR install 功能；[Q43-5](../../../docs/03_hardware/sch_analysis/100_questions_for_quectel.md) 僅確認 ROM header／CRC／options／啟動 installer 邊界，不能代替自有 installer 開發與斷電測試
 - XM25QH256D 的 **16 MiB 邊界**（32-bit addressing vs 24-bit）實測，避免 alias（Codex 02 §7 已標為待驗）
-- 外部 Flash 的 wear（erase cycle 100k typical for NOR）；OTA 若每月一次升級，20 年內遠低於 limit
+- 外部 NOR／內部 state 的 erase endurance 與 metadata 寫入頻率依 exact part 規格及磨耗模型驗證；不以泛稱 typical 100k 或每月更新估計取代 journal／GC 分析
 
 ### 5.3 PRAM 預算（總 128 KiB）
 
@@ -372,13 +384,19 @@ SRAM 使用 Phase 1a-ext 已擴到 **512 KiB**。
 
 ## 6. 開機序列（Power-on → Ready）
 
+下圖前段依 NOR installer 候選修正；後段 T 時間與 board init 仍是早期草案估值，不是實測時限。Installer 的 confirmed fast path 不啟 NOR；待安裝／rollback 路徑見 06。
+
 ```text
 T=0ms   Hard reset / PWR_IN 到位
           ↓
-T=0-5ms Freqchip ROM bootloader：
-          - 讀 flash 0x08000000-0x08002000 的 bootloader
-          - 驗 app slot header (CRC + magic 0x51525251)
-          - 跳到 0x08002000 的 Reset_Handler
+ROM boot（範圍／options 待 Q43-5）：
+          - 讀 0x08000000 的 FR509x header（保留區 8 KB，不是 Flash-resident 原廠 bootloader）
+          - 依 header 驗 installer 載入映像並啟動 @0x08002000
+          ↓
+自有 installer（候選、未實作）：
+          - 讀內部唯一 boot state；confirmed 路徑不初始化 NOR
+          - 待安裝／rollback 才啟 NOR，先備份 confirmed App 並驗證，再允許 erase
+          - 驗內部 App／vectors，設 VTOR=0x08020000／MSP 後跳 App
           ↓
 T=5-10ms SDK startup (startup_fr30xx.S)：
           - set SP = _estack
@@ -498,7 +516,7 @@ T=500ms 系統 READY：
 | 3.2 | Time Sync（GNSS 1PPS 校正 + LTE NTP backup） | 2 天 |
 | 3.3 | Log/Storage（FlashDB TSDB + 外部 SPI Flash）| 4 天 |
 | 3.4 | EUP Protocol Stack（**等 EUP spec**）| 10 天 |
-| 3.5 | OTA framework（**雙 transport 共用 core** — 見 §2.0a；BLE 先、LTE 後接；dual-bank + sign verify + power-fail recovery + rollback）| 10 天 |
+| 3.5 | 更新 framework（三入口共用 core；NOR staging／單 App／簽章／先備份後 erase／installer 斷電恢復；先 RS232、再 BLE／LTE／sensor relay，見 §2.0a／06）| 原估 10 天，須依 boot gates 重新估時 |
 | 3.6 | Config Service（KVDB + BLE/RS232 config UI） | 3 天 |
 | **3 總計** | | **~29 天**（含等 EUP spec 的 blocker）|
 
@@ -570,7 +588,7 @@ T=500ms 系統 READY：
 | Freqchip FR3068E-C memory map | Q48 | SRAM/Flash 分配 § 5 |
 | Freqchip signed BSP source | Q39 | BLE QDID 歸屬 |
 | Secure boot signing key | Q42 | 量產板能否燒自寫 FW |
-| OTA bootloader + format + safe install + power-fail recovery + rollback | Q43 | § 2.0a 的「真正最大未知」；transport 層 LTE/BLE 設計已定（§2.0a），**真正阻擋項在 bootloader** |
+| OTA installer + format + safe install + power-fail recovery + rollback | Q43-5／Q48-6 | 三入口需求已定，但 wire contract 未凍結；ROM header 範圍、VTOR、RAM-code、FlashEnv 遷移及斷電恢復仍阻擋實作 |
 | **EUP 終端設備通訊協定 spec** | Eupfin 內部考古 | § 3.4、§ 4.2 全部 |
 | Quectel FW behavior spec | Q45 | § 4 相容性 |
 
@@ -592,8 +610,8 @@ T=500ms 系統 READY：
 1. **CAN J1939 哪個 instance**：FR3068E-C 有 2 組 CAN FD，先用哪個？第二組預留嗎？
 2. **1-Wire bit-bang vs SDK**：SDK 無 1-Wire driver，自寫 bit-bang 需精確 µs timing；是否值得走 PWM/Timer 的 hw 加速？
 3. **BLE adv name 格式**：`ET-100-<serial>` 還是 `EUP-ET100-<MAC>`？與既有 Eupfin app 相容性？
-4. **Log 寫哪**：內建 2MB Flash 的 log partition（128 KiB）vs 外部 32MB SPI Flash？分流策略？
-5. ~~**OTA source**：LTE 下載為主、BLE DFU 為備？還是雙模都要？~~ **決策定案 2026-10-02**：雙路對等 + 共用一套 OTA core，見 §2.0a。
+4. **Log policy**：位置已選外部 NOR Logs／其他區；record bytes／事件配額／30 天保存／滿容量與 wear 分流仍待定，不占內部 App／boot state。
+5. **更新入口已確認 2026-10-21**：LTE／FTP、BLE／App、RS232 三入口共用核心，見 §2.0a／06；RS232 更新 115200／8N1。取消 Factory recovery、Sensor slot 256 KB／package ≤225280 B 已確認。
 6. **Config endpoint**：BLE + RS232 哪個是正式 UI？
 7. **UART 分配**：UART0-UART5 共 6 條，但本板只用 5 條（LTE/GNSS/RS232×3），UART0 給 Debug console 還是備用？
 8. **Watchdog policy**：3s 短 timeout vs 30s 長 timeout；FreeRTOS task-aware watchdog 自寫 or SDK 原生？
@@ -664,7 +682,7 @@ fw/
 ## 12. 下一步
 
 **本檔是 Draft v0.1**，等以下事件之一觸發 v0.2：
-- Quectel 回覆 100_questions V1.3 的 P0 / P0-FW 區（主要 Q48 memory map、Q42 secure boot、Q43 OTA）
+- Quectel 回覆 100_questions V1.4 的 P0 / P0-FW 區（主要 Q48 memory map、Q42 secure boot、Q43 ROM／installer 邊界）
 - EUP 協定考古有結果
 - Freqchip EVB 到手開始 Phase 1b
 - Codex / Antigravity 執行各 Phase 時發現本計畫假設有誤

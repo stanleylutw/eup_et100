@@ -1,6 +1,6 @@
 # ET-100 分階段開發執行草案
 
-日期：2026-10-02。版本：v0.1 DRAFT。對應 [架構](02_firmware_architecture_draft.md)、[硬體矩陣](03_hardware_coverage_matrix.md)。目的：把「全部硬體功能」轉成可批准的小施工單；本次不建 driver／改 SDK／重編譯。
+日期：2026-10-21。版本：v0.2 DRAFT。對應 [架構](02_firmware_architecture_draft.md)、[硬體矩陣](03_hardware_coverage_matrix.md)。本次只同步 M5／transport 契約為 NOR staging 三入口；不建 driver／改 SDK／重編譯。
 
 ## 1. Markdown 審查結論
 
@@ -31,7 +31,7 @@
 | M2：ET-100 safe BSP | Revision profile、AW9523、rail sequencing、NOR、LED/buzzer、DI、safe DO | Profiles/schema 和故障模型 | Board pin/domain/rail safety approved；all storage regions 可讀寫且不 alias；DO 矛盾解除 |
 | M3：Device bring-up | LTE/SIM、GNSS、NFC、IMU、三 RS232、CAN、ADC、1-Wire、battery | AT/NMEA/NCI transport mocks、CAN vectors、timeouts | 每個適用 Hxx 的 EVT evidence；不省略缺件/blocked功能 |
 | M4：Tracking vertical slice | 固定版記錄、config、EUP cloud ACK、offline/replay、driver sessions、alerts、BLE commands | Schema/ACK/retry/command authorization tests | Sensor→record→persist→LTE→ACK→reboot recover 完整路徑 |
-| M5：Dual OTA | Common manager、LTE/BLE transport、驗簽、staging、OEM install adapter、boot recovery | Chunk/resume/journal tests、corrupt image rejection | Approved boot/map/keys；兩路完整更新、掉電/失敗/recovery 證據 |
+| M5：三入口更新 | Common owner、LTE/BLE/RS232、NOR candidate/rollback/sensor slot、自有 installer、內部 state 唯一權威；詳見 06 | Chunk/resume/journal、package 上限、backup-before-erase、VTOR／RAM-code、掉電／NOR 故障 tests | Q43-5／Q48-6、approved map/keys；三路更新及 sensor relay 證據；confirmed boot 不依賴 NOR |
 | M6：Integration／release | Sleep/wake、battery mode、stress、fault injection、security、RF/temperature/ATE evidence | Test procedure／release manifest schema | Product acceptance matrix、resource/power/error budgets、未解 P0=0 |
 
 EVB 不含所有 ET-100 周邊；外接 module 的測試只是該 module setup 的證據。M3 可在 interface breakout bench 平行推進，不保證所有外設都能直接接 EVB。
@@ -71,7 +71,7 @@ OTA interruption 與 NOR erase 等 destructive tests 先用測試板／approved 
 |---|---|---|
 | Logging contract | 評估 15秒／128 bytes fully serialized + bounded event quota，不是固定承諾 | 30days 與 NOR partition驗收 |
 | Cloud/EUP contract | 指定版本、test server、ACK/dedup、authentication、config command set | M4 interoperability |
-| BLE App contract | 兩路 OTA 都支援；configuration/OTA權限、UUID／chunk／ACK 一起 freeze | M4/M5 App integration |
+| 更新 transport contract | LTE／BLE／RS232 三入口共用；BLE UUID／chunk／ACK／權限、RS232 9600→115200／8N1／恢復、FTP resume 一起定義；[06](06_ota_storage_design.md) | M4/M5 integration；先 NOR／installer／復原，再 RS232→BLE→LTE→sensor relay |
 | OTA release policy | Server image signing、key owner/provisioning、boot recovery明確 | M5 production safety |
 | Hardware baseline | Exact silicon/BOM/SCH/netlist/pinmux、DO/CAN_STB、battery pinout | M1-M3相應硬體操作 |
 | Parking/battery behavior | 回報週期、哪些 wake source、IMU供電、low voltage cutoff、續航測量目標 | M6 power/retention acceptance |

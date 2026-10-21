@@ -41,7 +41,7 @@
 | 項目 | 產出 | 狀態 |
 |---|---|:-:|
 | V1.0 → V1.1 → **V1.2** 迭代 | 48 題（P0×10 + **P0-FW×7** + P1×12 + P2×11 + P3×8） | ✅ |
-| Markdown V1.3；HTML／PDF 尚未同步 | [100_questions_for_quectel.md](../03_hardware/sch_analysis/100_questions_for_quectel.md) | 重產 HTML／PDF 後才能寄新版 |
+| Markdown V1.4；HTML／PDF 尚未同步 | [100_questions_for_quectel.md](../03_hardware/sch_analysis/100_questions_for_quectel.md) | 重產 HTML／PDF 後才能寄新版 |
 | **尚未寄出** — 等 Stanley 動作 | | ⬜ |
 
 ---
@@ -100,6 +100,8 @@
 ---
 
 ## ⚙️ Category 8 — Build 產物（Reference BLE Peripheral Example）
+
+**OTA 架構決策（文件，非 build）**：Stanley 已採 2 MB 單 App＋外部 NOR Candidate／Rollback／Sensor slot，不採晶片內 A/B。header 8 KB＋installer 120 KB、App 1792 KB、Settings 112 KB、內部 boot state 16 KB 為候選；內部 state 唯一決定安裝／trial／rollback，NOR journal 只管下載。Sensor slot 256 KB 但 package ≤225280 B（含 256 B header），RS232 更新 115200／8N1。詳見 [OTA 儲存規格](../../fw/docs/01_firmware/06_ota_storage_design.md)。[08 EP-C EVB 內建 Flash 實測報告](../../fw/docs/04_testing/08_evb_internal_flash_size.md)、[唯讀 probe](../../fw/tools/evb/flash_size_probe.py)／[sector 工具](../../fw/tools/evb/flash_sector_test.py)及[工具 README](../../fw/tools/evb/README.md)已依指示恢復，未執行或重跑。Q43-5 只確認 ROM／installer 邊界；NOR → 內部 copy 由自有 installer 實作，Q48-6／FlashEnv 遷移／VTOR／掉電恢復仍為 gate。本輪限 docs/tools，未改 SDK／source／linker／FAL，不 build／flash，板上仍 0.7.0-dev。
 
 **Stanley App 確認**：0.7.0-dev／EUP_AIoT_HUB_FR 燒錄後回覆「yes, it works.」，記為 App 基本連線與 manager 路徑可用；沒有逐筆 log，不擴大為全部步驟／雙角色並行／長時間穩定性通過。詳見 App GATT 紀錄的驗收補充。
 
@@ -242,7 +244,7 @@ App Logic          ░░░░░░░░░░░░░░░░░░░░ 
 
 | 阻擋項 | 時間成本 | 依賴 |
 |---|:-:|---|
-| **重產 V1.3 HTML／PDF 後寄 Quectel** | 待排程 | Markdown 已同步；派生檔仍為舊版 |
+| **重產 V1.4 HTML／PDF 後寄 Quectel** | 待排程 | Markdown 已同步；派生檔仍為舊版 |
 | **EVB UART + SWD 並行** | 完成 | 四個 jumper 已接；921600 log + SWD reset 同時 PASS |
 | **DEV1.4 K1-K3／D3-D4 mapping** | 待原理圖、continuity 或獲准設定 PMU input/pull 後重測 | 被動 PMU scan 僅得到 bit 0／2／3 候選且訊號不穩；Patch #9 已撤回 |
 | **EUP 終端設備通訊協定考古** | 30 分鐘找人 + 半天整理 | Stanley（內部 PM / wiki） |
@@ -254,7 +256,7 @@ EVB 基本主幹已跑通；後續 GPIO/CAN/I2C bring-up 仍需各自的 `IMPLEM
 ## 📁 連結快查
 
 - 硬體 review 索引：[`docs/03_hardware/sch_analysis/00_索引.md`](../03_hardware/sch_analysis/00_索引.md)
-- Quectel 問題清單 V1.3：[`100_questions_for_quectel.md`](../03_hardware/sch_analysis/100_questions_for_quectel.md)（HTML／PDF 尚未同步）
+- Quectel 問題清單 V1.4：[`100_questions_for_quectel.md`](../03_hardware/sch_analysis/100_questions_for_quectel.md)（HTML／PDF 尚未同步）
 - FW 平台計畫：[`fw/docs/00_project/00_et100_firmware_platform_plan.md`](../../fw/docs/00_project/00_et100_firmware_platform_plan.md)
 - FW README + Quickstart：[`fw/README.md`](../../fw/README.md)
 - SDK Patches：[`fw/vendor/PATCHES.md`](../../fw/vendor/PATCHES.md)

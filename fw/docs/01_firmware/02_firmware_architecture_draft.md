@@ -1,8 +1,10 @@
 # ET-100 韌體架構草案
 
-日期：2026-10-02。版本：v0.1。狀態：設計提案，未實作、未實機驗證。
+日期：2026-10-21。版本：v0.2。狀態：架構草案；本輪只更新 NOR OTA 規格，尚未實作 installer／更新傳輸。
 
 承接 [原開發草案](01_firmware_development_plan.md) 與 [平台計畫](../00_project/00_et100_firmware_platform_plan.md)。硬體逐項對照見 [覆蓋矩陣](03_hardware_coverage_matrix.md)，工作順序見 [執行計畫](04_development_execution_draft.md)。本文件不是 SDK 修改授權或施工單。
+
+OTA／Flash 的詳細決策以 [06 儲存規格](06_ota_storage_design.md) 為準：單一內部 App＋外部 Candidate／Rollback／Sensor slot，三入口共用管理器；不採 stash 內部 A/B。新 map 是候選，現行 firmware memory layout 不變。
 
 ## 1. 依據與邊界
 
@@ -40,7 +42,7 @@ HAL adapters + board profile：Freqchip SDK GPIO/UART/I2C/SPI/CAN/ADC/Timer/PMU
 | `nfc_service` | Host protocol session、card discovery、card data | UID 自動等同已授權駕駛 |
 | `vehicle_service` | CAN 白名單資料、DI debounce、ADC 校正、探頭讀值 | 任意 CAN 全流量永久保存 |
 | `storage_service` | 設定／記錄／OTA staging 的分區與寫入排程 | Driver 自行擦寫其他分區 |
-| `ota_manager` | 更新 session、進度、驗證、install request | LTE/BLE 各自直接改 boot metadata |
+| `ota_manager` | 三入口 update owner、下載／驗證、install request；內部 boot state 為安裝唯一權威 | LTE/BLE/RS232 各自改 boot state，或用 NOR journal 決定安裝 |
 | `power_service` | Rail dependency、wake policy、sleep 協調 | 各 task 自行開關共用電源 |
 | `health_service` | Heartbeat、reset reason、故障分級、watchdog 授權 | 無條件 pet watchdog 掩蓋卡死 |
 | `app_controller` | Tracking／alert／driver session 的業務狀態 | 包辦所有 peripheral polling |
@@ -130,45 +132,50 @@ Critical alerts 與一般 telemetry 分級。CAN／UART raw stream 不走廣播 
 
 Record schema 至少含 version、length、sequence、timestamp/quality、position validity、selected vehicle/sensor values、CRC 與 commit marker。Pending upload／ACK checkpoint 與 physical erase 分離；遇重複 ACK、掉電或重新連線不能漏資料。Server 需支持明確去重／ACK 契約，不能由 client 單方面保證 exactly-once。
 
-以下只是 **32 MiB 假設成立後**的外部 Flash 預算，不是實際 partition table：
+以下是 **32 MB ET100 NOR 的候選預算**，不是已部署 partition table；相對 offset 詳見 06 §3：
 
 | 用途 | 初版預算 |
 |---|---:|
-| Telemetry ring | 24 MiB |
-| OTA staging | 4 MiB |
-| Config／journal／diagnostics | 1 MiB |
-| Spare／erase rotation／growth | 3 MiB |
+| Download journal／metadata | 128 KB，只管下載 |
+| ET100 Candidate | 2 MB |
+| ET100 Rollback | 2 MB，安裝前建立並驗證 confirmed App 備份 |
+| Sensor OTA | 256 KB slot；package 上限 225280 B（含 256 B header） |
+| Logs／其他資料 | 27.625 MB，內部分配 telemetry／diagnostics／wear reserve |
+
+主要 Settings 改為內建 112 KB，boot state 內建 16 KB；舊 1 MB config／journal 合併預算取消。24 MB telemetry 為 Logs／其他的子預算，不再與 27.625 MB 重複相加。EVB 只有 16 MB／1.8 V NOR，能測 offset 0x460000 前的 OTA 區，但不能驗證 ET100 的 32 MB／4-byte addressing。
 
 全部 record overhead 都計入單筆 bytes；事件額外計算。30 天、15 秒一筆 = 172800 筆：64 bytes 為 10.55 MiB，128 bytes 為 21.09 MiB，256 bytes 為 42.19 MiB。24 MiB 對 128-byte periodic records 僅餘 2.91 MiB，還要扣 sector overhead／未滿 sector／事件。不得宣稱 CAN raw logs 也能保留 30 天；policy 需定義已 ACK／未 ACK、滿容量及重要告警的保存次序。
 
 SDK `IC_W25Qxx.c` 現有 read/program 路徑送三個 address bytes；`ext_flash.c` 使用 EVB GPIO、開 quad，部分 protection/chip-erase API 為空。這不是 ET-100 32 MiB NOR 已可用的證據。需驗證符合 XM25QH256D 的 addressing method，測 16 MiB 邊界上下與最高 sector 不 alias；任何 destructive test 只用批准的 scratch partition。
 
-## 8. LTE 與 BLE OTA
+## 8. LTE／BLE／RS232 更新
 
-兩條 transport 都是需求，不再列為二選一：
+三入口均為 Stanley 已確認需求，不是互相替代；取消 Factory recovery、改留 sensor slot 亦已確認。RS232 正常 9600、更新模式 115200／8N1。
 
 ```text
 LTE download adapter -----+
-                          +-> OTA manager -> external staging -> image verification
-BLE app transfer adapter -+                                  -> install adapter
-                                                            -> confirmed boot / recovery
+BLE app transfer adapter -+-> OTA manager -> Candidate / Sensor slot -> verification
+RS232 binary adapter -----+                        +-> installer -> trial / confirm / rollback
+                                                   +-> sensor BLE DFU relay
 ```
 
 共用 API 概念：`begin(manifest, source)`、`write(session, offset, data)`、`query_progress()`、`finish()`、`cancel()`。名稱與 wire format 尚未定稿。Manifest 規劃含 product/board compatibility、version、image length/hash、signature/key ID；所有 offset/length 做 overflow 與 partition bounds 檢查。
 
 ```text
-IDLE -> RECEIVING -> VERIFYING -> STAGED -> INSTALL_PENDING
-     -> REBOOTING -> BOOT_CONFIRM_PENDING -> CONFIRMED
-各階段失敗 -> FAILED / RESUMABLE；recovery/rollback 取決於 boot 層能力
+下載（NOR journal）：IDLE -> RECEIVING -> RECEIVED / download validated
+安裝（內部 state）：INSTALL_PENDING -> BACKUP_READY -> INSTALLING -> TRIAL -> CONFIRMED
+恢復（內部 state）：ROLLBACK_REQUIRED -> ROLLING_BACK -> CONFIRMED / RECOVERY_FAULT
 ```
 
-- 只允許一個 writer/session；LTE 與 BLE 競爭時明確回 busy，不交錯寫 image。Journal 綁定 manifest/hash，duplicate chunk 可冪等處理，resume 需驗證已持久化範圍。
-- LTE 可保留 FTP 相容評估，但正式部署優先 HTTPS／FTPS + certificate validation；exact modem firmware 支援、binary download／resume 行為另查官方 module 文件。
+- 只允許一個 writer/session，三入口與兩種 target 均互斥；NOR journal 綁定 manifest/hash，只管下載／續傳，安裝／trial／確認／rollback 唯一權威是內部 state。
+- LTE／FTP 是已確認需求，FTPS／HTTPS 可另建議而不能直接取代；exact modem firmware 支援、binary download／resume 行為另查官方 module 文件。
 - BLE App 需匹配 Freqchip 或自訂 protocol；不是 Nordic DFU 自動相容。MTU/chunk/ACK/flow-control/security/reconnect 要與 App 一起定義及測試。
 - Transport encryption、CRC、hash 與 image signature 是不同保護。簽章驗證／key provisioning 列為正式 release gate；沒有 secure boot 證據時不得宣稱 root-of-trust／anti-rollback 已達成。
 - SDK `app_otas_get_storage_address()` 從現有 A image 尾端向上 4 KiB 對齊求 B address；不是固定 400 KiB A/B。外部 staging 不代表 bootloader 能直接從外部 Flash install。
 - Factory `Project_burn.bin` 與 OTA payload format 分開確認。保留現有 Patch #5，不推翻 chip type／封裝流程。
-- 先驗證 OEM boot/update 流程，再選擇 internal candidate copy／A-B／其他方案。舊 image 留在外部 Flash 不等於 automatic rollback；需要可執行的 boot confirmation／recovery 路徑及掉電測試。
+- 已選單一內部 App＋NOR staging，不選晶片內 A/B；實作仍須驗 ROM header 只覆蓋 installer、獨立 installer 可用／備份先於 erase／state journal／掉電恢復。App @0x08020000 的 VTOR 與 RAM-code 必須一併處理。
+- 一般 confirmed boot 不初始化 NOR；只有待安裝／安裝恢復或 rollback 才由 installer 啟 NOR。安裝中無可執行 App 時，installer 自帶 NOR／Flash／驗簽及必要硬體初始化，不能回呼 App。
+- 開發順序為 NOR／installer／斷電復原 → RS232 → BLE → LTE → sensor relay；沒有 boot gate 不交付 field-safe 更新。
 - App 中驗簽也不能替代不可繞過的 boot verification。正式版本不得保留可任意寫記憶體／boot region 的範例 OTA/debug 指令。
 
 ## 9. 資源與可靠度

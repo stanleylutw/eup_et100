@@ -1,4 +1,28 @@
-# IMPLEMENTATION_PLAN — Phase 1b.6 App GATT Server
+# IMPLEMENTATION_PLAN — v0.8.0 NOR OTA 規格修訂（文件限定）
+
+## Branch／授權
+
+Base v0.7.0_evb_app_gatt_server／e5274b2。Stanley 已明確同意開 v0.8.0_ota_nor_spec 並更新文件，採其 review 的 header／state authority／sensor package 相容修正；RS232 與取消 Factory recovery 的需求也已在原對話明確確認。本輪不 commit/push，除非另有指示。
+
+## 檔案範圍
+
+本輪 M1／M2／m1／m2 補充授權：只恢復指定 08 報告、flash_size_probe.py／flash_sector_test.py（原 untracked evidence）與工具 README；不恢復其他計畫／A/B 分區。修正 08 分支標記、以相對 links 取代未還原說法、對外 V1.4／Q48-6 中性措辭、01 的 V1.4 引用及自有 installer／ROM 邊界；重跑文件與 diff 檢查，不 build／flash／commit。
+
+- 新增 `fw/docs/01_firmware/06_ota_storage_design.md` 為完整 OTA／記憶體候選契約。
+- 同步 `01_firmware_development_plan.md` §2.0a／§5.1／§5.3a、`02_firmware_architecture_draft.md` §7／§8、`03_hardware_coverage_matrix.md` OTA gate、`04_development_execution_draft.md` M5。
+- 同步 `fw/docs/00_project/00_et100_firmware_platform_plan.md` 文件版 v0.8 與 revision、`fw/REVIEW_REPORT.md`、`docs/00_project/11_project_bring_up_status.md` 的設計／實測邊界。
+- 更新 `docs/03_hardware/sch_analysis/100_questions_for_quectel.md` Markdown V1.4，補 NOR installer 意圖的 Q43-5／Q48-6，明記 HTML／PDF 尚未重產。
+- 本檔只追加本輪授權／scope，保留下方歷史施工單。
+
+## 不做事項與驗收
+
+不改 source／SDK／linker／FAL／FlashDB；工具變更限恢復[唯讀 probe](tools/evb/flash_size_probe.py)／[sector 工具](tools/evb/flash_sector_test.py)及[README](tools/evb/README.md)，Python 內容不改、不執行。恢復[08 報告](docs/04_testing/08_evb_internal_flash_size.md)並修正本分支標記；不安裝、不 build、不燒錄、不操作 UART／App。不整批套用／刪除保存記錄，不恢復其他計畫檔或內部 A/B 分區。不動使用者硬體 README／PCB 資料。
+
+驗證為候選地址／byte sum／erase-alignment、225280／256／225024 package arithmetic、Markdown 相對 links、變更檔案 scope／舊說法一致性與 git diff --check。內部 state 16 KB 可行性、ROM header 只涵蓋 installer、Q48 E-C mapping、runtime Flash／VTOR／掉電恢復不因文件通過而視為已驗證。
+
+---
+
+# 歷史施工單 — Phase 1b.6 App GATT Server
 
 ## Branch／授權
 

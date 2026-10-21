@@ -1,6 +1,6 @@
 # ET-100 硬體覆蓋與驗證矩陣
 
-日期：2026-10-02。版本：v0.1 DRAFT。搭配 [架構](02_firmware_architecture_draft.md)／[執行計畫](04_development_execution_draft.md)。這是開發 reference，不是最終 pin assignment。
+日期：2026-10-21。版本：v0.2 DRAFT。搭配 [架構](02_firmware_architecture_draft.md)／[執行計畫](04_development_execution_draft.md)。本次只同步 OTA gates／三入口，不是新增硬體驗證或最終 pin assignment。
 
 來源：[客戶需求 P04/P05](../../../docs/00_project/02_客戶需求.md)、[P10-P14 系統設計](../../../docs/00_project/03_技術方案_系統設計.md)、[P44/P45 軟體與線束](../../../docs/00_project/06_技術方案_線束與軟體.md)、[SCH 索引](../../../docs/03_hardware/sch_analysis/00_索引.md)、[Datasheet gaps](../../../docs/03_hardware/fr306x_reference/06_gaps_and_revision_history.md)。舊產品 P06-P08 的數值不自動成為 ET-100 驗收條件。
 
@@ -41,7 +41,7 @@
 | H29 | NFC antenna / 14 | NFC service diagnostic hook；PLAN | Matching、卡種/距離目標、enclosure | 裝殼 card matrix／RF tests；不是新增 GPIO driver；M3/M6 |
 | H30 | Reset/button/test points / 1/9 | Board/production diagnostics；BLOCKED | Reset route；button 是否真的 populated、ATE fixture | Reset/recovery、authorized self-test、version/ID readout；M1/M6 |
 
-跨硬體功能：雙 transport OTA、EUP protocol、remote config、30 天 logging、重傳、alert/driver-session 見架構與 M4/M5。LTE 的 USB test points 不自動成為 MCU USB 產品介面；SD／audio／display／PSRAM 不因 SDK 有 driver 就加入 scope。
+跨硬體功能：LTE／BLE／RS232 三入口更新及 sensor relay（[NOR 規格](06_ota_storage_design.md)）、EUP protocol、remote config、30 天 logging、重傳、alert/driver-session 見架構與 M4/M5。EVB 的 16 MB NOR 不證明產品 32 MB／4-byte addressing；LTE 的 USB test points 不自動成為 MCU USB 產品介面；SD／audio／display／PSRAM 不因 SDK 有 driver 就加入 scope。
 
 ## 2. 不能照抄的文件矛盾
 
@@ -58,7 +58,7 @@
 | B09 | GNSS EINT 被推定為 1PPS；LTE BJT shift 被推定必須 UART invert | 取得子板／level-shift topology、示波器量測，不先選 polarity 或 PPS precision |
 | B10 | SDK NOR 範例使用 EVB GPIO、quad 與三-byte address | Board-specific adapter + full-capacity boundary test；不能直接重用稱 32 MB 支援 |
 | B11 | 原草案 task priority 10/11；SDK max=10 | 保留 SDK host/RPMsg，以 0..9 合法值規劃並做 latency/resource 測量 |
-| B12 | 原草案固定 A/B 400 KiB、boot/CRC 分區、automatic rollback | 未取得正式 boot/map 不定址；目前 linker 1016 KiB 是 app window，不是 partition 授權 |
+| B12 | 原草案固定 A/B、boot/CRC 分區、automatic rollback | 已選 2 MB 單 App＋NOR staging 候選，不採 stash A/B；header 8 KB＋installer 120 KB，內部 state 16 KB 唯一權威，見 06。Q43-5／Q48-6 前不改現行 linker／FlashEnv，不宣稱已具 rollback |
 | B13 | 原草案把 .bss、RTOS heap/task stack/BT buffers 重複加總 | Baseline與新增 reserved bytes分開；以 map＋allocator runtime ledger 計算 |
 | B14 | 文件稱 CMake 成功、RTT 可用、release .conf 已存在 | 目前確證為 SDK Makefile；repo CMake/linker/startup parity 與 RTT 都另設 gate |
 | B15 | PWM、NFC IRQ/register、charger fault truth table 的筆記推論 | 只做 transport／logical interface 規劃；driver 細節等 exact datasheet/sample |

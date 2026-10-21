@@ -5,12 +5,13 @@
 **SCH 版本審查 / SCH Reviewed**：QEM800QQA-FYN01AA_MB_SCH_V1.1_20260923_1630
 **提案書對照 / Proposal Ref**：Eupfin_Tracker_Product_Proposal V1.8 (2026.08.28)
 **提出者 / From**：EUPFIN Technology Co., Ltd.
-**日期 / Date**：2026-10-02
-**版本 / Rev**：V1.3（Markdown；HTML／PDF 尚未同步）
+**日期 / Date**：2026-10-21
+**版本 / Rev**：V1.4（NOR staging 修訂；Markdown，HTML／PDF 尚未同步，不可直接當已重產寄送版）
 
 **修訂紀錄 / Revision History**：
 | Rev | Date | Change |
 |:-:|:-:|---|
+| V1.4 | 2026-10-21 | 補充單 App＋外部 NOR staging 候選、三種更新入口、Q43-5 ROM／installer 與 header CRC 範圍、Q48-6 FR3068E-C Flash／runtime write 確認；納入 EP-C EVB 容量量測依據，HTML／PDF 未同步 |
 | V1.0 | 2026-10-01 | Initial release (38 題) |
 | V1.1 | 2026-10-01 | ① 修正 MCU vendor name: Fibocom → **Freqchip (富芮坤)** ② 新增 P0-FW 8 題（Q39-Q46）針對 Eupfin 自行開發韌體的前提條件 |
 | V1.2 | 2026-10-02 | 依 Freqchip SDK 公開翻查結果：① **撤回 Q39、Q41、Q46**（SDK 公開可自取、GCC 支援齊、EVB 公開賣）② **新增 Q47（SVD 檔）、Q48（SRAM 容量矛盾）** ③ 修正 Q43、Q45 背景 |
@@ -547,7 +548,9 @@ Quectel 是否同意納入 EVT 交付範圍？
 
 **問題 Q43-3**：OTA image signature verification + rollback protection 的實作建議？Quectel 自家 FW 的 OTA 流程圖？
 
-**問題 Q43-4**：Over LTE 的 OTA（HTTPS download）vs over BLE 的 OTA（Nordic DFU 類似）—— 兩種都要支援嗎？
+**問題 Q43-4**：Eupfin 已確認 LTE／FTP、BLE App、RS232 三個更新入口共用 NOR staging／installer（RS232 正常 9600、更新 115200／8N1）。請提供原廠可用的 transport／image format／flow-control 與 download-resume reference，並確認哪些既有 BLE OTA／ROM 搬移功能可重用；不是詢問三種需求是否擇一。
+
+**問題 Q43-5**（V1.4）：post_process.py 的 FR509x header 有 code_length／CRC、store_offset／exec_offset／copy_unit 與 OTA options。Eupfin 候選在 0x08000000 保留 8 KB header、0x08002000 放 120 KB 自有 installer，App 移至 0x08020000、1792 KB；header 的 code_length／CRC 僅覆蓋 installer 的載入映像（包含所需 RAM-code／data），一般 OTA 不改 header。**ROM 是否只驗指定長度、完全不驗後方獨立 App 區？** 是否允許 installer 自行驗簽／設 VTOR／跳 App？各 header options 如何設定才不觸發 ROM 自身搬移／OTA，是否有額外校驗／範圍／secure-boot 限制？請提供正式 boot flow／header spec／reference。架構已選單 App＋外部 NOR candidate/rollback，不採內部 A/B；請明確說明自有 installer 與 ROM 的責任邊界及掉電行為。
 
 **Quectel 回覆**：
 
@@ -630,6 +633,8 @@ Quectel 是否同意納入 EVT 交付範圍？
 **問題 Q48-4**：請核對 SCH symbol／PCB footprint 與 board-matched pin-change errata，提供 full pinmux、逐 GPIO voltage bank、SWD／VTref、reset defaults、1V8／3V3 sequencing 與 unpowered IO 規範。
 
 **問題 Q48-5**：請確認實際採購料號與 AEC-Q100 資格；若要求車規，提供 exact part 的 qualification 資料並說明與 v0.4.9 p.7「否」的差異，不能以系列 Grade 2 或工作溫度代替證明。
+
+**問題 Q48-6**（V1.4）：FR3068EP-C EVB 已量測內建 Flash 為 2 MB，並確認上半 1 MB 可 erase／program，請確認量產 FR3068E-C 是否相同。ET100 量產 FR3068E-C 內建 Flash 的廠牌／型號／JEDEC ID 是什麼，是否固定 2 MB？0x08100000..0x081FFFFF 是否有 BT／校正／ROM 保留或其他寫入限制？從 XIP 執行 installer／App 時，使用 SDK flash_write／flash_erase 寫上半區需要哪些 RAM-code、ISR／cache／clock／電壓條件？SDK SystemInit 未設 VTOR，對 App @0x08020000、Settings @0x081E0000（112 KB）與 state @0x081FC000（16 KB）的候選有何限制？目前 FlashEnv @0x080C8000／12 KB，搬遷及 FAL 適配有無正式參考？
 
 **Quectel 回覆**：
 

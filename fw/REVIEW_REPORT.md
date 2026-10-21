@@ -381,6 +381,24 @@ _None remaining after restoring the FR509x header selector._
 
 ---
 
+# Addendum — v0.8.0 NOR OTA 規格審查（2026-10-21）
+
+**範圍**：依 Stanley 授權做 docs/tools 限定修訂，採完整 2 MB 單 App＋NOR staging／rollback／sensor slot，不採晶片內 A/B。恢復指定[08 實測報告](docs/04_testing/08_evb_internal_flash_size.md)、[唯讀 probe](tools/evb/flash_size_probe.py)、[sector 工具](tools/evb/flash_sector_test.py)與[工具 README](tools/evb/README.md)，未執行工具。板上仍 0.7.0-dev，不改 SDK／source／linker／FAL、不 rebuild／flash、不 commit。使用者硬體 README／PCB 保留。
+
+**已修正**：前 128 KB 拆為 FR509x header 8 KB＋installer 120 KB，App @0x08020000／1792 KB，Settings 112 KB、內部 boot state 16 KB；內部 state 唯一決定安裝／trial／confirm／rollback，NOR journal 只管下載；Sensor slot 雖預留 256 KB，package 上限依 Gateway header 核對為 225280 B（含 256 B header、image ≤225024 B）。先前 262144 B package 上限不相容，已明確撤回。
+
+**新增契約**：confirmed App 的 Rollback 必須在 erase 前建立並驗 hash；同 hash 備份只有實際驗證後才跳過寫入。Installer 完全自帶必要 NOR／Flash／RAM-code／hash／驗簽／watchdog，不依賴安裝中可能不存在的 App。一般 confirmed boot 不初始化 NOR；App relocation／VTOR 與睡眠還原列 gate。EVB 16 MB NOR 不能驗產品高位地址；需求來源記錄 Stanley 的 RS232 入口與取消 Factory recovery 指示。
+
+**查證與未證明事項**：本機 Gateway sensor_ota_package.h 常數、SDK SystemInit 未設 VTOR、freertos_sleep.c 保存／還原 VTOR、flash_write／flash_erase 的 __RAM_CODE 均已只讀核對。這不證明完整 RAM call graph 或 ROM CRC 範圍；後者明確待 Q43-5，exact E-C 2 MB／runtime write 待 Q48-6。16 KB journal 仍須 record／wear／GC proof；現行 FlashEnv C8000／12 KB 移轉為實作前置。[08 報告](docs/04_testing/08_evb_internal_flash_size.md)及其工具已恢復，量測屬既有 EP-C EVB 證據，本輪未執行硬體測試。NOR → 內部 copy 由自有 installer 實作；Q43-5 只確認 ROM／installer 邊界，不依賴原廠 ROM 提供 NOR install。
+
+**驗證類型**：文件地址／總和／alignment、package 邊界、相對連結、語意一致性及變更範圍檢查；沒有韌體 runtime／ROM／NOR 測試。完整候選與保留清單見 [OTA 儲存規格](docs/01_firmware/06_ota_storage_design.md)。Overall：**規格修正供 Claude Code 複審；不得當 boot／安全更新實作完成**。HTML／PDF 技術問題清單尚未重產。
+
+**實際文件檢查結果**：內部 2097152 B／外部 33554432 B、十個分區的區間長度／連續／不重疊／4 KB alignment PASS；Gateway 常數與 Sensor image 上限／slot 餘量算術 PASS；新增／修改行的 Markdown 相對檔案 links PASS；git diff --check（排除使用者既有硬體 README）PASS。source／tests／targets／SDK 未變；本輪工具變更限恢復[唯讀 probe](tools/evb/flash_size_probe.py)／[sector 工具](tools/evb/flash_sector_test.py)與 README，原保存記錄未刪除或整批套用。這些是文件與 scope 檢查，不是 erase geometry／ROM／硬體驗收。
+
+**M1／M2／m1／m2 複查**：四個指定檔案已選擇性恢復；08 分支改為 v0.8.0_ota_nor_spec、無晶片內 A/B 引用。兩支 Python 工具 byte 比對一致、僅 AST syntax 解析，未執行。06／01 §5／本報告／status 均以實體相對 links 引用證據／工具；V1.4 row／Q48-6 使用中性 EVB 量測句並詢問 E-C，01 的問題清單引用皆改 V1.4，NOR copy 明確由自有 installer 實作、Q43-5 僅確認 ROM／installer 邊界。分區算術／連續／alignment／package 上限／新增相對 links／範圍檢查均 PASS，log `/tmp/et100_ota_nor_doc_checks.log`。git diff --cached --check 及本輪 working-tree／combined 範圍檢查 PASS；全工作區 git diff --check／git diff HEAD --check 僅有原已存在的硬體 README EOF 空行警告（本輪不修改該檔）。08／工具 README 另明記 0x081F7000 未來屬 Settings，不能永久當 scratch。沒有 build／flash／commit，HEAD 未變。
+
+---
+
 # Addendum — Phase 1b.6 App GATT Server（2026-10-21）
 
 **Stanley 實測更新**：燒入 EUP_AIoT_HUB_FR／0.7.0-dev 後，Stanley 回覆「yes, it works.」，App 基本連線與 manager 路徑記為使用者確認可用；沒有逐筆 log，不將雙角色並行／長時間／所有驗收步驟一併列為 PASS。詳細證據界線見 [測試紀錄](docs/04_testing/07_evb_app_gatt_server.md)。下方「待驗收」描述保留為當時狀態，以本補充為準。
