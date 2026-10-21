@@ -101,7 +101,13 @@
 
 ## ⚙️ Category 8 — Build 產物（Reference BLE Peripheral Example）
 
-**目前 EVB 已燒錄版本**：2026-10-21 獨立 `fw/build_serial/` UART3 9600 target（`0.5.0-dev`），新增 GCID／SCID 保存、BLE scan、Type 1 GTIME/RSSI/XOR 回報；program/readback PASS，Stanley 實測 4 MAC／55 筆 Type 1、XOR 全通過，並確認 CID 切換與 CID／GTIME 手動 RST 後保存正常，見 [CID／scan 紀錄](../../fw/docs/04_testing/04_evb_cid_ble_scan.md)。前版 GTIME 驗證見 [GTIME 紀錄](../../fw/docs/04_testing/03_evb_gtime_settings.md)；GCHK 歷史見 [serial 紀錄](../../fw/docs/04_testing/02_evb_serial_gchk.md)。斷電／GC／長時間測試仍未驗收。此 target 無新增 SDK patch；下表仍保留原 reference BLE baseline metrics。
+**最新 D4 LED build**：0.6.0-dev 新增 PA7／D4 Gateway LED、PA6／D3 固定低電位熄滅，待機／資料／sensor GATT link 使用不同亮滅規則，不改 K1-K3。Burn 283,400 bytes，ELF text/data/bss=239,912/35,288/66,304 bytes，取代下方早期 build 的同名數字；SDK active patches 仍 8 組，新增 0。LED task 另需 1.5 KiB stack 與 TCB，runtime heap 餘量未量測。實體驗收及最新燒錄結果見 [LED 紀錄](../../fw/docs/04_testing/06_evb_gateway_led.md)。
+
+**0.6.0-dev HTML 修正版**：STYPESWITCH 接受 `0;` 取消空欄位與 `1;<MAC>` 連線格式，回覆正規化；修正前的 HTML cancel 被 valid=0 拒絕。修正版 burn=283,120 bytes，ELF text/data/bss=239,632/35,288/66,304 bytes；數據取代下段首版 build 的對應數字，data+bss 不變。燒錄／測試最新狀態見 GATT 紀錄；未修改 SDK。
+
+**最新 EVB 更新（0.6.0-dev）**：2026-10-21 已燒入 Gateway-style GATT client，UART3 仍 9600。支援 manual／auto、AES 認證、metadata／command／config、Type 8；host／build／program-readback PASS，真實 sensor 驗收 pending。Burn 283,056 bytes，ELF text/data/bss=239,568/35,288/66,304 bytes；data+bss 101,592 bytes 不等於 heap 可用量。新增 SDK patch 0，active patches 仍 8 組。詳見 [GATT 紀錄](../../fw/docs/04_testing/05_evb_gatt_client.md)。下段 0.5.0-dev 為已完成 Stanley 硬體驗收的歷史版本，不再是目前板上版本。
+
+**前版 EVB 驗收紀錄**：2026-10-21 獨立 `fw/build_serial/` UART3 9600 target（`0.5.0-dev`），新增 GCID／SCID 保存、BLE scan、Type 1 GTIME/RSSI/XOR 回報；program/readback PASS，Stanley 實測 4 MAC／55 筆 Type 1、XOR 全通過，並確認 CID 切換與 CID／GTIME 手動 RST 後保存正常，見 [CID／scan 紀錄](../../fw/docs/04_testing/04_evb_cid_ble_scan.md)。前版 GTIME 驗證見 [GTIME 紀錄](../../fw/docs/04_testing/03_evb_gtime_settings.md)；GCHK 歷史見 [serial 紀錄](../../fw/docs/04_testing/02_evb_serial_gchk.md)。斷電／GC／長時間測試仍未驗收。此 target 無新增 SDK patch；下表仍保留原 reference BLE baseline metrics。
 
 **最新結果：Phase 1b，2026-10-21**。GCC 14.3.1 build 的 reference BLE example 已透過板載 DAPLink + SDK `FR30xx.FLM` 寫入 FR3068EP-C DEV1.4。整份 `Project_burn.bin` 從 `0x08000000` programming，66 sectors，readback 逐 byte PASS；reset 後 app 啟動，nRF Connect 可連線並看到預期 GATT。已確認 post-process 必須使用 vendor default **FR509x header layout**；先前推論的 FR303x layout 會讓 options 欄位錯位並造成 boot/SWD 卡死。
 

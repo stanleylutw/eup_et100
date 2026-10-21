@@ -378,3 +378,19 @@ _None remaining after restoring the FR509x header selector._
 **Stanley 實測更新**：`rs232_log_20261021_165642.txt` 證明 4 個 MAC、55 筆真實 Type 1，55/55 XOR 正確；23 筆命令 response/token 全部吻合。基本 scan→Type 1→HTML 路徑 PASS。SAUTOGATT 等未支援功能 valid=0 為預期；不同 CID 的負向／清空對照與 CID reset 保存仍待驗證。完整統計及推論限制見 [實測紀錄](docs/04_testing/04_evb_cid_ble_scan.md)。
 
 **驗收補充**：後續 17:00 export 顯示切至 CID 1234 後停止 Type 1、讀回 CID=1234／GTIME=3，再恢復 0639 成功。Stanley 明確確認查詢前有按 RST 且整體正常；因此 CID／GTIME 手動 reset 保存 PASS。突然斷電、GC 與長時間測試仍未驗收，詳見同份測試紀錄。
+
+---
+
+# Addendum — Phase 1b.5 Gateway-style GATT（2026-10-21）
+
+**D4 LED 增補**：依 Stanley 指示，專案 source 以 PA7 驅動 D4 Gateway 狀態、PA6 固定低電位關閉 D3。採 Gateway 的待機／資料／GATT 100／200／3000 ms 規則，移植到 sensor central link；不是認證成功指示。獨立 task 避免 UART blocking 影響更新；LED 模型 ASan／UBSan、四組 regression、ARM build 與 header／CRC／FlashEnv 檢查 PASS。SDK 新 patch 0，未改按鍵。實體亮滅、heap／stack 與時序由 Stanley 驗收，詳見 [LED 紀錄](docs/04_testing/06_evb_gateway_led.md)；本小改尚未獨立 reviewer 審查。
+
+**HTML 相容性修正**：Stanley 的 17:46 log 揭露 `STYPESWITCH;0;;token` 被首版 parser 拒絕，未實際執行斷線。修正接受 HTML 的空 MAC 欄位與手動連線分號格式，保留簡寫並正規化 response。補 unit regression 與 mock session 經 HTML cancel handler 的清理／scan restore；不改 SDK、HTML 或連線生命週期。修正版數據與驗收狀態以 [GATT 紀錄](docs/04_testing/05_evb_gatt_client.md) 最新補充為準。
+
+0.6.0-dev 新增手動／自動單一 central session、MTU／service／characteristic／CCCD discovery、Gateway-compatible AES challenge、metadata／raw command／config、Type 8 與八筆 auto list 保存。專案 overlay 引入 Gateway portable helpers 與 TinyCrypt AES subset；認證材料不輸出，SDK patch 新增 0。原 GTIME／CID keys、clock／linker／post-process 不變。
+
+**Review**：獨立 reviewer 多輪檢查並修正取消／晚到 MASTER、零 status CONN_END、owner 釋放、DC 順序、舊 AP/MR、掃描啟動／恢復與 backpressure 問題。最後無確認的 Critical／Major production findings。另補成功即時 metadata 讀取的 cache 更新、失敗 command MAC/CMD echo。四組 ASan／UBSan host tests、ARM build 與獨立 header／CRC／payload／FlashEnv 邊界檢查 PASS。
+
+**燒錄**：283,056-byte burn image，70 sectors，37.7 秒完成；readback 逐 byte PASS，reset 後 resumed。此結果不等於 UART app／GATT 成功。完整 metrics／hash／logs 與 Stanley 測試步驟見 [GATT 紀錄](docs/04_testing/05_evb_gatt_client.md)。Codex 未操作 UART／HTML，不做 sensor 認證、讀取或設定通過的宣稱。
+
+**限制**：僅一個 metadata cache、一次 connect／auth；三秒認證期限包含 discovery。模糊零 status 結束事件無後續確認可保留 DRAIN 需 RST；持續 queue 過載可丟 ACK 並清理。Mock 不能證明真實 SDK callback 排程、radio 並行、heap／stack high-water 或持久化故障恢復。無 Sensor OTA、完整 Gateway retry policy／MAXRPT／whitelist。Overall：**host／build／flash PASS，GATT 硬體驗收 pending**。未 commit／merge／push。

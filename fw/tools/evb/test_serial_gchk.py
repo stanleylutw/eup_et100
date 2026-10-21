@@ -47,7 +47,7 @@ def main():
             line = receive()
             match = re.fullmatch(
                 r"AT\$PD=BLEGW\$GCHK;1;([0-9A-F]{12});Freqchip;"
-                r"DEV1\.4_fr3068ep-c;0\.5\.0-dev;0;([A-Za-z0-9]{4})\r\n",
+                r"DEV1\.4_fr3068ep-c;0\.6\.0-dev;[012];([A-Za-z0-9]{4})\r\n",
                 line,
             )
             assert match and match[2] == token, "GCHK schema/token mismatch"
@@ -72,8 +72,8 @@ def main():
         gchk("abcd")
         print("PASS: concatenated commands", flush=True)
 
-        send(b"BLEGW$GTYPESWITCH;FAIL\r\n")
-        assert receive() == "AT$PD=BLEGW$GTYPESWITCH;0;FAIL\r\n"
+        send(b"BLEGW$GMAXRPT;FAIL\r\n")
+        assert receive() == "AT$PD=BLEGW$GMAXRPT;0;FAIL\r\n"
         send(b"BLEGW$GCHK;extra;BAD1\r\n")
         assert receive() == "AT$PD=BLEGW$GCHK;0;BAD1\r\n"
         print("PASS: unsupported command and invalid parameters", flush=True)

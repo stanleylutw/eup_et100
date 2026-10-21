@@ -17,6 +17,7 @@
 #include "app_task.h"
 #include "app_at.h"
 #include "serial_gchk.h"
+#include "status_led.h"
 
 /* hardware handlers */
 static UART_HandleTypeDef Uart3_handle;
@@ -359,6 +360,8 @@ int main( void )
     /* system_prevent_sleep_clear(SYSTEM_PREVENT_SLEEP_TYPE_DISABLE); */
 
     printf("FR5090: ble_simple_peripheral.\r\n");
+
+    et100_status_led_init();
 
     /* Start the scheduler itself. */
 	vTaskStartScheduler();

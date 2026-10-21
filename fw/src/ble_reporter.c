@@ -155,6 +155,8 @@ static struct et100_reporter reporter;
 static int configured;
 volatile unsigned et100_scan_status = 0xff;
 volatile unsigned et100_scan_reports, et100_scan_accepted;
+static uint32_t scan_attempt_ms;
+static unsigned scan_attempted;
 
 void et100_scan_configure(const uint16_t cids[4], uint16_t gtime, int clear)
 {
@@ -191,14 +193,25 @@ void et100_scan_start(void)
         .phy_mode = GAPM_PHY_TYPE_LE_1M,
         .dup_filt_pol = 0, .scan_intv = 40, .scan_window = 30, .duration = 0,
     };
-    if (et100_scan_status == 0xff)
-        et100_scan_status = gap_scan_start(&params) == BLE_API_ERR_NO_ERR ?
-                            0xfe : 0xfd;
+    uint32_t now = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
+    taskENTER_CRITICAL();
+    unsigned status = et100_scan_status;
+    if (status == 0 || (scan_attempted && (uint32_t)(now - scan_attempt_ms) < 1000) ||
+        (status == 0xfe && (uint32_t)(now - scan_attempt_ms) < 3000)) {
+        taskEXIT_CRITICAL(); return;
+    }
+    scan_attempt_ms = now; scan_attempted = 1; et100_scan_status = 0xfe;
+    taskEXIT_CRITICAL();
+    ble_api_err_t result = gap_scan_start(&params);
+    taskENTER_CRITICAL();
+    if (result != BLE_API_ERR_NO_ERR && et100_scan_status == 0xfe) et100_scan_status = 0xfd;
+    taskEXIT_CRITICAL();
 }
 
 void et100_scan_event(struct gap_event *event)
 {
-    if (event->type == GAP_EVT_SCAN_START) et100_scan_status = event->param.scan_start_status;
+    if (event->type == GAP_EVT_SCAN_START) et100_scan_status = event->param.scan_start_status ?
+        0x200 | event->param.scan_start_status : 0;
     if (event->type == GAP_EVT_SCAN_END) et100_scan_status = 0x100 | event->param.scan_end_status;
     if (event->type != GAP_EVT_ADV_REPORT || !event->param.adv_rpt) return;
     struct gap_evt_adv_report *report = event->param.adv_rpt;

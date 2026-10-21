@@ -1,10 +1,12 @@
 # DEV1.4 UART3 — Gateway 查詢、CID 與 BLE 回報子集
 
-Version: v0.3
+Version: v0.4
 日期：2026-10-21
 狀態：GCHK、基本 BLE scan／Type 1、CID 切換對照與 CID／GTIME 手動 RST 後保存已由 Stanley 驗證；詳細證據及限制見測試紀錄
 
 ## 用途與接線
+
+0.6.0-dev 新增 Gateway-style GATT client，命令、Type 8 與限制見 [GATT 規格](02_evb_gatt_client.md)。此前 0.5.0-dev 的 scan／CID 實測證據保留；新 GATT 硬體驗收尚待執行。
 
 HTML tester 為 command initiator，DEV1.4 為 responder。使用同一 DAPLink VCOM，PB5 為 MCU TX、PB4 為 MCU RX；四個 DEBUG jumper 保留。UART3：9600 bps、8 data bits、no parity、1 stop bit、no flow control。這條路徑驗證 UART 協定，尚未驗證 ET-100 UM3221 RS232 電平轉換電路。
 
@@ -16,13 +18,13 @@ HTML tester 為 command initiator，DEV1.4 為 responder。使用同一 DAPLink 
 
 ```text
 BLEGW$GCHK;A1b2\r\n
-AT$PD=BLEGW$GCHK;1;<identity>;Freqchip;DEV1.4_fr3068ep-c;0.5.0-dev;0;A1b2\r\n
+AT$PD=BLEGW$GCHK;1;<identity>;Freqchip;DEV1.4_fr3068ep-c;0.6.0-dev;<state>;A1b2\r\n
 ```
 
 - `identity`：依 SDK `app_btdm_init()` 相同演算法讀 unique ID 並建立 random static BLE identity，以 MSB-first 12 位 uppercase hex 顯示。不是 LTE IMEI；並非已驗證的工廠唯一性保證。
 - `Freqchip` 為 EVB MCU vendor；板型明確標示 FR3068EP-C，不冒用量產 E-C 或 nRF 板型。
-- `0.5.0-dev` 是 CID／scan 版的固定開發識別，非 release tag。
-- `state=0` 僅用於此相容層的 idle，未實作 Gateway beacon/central/GATT session 狀態機。
+- `0.6.0-dev` 是 GATT 版開發識別，非 release tag。
+- `state=0` 為 IDLE，1 為準備／認證／清理，2 為已認證 READY。
 - token 原樣回傳，包含大小寫。Query response 依 Gateway 現行實作，不含 XOR checksum；本版沒有 Type 0 heartbeat 或其他主動回報。
 
 合法 `BLEGW$<CMD>;...;<token>` 的未支援命令、或 GCHK 多餘參數，回覆 `AT$PD=BLEGW$<CMD>;0;<token>\r\n`。不產生設定成功或 OTA handshake。命令名稱限制 1-24 個 uppercase 英數字元。prefix、token、CRLF 不合法或含 binary bytes 的行會丟棄。
@@ -83,13 +85,13 @@ MAC 是 link-layer advertiser address，MSB-first uppercase；不是從 sensor p
 - EUP v1／v2 的長度、version nibble、packet-info offset 沿用 Gateway parser 判斷；同 MAC 已 snapshot 的相同 version＋packet_info 在 1500 ms 內只更新 RSSI/last-seen，避免五包 burst 跨周期重複。未採用 Gateway 的 realtime XYZ batch。
 - CID 更新清空 cache／batch；GTIME 更新取消舊 batch、保留 pending cache並重設周期。host 應等待回覆再送下一命令。
 
-掃描 API 失敗或 scan end 不自動無限重試。可由 ELF symbol 經 SWD 查看 `et100_scan_status`（FF=未要求、FE=等待事件、FD=同步錯誤、0=SCAN_START 成功、100|status=SCAN_END）與 `et100_scan_reports`／`et100_scan_accepted`。這些不是新 UART 協定欄位。未驗證 SDK 對所有 non-discoverable sensors 的 host-side 處理、廣播／掃描／GATT 並行或低功耗。
+0.5.0-dev 不自動重試掃描；0.6.0-dev 在 IDLE／WAIT_ADV 驅動恢復，至少一秒 backoff、pending 三秒逾時。可經 SWD 查看 `et100_scan_status`（FF 未要求、FE 等待、FD 同步錯誤、0 成功、0x200|status 非同步啟動錯誤、0x100|status 結束）與 reports／accepted counters。這些不是新 UART 欄位。GATT 期間掃描暫停，owner 釋放後恢復；並行及所有 sensor 類型仍待實測。
 
 ## 接收與資源
 
-ISR 只把 byte 放入 512-byte ring（可存 511 bytes），task 每 10 ms 空閒輪詢並處理完整行。serial task stack 為 1024 words（4 KiB，由 RTOS heap 配置），供 FlashDB 呼叫使用；stack high-water 待驗證。每行最多 127 個 printable bytes；超長或 ring overflow 時丟棄至下一個 LF，再恢復解析。回覆使用 blocking UART transmit，無動態封包配置；大量未節流的 command burst 或 Flash erase/GC 仍可能超過 ring，host 應逐筆送命令並等待對應 token。
+ISR 只把 byte 放入 512-byte ring（可存 511 bytes），task 每 10 ms 空閒輪詢並處理完整行。serial task stack 為 1024 words（4 KiB，由 RTOS heap 配置），供 FlashDB 呼叫使用；stack high-water 待驗證。每行最多 127 個 printable bytes；超長或 ring overflow 時丟棄至下一個 LF，再恢復解析。0.6.0-dev 先處理一輪 RX，再送 bounded GATT queue 與 Type 1；GATT dispatch 不阻塞等待 queue。最終 UART transmit 仍為 blocking，大量命令或 Flash erase/GC 仍可能超過 ring，host 應逐筆送命令並等待對應 token。新增 queue／GATT stack 資源見 GATT 規格。
 
-未啟用原範例 AT# memory read/write 指令。BLE peripheral profile 保留於專案自有 source，但此新 target 的 BLE regression 需要另驗。未提供 baud runtime 切換；目前可保存設定為 GTIME 與 CID。
+未啟用原範例 AT# memory read/write 指令。BLE peripheral profile 保留於專案自有 source，但此新 target 的 BLE regression 需要另驗。未提供 baud runtime 切換；目前可保存 GTIME、CID 與 GATT auto list，session 僅在 RAM。
 
 ## Build 與測試
 
@@ -107,7 +109,7 @@ cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
 python3 fw/tools/evb/fr3068_flash.py --image fw/build_serial/output/Project_burn.bin
 ```
 
-HTML 使用 sibling Gateway 的 `tools/rs232_tester.html`，連接 DAPLink VCOM，baud 固定 9600。GCHK 顯示板型與版本，GGTIME／SGTIME、GCID／SCID 可查詢及保存設定；Type 1 使用既有 sensor table／log。GLIST、GMAXRPT、GAUTOLIST 未支援，回覆失敗。不使用 Gateway OTA、Sensor OTA 或 GATT 操作。新板型不屬於 tester 的 nRF OTA allowlist。
+HTML 使用 sibling Gateway 的 `tools/rs232_tester.html`，連接 DAPLink VCOM，baud 固定 9600。GCHK、GTIME、CID 與 Type 1 沿用；0.6.0-dev 新增 GAUTOLIST／GATT 操作，見 [GATT 規格](02_evb_gatt_client.md)。GLIST、GMAXRPT、Gateway OTA／Sensor OTA 仍未支援；新板型不屬於 nRF OTA allowlist。
 
 Stanley 已使用 HTML 確認 GCHK 與 5 個未支援命令的失敗回覆，見 [實測紀錄](../04_testing/02_evb_serial_gchk.md)。擴充驗收仍包含：GCHK token 100 次一致、長時間輸出無 vendor log、reset 後可重連、BLE 原有廣播／連線不退化。Host tests 不代替這些硬體結果。依 Stanley 指示，UART／HTML 後續測試由 Stanley 操作，Codex 未執行自動 UART script。
 

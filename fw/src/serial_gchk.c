@@ -1,6 +1,18 @@
 #include "serial_gchk.h"
 #include <stdio.h>
 #include <string.h>
+#ifndef ET100_SERIAL_HOST_TEST
+#include "gatt_client.h"
+#endif
+
+static unsigned current_gatt_state(void)
+{
+#ifndef ET100_SERIAL_HOST_TEST
+    return et100_gatt_state();
+#else
+    return 0;
+#endif
+}
 
 static int ascii_alnum(unsigned char c)
 {
@@ -121,8 +133,8 @@ static void handle_line(struct et100_serial_parser *p)
     *end = '\0';
     if (strcmp(command, "GCHK") == 0 && token == end + 1) {
         length = snprintf(response, sizeof(response),
-            "AT$PD=BLEGW$GCHK;1;%s;Freqchip;DEV1.4_fr3068ep-c;0.5.0-dev;0;%s\r\n",
-            p->identity, token);
+            "AT$PD=BLEGW$GCHK;1;%s;Freqchip;DEV1.4_fr3068ep-c;0.6.0-dev;%u;%s\r\n",
+            p->identity, current_gatt_state(), token);
     } else if (strcmp(command, "GGTIME") == 0 && token == end + 1) {
         length = snprintf(response, sizeof(response),
                           "AT$PD=BLEGW$GGTIME;%u;%u;%s\r\n",
@@ -162,6 +174,12 @@ static void handle_line(struct et100_serial_parser *p)
         if (!parsed) memset(cids, 0, sizeof(cids));
         length = cid_response(response, sizeof(response), command, valid, cids, token);
     } else {
+#ifndef ET100_SERIAL_HOST_TEST
+        char *params = end + 1;
+        if (token != params) token[-1] = '\0';
+        else params = "";
+        if (et100_gatt_uart(command, params, token)) return;
+#endif
         length = snprintf(response, sizeof(response),
                           "AT$PD=BLEGW$%s;0;%s\r\n", command, token);
     }
@@ -316,29 +334,36 @@ static void serial_task(void *argument)
     et100_scan_configure(serial_parser.cids, serial_parser.gtime, 1);
     unsigned cid_revision = serial_parser.cid_revision;
     uart_receive_IT(serial_uart, &rx_byte, 1);
+    et100_gatt_poll(serial_send, serial_uart);
 
     for (;;) {
-        int value = -1;
-        taskENTER_CRITICAL();
-        if (rx_overflow) {
-            rx_tail = rx_head;
-            rx_overflow = 0;
-            et100_serial_reset(&serial_parser);
-            serial_parser.discard = 1;
-        }
-        if (rx_tail != rx_head) {
-            value = rx_ring[rx_tail];
-            rx_tail = (rx_tail + 1) % RX_RING_SIZE;
-        }
-        taskEXIT_CRITICAL();
-        if (value >= 0) {
+        unsigned received = 0;
+        /* Drain queued input before a potentially 200-ms UART transmission. */
+        for (; received < RX_RING_SIZE; received++) {
+            int value = -1;
+            taskENTER_CRITICAL();
+            if (rx_overflow) {
+                rx_tail = rx_head;
+                rx_overflow = 0;
+                et100_serial_reset(&serial_parser);
+                serial_parser.discard = 1;
+            }
+            if (rx_tail != rx_head) {
+                value = rx_ring[rx_tail];
+                rx_tail = (rx_tail + 1) % RX_RING_SIZE;
+            }
+            taskEXIT_CRITICAL();
+            if (value < 0) break;
             et100_serial_feed(&serial_parser, (uint8_t)value);
-            et100_scan_configure(serial_parser.cids, serial_parser.gtime,
+            if (value == '\n') {
+                et100_scan_configure(serial_parser.cids, serial_parser.gtime,
                                   cid_revision != serial_parser.cid_revision);
-            cid_revision = serial_parser.cid_revision;
+                cid_revision = serial_parser.cid_revision;
+            }
         }
+        et100_gatt_poll(serial_send, serial_uart);
         et100_scan_poll(serial_send, serial_uart);
-        if (value < 0)
+        if (!received)
             vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
@@ -358,6 +383,7 @@ void app_at_rx_done(struct __UART_HandleTypeDef *handle)
 void app_at_init(struct __UART_HandleTypeDef *handle)
 {
     serial_uart = handle;
+    et100_gatt_init(storage_initialized);
     BaseType_t result = xTaskCreate(serial_task, "serial", 1024, NULL, 1, NULL);
     configASSERT(result == pdPASS);
 }

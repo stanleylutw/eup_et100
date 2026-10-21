@@ -1,6 +1,6 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.5
+Version: v0.6
 Last updated: 2026-10-21 Codex
 
 ## Revision History
@@ -12,6 +12,7 @@ Last updated: 2026-10-21 Codex
 | v0.3 | 2026-10-21 | 新增 DEV1.4 獨立 9600 UART3 target 與 GCHK 相容子集；program/readback、Stanley HTML GCHK 及未支援命令回覆通過 | Codex | v0.3.0_evb_serial_gchk |
 | v0.4 | 2026-10-21 | 新增 GTIME query/set、FlashDB key/schema、寫入後讀回及錯誤處理；9600 target 更新為 0.4.0-dev，硬體保存測試由 Stanley 執行 | Codex | v0.4.0_evb_gtime_settings |
 | v0.5 | 2026-10-21 | 新增 GCID／SCID 保存、BLE scan 與 Type 1；實測 4 MAC、55 筆 Type 1／XOR 全通過，CID 切換及 CID／GTIME 手動 reset 保存獲 Stanley 確認 | Codex | v0.5.0_evb_cid_ble_scan |
+| v0.6 | 2026-10-21 | 新增單一 Gateway-style GATT client、AES 認證、metadata／設定、auto list 保存及 Type 8；修正 HTML mode 格式，新增 D4 Gateway LED／D3 熄滅；硬體結果依各測試紀錄 | Codex | v0.6.0_evb_gatt_client |
 
 ## 1. 專案定位
 
@@ -66,6 +67,12 @@ Last updated: 2026-10-21 Codex
 ```
 
 ## 4. Toolchain / Build
+
+2026-10-21 LED 配置：Stanley 指定 EVB D4=PA7 作 Gateway LED、D3=PA6 關閉。待機常亮、符合廣播活動 200 ms 切換／三秒回復、sensor GATT link 100 ms 切換；link 不等於 AP。獨立 1.5 KiB stack task 每 20 ms 更新，不改 SDK／按鍵，版本維持 0.6.0-dev。細節及量測範圍見 [LED 紀錄](../04_testing/06_evb_gateway_led.md)。
+
+2026-10-21 GATT 修正：STYPESWITCH 接受 HTML 的 `0;` 取消與 `1;<MAC>` 手動連線格式，保留 `0`／`1:<MAC>` 簡寫，ACK 回 canonical 格式；取消仍需 DC 確認才完成。修正版維持 0.6.0-dev，見 GATT 測試紀錄的獨立 build／flash log 與 hash。
+
+目前 EVB 為 0.6.0-dev、UART3 9600/8N1。新增單一 GATT RAM owner、手動／八筆 auto list、EUP AES challenge、metadata／command／config 與 Type 8。GCHK state 為 0 IDLE／1 準備或清理／2 已認證 READY；auto list 使用 FlashDB key 0x00030004，原 GTIME／CID 保留。取消後確認 link／initiating 結束才釋放；IDLE 恢復掃描並處理啟動失敗 backoff。採專案 source、Gateway portable helpers 與 TinyCrypt，SDK patch 新增 0。Host／build／flash-readback 通過，真實 sensor 驗收待 Stanley 執行。詳見 [GATT 規格](../02_protocol/02_evb_gatt_client.md) 與 [測試紀錄](../04_testing/05_evb_gatt_client.md)。下述 0.5.0-dev 描述保留為歷史 baseline，不表示新 GATT 已通過硬體驗收。
 
 DEV1.4 已新增專案自有 UART3 serial target：`bash fw/tools/build_evb_serial.sh`，獨立產物在 `fw/build_serial/output/`。透過 build overlay 替換 example main／AT／BLE source，不修改 SDK。UART3 使用 9600/8N1，GCC vendor printf 被丟棄；原 SDK target 保留 921600 log。GCHK 回覆 EVB 板型與 SDK-derived BLE identity；state 0 為此相容層 idle。GTIME 沿用 key `0x00030002`（預設 15，1-1800 秒）；0.5.0-dev 新增 CID key `0x00030003`（四欄、預設 0639），均以 FlashDB 寫入與讀回確認後才更新 RAM。Stanley 已確認前版 GTIME 保存可用。
 

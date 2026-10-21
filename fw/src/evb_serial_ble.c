@@ -1,6 +1,7 @@
 /* Project-owned SDK peripheral profile with scan/report hooks. */
 #include <string.h>
 #include "ble_reporter.h"
+#include "gatt_client.h"
 
 #include "co_log.h"
 
@@ -172,6 +173,7 @@ uint8_t service_id;
 static uint16_t gap_callback(struct gap_event *event)
 {
     et100_scan_event(event);
+    et100_gatt_gap(event);
 //    printf("gap_callback: type = %d\r\n", event->type);
 
     switch(event->type) {
@@ -200,7 +202,7 @@ static uint16_t gap_callback(struct gap_event *event)
         break;
 
     case GAP_EVT_ADV_START:
-        if (event->param.adv_start.status == 0) et100_scan_start();
+        if (event->param.adv_start.status == 0 && et100_gatt_state() == 0) et100_scan_start();
         printf("adv start :0x%02X\r\n", event->param.adv_start.status);
         break;
 
@@ -440,6 +442,7 @@ void app_ble_init(void)
 
     /* set GAP event callback*/
     gap_set_cb_func(gap_callback);
+    et100_gatt_add_profile();
 
     /* set security param */
     struct gap_security_param smp_param;

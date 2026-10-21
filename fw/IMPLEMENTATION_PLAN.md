@@ -1,4 +1,26 @@
-# IMPLEMENTATION_PLAN — Phase 1b.4 CID 與 BLE Type 1 回報
+# IMPLEMENTATION_PLAN — Phase 1b.5 Gateway-style GATT Client
+
+## Branch／授權
+
+Branch `v0.6.0_evb_gatt_client`，base `v0.5.0_evb_cid_ble_scan`。Stanley 要求加入 Gateway 同款 GATT；沿用 Codex 修改／build／flash、Stanley HTML／sensor 測試的分工。不 commit／push，不碰 PCB 原始資料與 SDK。
+
+## 範圍
+
+- 新增 `fw/src/gatt_client.c`／`.h`：單一 RAM session owner、manual／auto、SDK discovery／CCCD／MTU、AES challenge、metadata／command／config、timeout／cancel／confirmed disconnect／scan resume、UART 輸出 queue。
+- 從 Gateway 複製 portable UUID codec、metadata parser、auth helper（六個 `fw/src/eup_aiot_*` 檔案）；認證材料不輸出至 log／chat。
+- 複製本機 NCS 的 TinyCrypt AES encrypt／utils 與必要 headers 至 `fw/third_party/tinycrypt/`，保留授權，不安裝套件、不修改 SDK。
+- 修改 `serial_gchk.c`／`.h`、`ble_reporter.c`、`evb_serial_ble.c`、`targets/evb_serial.mk`：UART 命令分派、狀態、GAP callback、scan resume 與新 objects。
+- 命令：STYPESWITCH／GTYPESWITCH、SAUTOGATT／GAUTOLIST、GSENSORINFO／GSENSORCMD、SSENSORCFG；Type 8 狀態／MR。GTIME/CID keys 保留，auto list 用新 user key；session 不寫 FlashDB。
+- 新增 GATT tests、更新 serial regression 版本；optional UART script 同步版本。更新 serial protocol、platform plan、REVIEW_REPORT、bring-up status、EVB README；新增 GATT 測試紀錄與第三方來源文件。
+- 不包含 Sensor OTA／package staging／MCUmgr、MAC whitelist 或 MAXRPT。
+
+## 驗證
+
+Host codec／TLV／AES 公開測試向量、session／callback／timeout 的可模擬檢查；ARM GCC build 及 header／CRC／payload／FlashEnv 範圍驗證後 flash/readback。Build log `/tmp/et100_gatt_build.log`，flash log `/tmp/et100_gatt_flash.log`。只有實際收到 Sensor auth status 00 才送 AP；沒有硬體驗收前不宣稱 GATT／認證／設定通過。失敗原因與未驗證 SDK callback 行為需明記。
+
+---
+
+# 歷史施工單 — Phase 1b.4 CID 與 BLE Type 1 回報
 
 ## 本次分支與授權
 
