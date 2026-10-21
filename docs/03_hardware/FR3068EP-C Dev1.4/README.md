@@ -38,7 +38,7 @@ EVB 上的額外 PSRAM、外部 Flash 與周邊只供 bring-up 使用；ET-100 f
 | PB10 | SWDC | SWCLK |
 | PB11 | SWDO | SWDIO |
 
-出廠只有兩個 jumper cap，原本插在 PB5/PB4 UART。Phase 1b 已把兩個 cap 移到 PB10/PB11，因此目前可用 SWD，但看不到 UART log。若要同時使用 UART + SWD，需要再補兩個 jumper cap 或杜邦線。
+出廠只有兩個 jumper cap，原本插在 PB5/PB4 UART。初次 SWD bring-up 時把兩個 cap 移到 PB10/PB11；之後已補兩個 jumper cap，四個位置同時接通。2026-10-21 實測確認同一條 DAPLink USB 可同時使用 CMSIS-DAP SWD 與 921600 bps VCOM UART。
 
 板載 DAPLink **沒有 nRESET 線**，所以 pyOCD `under-reset` 模式不可用。若 image 讓 debug bus 卡死，必須用 `rescue_and_flash.py` 在手動釋放 RST 後的短窗口抓住 CPU。
 
@@ -133,10 +133,23 @@ python3 fw/tools/evb/swd_probe.py
 python3 fw/tools/evb/swd_retry.py
 ```
 
+2026-10-21 並行測試方式：先開 921600 bps capture，再由 CMSIS-DAP SWD 送 `SYSRESETREQ`。SWD reset 成功，UART 同時收到 748 bytes，printable ratio 95%，包含：
+
+```text
+start running
+FR5090: ble_simple_peripheral.
+HCI is ready.
+app_ble_init
+adv start :0x00
+```
+
+開頭少量非 printable bytes 出現在 reset 邊界；後續 application log 完整可讀，不影響 921600 bps 驗證結論。
+
 ## 10. Phase 1b 實測結果
 
 - `Project_burn.bin` 以 FR509x header 寫入 `0x08000000`，readback byte-for-byte PASS。
 - Reset 後 PC 位於 PRAM `0x1FFE3A90` 的 `__RAM_CODE` idle 路徑，app 正常執行。
+- 同一條 DAPLink USB 在 SWD software reset 期間同步收到 921600 bps UART application log。
 - 手機 nRF Connect 可連線 `30xx_Ble_Periphreal`。
 - 可看到 GATT service `0xFFF0`、characteristic `0xFFF3`（Read/Write/Notify）與預期 128-bit characteristic。
 - Patch #7a 的 96 MHz 設定可開機與建立 BLE 連線；尚未做頻率實測或長時間穩定性驗證。
@@ -144,7 +157,6 @@ python3 fw/tools/evb/swd_retry.py
 
 ## 11. 待辦
 
-- 補兩個 jumper，同時保留 UART + SWD，確認 921600 bps application log。
 - 做 96 MHz 下 BLE 長時間連線與 throughput 測試。
 - 驗證 Patch #7b runtime guard 在 EVB 不誤觸發。
 - 依獨立 `IMPLEMENTATION_PLAN.md` 逐步進行 GPIO/LED、CAN、I2C bring-up。

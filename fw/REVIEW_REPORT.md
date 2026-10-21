@@ -144,7 +144,7 @@ Full build log: `/tmp/et100_build.log`
 
 ### EVB 到貨後的 Phase 1b
 4. ✅ 透過板載 DAPLink + SDK FLM 燒 `Project_burn.bin` 到 EVB
-5. ⬜ 補 jumper 後確認 921600 application UART log；目前以 SWD PC 與 BLE 證明 app 執行
+5. ✅ 補 jumper 後，以 SWD software reset 與 921600 UART capture 並行確認 application log
 6. ✅ 用 nRF Connect 連線並確認 GATT
 7. ✅ 驗證 DAPLink SWD 可連線
 8. ✅ 證實 FR509x layout 的 `_burn.bin` 可啟動；錯誤 FR303x selector 已撤回
@@ -253,6 +253,7 @@ Phase 1a-ext 展示了 Codex 兩個進化：
 | Flash loader | SDK `components/tools/keil/FR30xx.FLM` |
 | Programming | `Project_burn.bin` 寫入 `0x08000000`；66 sectors；readback byte-for-byte PASS |
 | Boot | reset 後 PC 曾觀察於 PRAM `0x1FFE3A90` 的 `__RAM_CODE` idle 路徑；app 正常執行 |
+| UART + SWD | 同一 DAPLink USB 上，SWD `SYSRESETREQ` 與 921600 bps UART capture 並行 PASS；收到 `FR5090: ble_simple_peripheral.` |
 | BLE | nRF Connect 可連上 `30xx_Ble_Periphreal` |
 | GATT | 可看到 FFF0、FFF3（Read/Write/Notify）與預期 128-bit characteristic |
 | 96 MHz | Patch #7a configuration 可開機與建立 BLE 連線；未量測實際 clock、功耗或長期穩定性 |
@@ -294,7 +295,6 @@ _None remaining after restoring the FR509x header selector._
 ### Minor / Remaining Risk
 
 - DAPLink 沒有 nRESET；壞 image 仍可能需要手動 RST timing rescue。
-- 目前只有兩個 jumper cap，UART 與 SWD 不能同時接通。
 - Patch #8 停用 sleep，因此本次不能代表產品待機功耗。
 - BLE 只完成基本連線/GATT discovery，尚未做 soak、throughput、disconnect/reconnect 或 OTA。
 - EVB 外部 Flash 與 ET-100 型號、容量、電壓和 addressing 不同。

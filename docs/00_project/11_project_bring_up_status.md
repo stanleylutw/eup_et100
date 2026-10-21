@@ -218,7 +218,7 @@ Toolchain          ████████████████████ 
 FW Skeleton        ████████████████████ 100% (comm.md tooling 齊備)
 SDK Integration    ████████████████████ 100% (165MB + 8 patch groups documented)
 Build Validation   ████████████████████ 100% (Project_burn.bin EVB boot + BLE PASS)
-Hardware (EVB)     ████████████████████ 100% (basic SWD/flash/boot/BLE GATT)
+Hardware (EVB)     ████████████████████ 100% (SWD/flash/boot/921600 UART/BLE GATT)
 Hardware (EVT)     ░░░░░░░░░░░░░░░░░░░░   0% (SOW 前)
 Driver Bring-up    ██░░░░░░░░░░░░░░░░░░░  10% (EVB debug/flash/BLE baseline ready)
 App Logic          ░░░░░░░░░░░░░░░░░░░░   0% (等 EUP 協定)
@@ -231,7 +231,7 @@ App Logic          ░░░░░░░░░░░░░░░░░░░░ 
 | 阻擋項 | 時間成本 | 依賴 |
 |---|:-:|---|
 | **重產 V1.3 HTML／PDF 後寄 Quectel** | 待排程 | Markdown 已同步；派生檔仍為舊版 |
-| **補 EVB DEBUG jumper，UART + SWD 同時接通** | 少量硬體準備 | Stanley；之後驗證 921600 app log |
+| **EVB UART + SWD 並行** | 完成 | 四個 jumper 已接；921600 log + SWD reset 同時 PASS |
 | **EUP 終端設備通訊協定考古** | 30 分鐘找人 + 半天整理 | Stanley（內部 PM / wiki） |
 
 EVB 基本主幹已跑通；後續 GPIO/CAN/I2C bring-up 仍需各自的 `IMPLEMENTATION_PLAN.md` 與 Stanley 批准。
