@@ -47,7 +47,7 @@ def main():
             line = receive()
             match = re.fullmatch(
                 r"AT\$PD=BLEGW\$GCHK;1;([0-9A-F]{12});Freqchip;"
-                r"DEV1\.4_fr3068ep-c;0\.6\.0-dev;[012];([A-Za-z0-9]{4})\r\n",
+                r"DEV1\.4_fr3068ep-c;0\.7\.0-dev;[012];([A-Za-z0-9]{4})\r\n",
                 line,
             )
             assert match and match[2] == token, "GCHK schema/token mismatch"

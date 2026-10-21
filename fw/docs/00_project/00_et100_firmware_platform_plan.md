@@ -1,6 +1,6 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.6
+Version: v0.7
 Last updated: 2026-10-21 Codex
 
 ## Revision History
@@ -13,6 +13,7 @@ Last updated: 2026-10-21 Codex
 | v0.4 | 2026-10-21 | 新增 GTIME query/set、FlashDB key/schema、寫入後讀回及錯誤處理；9600 target 更新為 0.4.0-dev，硬體保存測試由 Stanley 執行 | Codex | v0.4.0_evb_gtime_settings |
 | v0.5 | 2026-10-21 | 新增 GCID／SCID 保存、BLE scan 與 Type 1；實測 4 MAC、55 筆 Type 1／XOR 全通過，CID 切換及 CID／GTIME 手動 reset 保存獲 Stanley 確認 | Codex | v0.5.0_evb_cid_ble_scan |
 | v0.6 | 2026-10-21 | 新增單一 Gateway-style GATT client、AES 認證、metadata／設定、auto list 保存及 Type 8；修正 HTML mode 格式，新增 D4 Gateway LED／D3 熄滅；硬體結果依各測試紀錄 | Codex | v0.6.0_evb_gatt_client |
+| v0.7 | 2026-10-21 | 新增 App GATT Manager 四 characteristic、八筆 table、bounded read/blob／notify；依 Stanley 決策改名 EUP_AIoT_HUB_FR，保留 UART／sensor client，不修改 App／SDK | Codex | v0.7.0_evb_app_gatt_server |
 
 ## 1. 專案定位
 
@@ -67,6 +68,8 @@ Last updated: 2026-10-21 Codex
 ```
 
 ## 4. Toolchain / Build
+
+最新 target 為 0.7.0-dev，名稱 **EUP_AIoT_HUB_FR**。取代 FFF0 demo service，提供 App manager status／list／select／selected-data 四 characteristic，共用既有 scanner filter；八筆 RAM table、五秒 timeout、MTU-aware read/blob／notify、App 斷線重新廣播，與 sensor central session 分開。名稱保留 HUB 是為了現有 App 的 sensor AES 分類，不改 App。UART3 9600、GTIME／CID／auto-GATT keys 與 D4／D3 邏輯不變；SDK 新 patch 0。規格見 [App GATT](../02_protocol/03_evb_app_gatt_server.md)，驗收見 [測試紀錄](../04_testing/07_evb_app_gatt_server.md)。下列 0.6／0.5 為歷史紀錄，並非目前板上版本。
 
 2026-10-21 LED 配置：Stanley 指定 EVB D4=PA7 作 Gateway LED、D3=PA6 關閉。待機常亮、符合廣播活動 200 ms 切換／三秒回復、sensor GATT link 100 ms 切換；link 不等於 AP。獨立 1.5 KiB stack task 每 20 ms 更新，不改 SDK／按鍵，版本維持 0.6.0-dev。細節及量測範圍見 [LED 紀錄](../04_testing/06_evb_gateway_led.md)。
 

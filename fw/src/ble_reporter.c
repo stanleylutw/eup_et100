@@ -29,6 +29,14 @@ int et100_reporter_receive(struct et100_reporter *r, const uint8_t mac[6],
                            uint8_t type, int8_t rssi, const uint8_t *ad,
                            size_t length, uint32_t now)
 {
+    return et100_reporter_receive_details(r,mac,type,rssi,ad,length,now,NULL);
+}
+
+int et100_reporter_receive_details(struct et100_reporter *r, const uint8_t mac[6],
+                           uint8_t type, int8_t rssi, const uint8_t *ad,
+                           size_t length, uint32_t now, struct et100_adv_details *details)
+{
+    if(details) memset(details,0,sizeof(*details));
     const uint8_t *mfg = NULL, *svc = NULL, *name = NULL;
     size_t mfg_len = 0, svc_len = 0, name_len = 0;
     uint8_t payload[31];
@@ -61,6 +69,19 @@ int et100_reporter_receive(struct et100_reporter *r, const uint8_t mac[6],
     /* Same v1/v2 classification and packet-info offsets as Gateway parser. */
     if (mfg && n == 19 && (value[8] >> 4) == 0) { version = 1; token = value[11]; }
     if (mfg && n == 16 && (value[2] >> 4) == 1) { version = 2; token = value[8]; }
+    uint8_t detail_version=version;
+    if(!mfg && n==19 && (value[8]>>4)==0) detail_version=1;
+    if(!mfg && n==16 && (value[2]>>4)==1) detail_version=2;
+    if(details && detail_version) {
+        details->version=detail_version;details->token=value[detail_version==1?11:8];
+        uint8_t packed=value[detail_version==1?9:6];
+        details->mode=packed&7;details->state=(packed>>3)&7;
+        if(detail_version==1) memcpy(details->identity,value+2,6);
+        else {
+            memcpy(details->identity,mac,6);memcpy(details->firmware,value+3,3);
+        }
+        for(unsigned i=0;i<6;i++) if(details->identity[i]) details->identity_ready=1;
+    }
     if (name && n < 31) {
         uint8_t structure[14];
         structure[0] = (uint8_t)(name_len + 1);
@@ -151,6 +172,7 @@ size_t et100_reporter_poll(struct et100_reporter *r, uint32_t now,
 #include "FreeRTOS.h"
 #include "task.h"
 #include "gap_api.h"
+#include "app_gatt_server.h"
 static struct et100_reporter reporter;
 static int configured;
 volatile unsigned et100_scan_status = 0xff;
@@ -163,6 +185,7 @@ void et100_scan_configure(const uint16_t cids[4], uint16_t gtime, int clear)
     uint32_t now = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
     taskENTER_CRITICAL();
     if (!configured || clear) {
+        et100_app_server_clear();
         et100_reporter_init(&reporter, cids, gtime, now);
         configured = 1;
     } else if (reporter.gtime != gtime) {
@@ -220,9 +243,15 @@ void et100_scan_event(struct gap_event *event)
     uint32_t now = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
     taskENTER_CRITICAL();
     et100_scan_reports++;
-    if (configured)
-        et100_scan_accepted += et100_reporter_receive(&reporter, report->addr.addr.addr,
-            report->addr.addr_type, report->rssi, report->data, report->length, now);
+    if (configured) {
+        struct et100_adv_details details;
+        int accepted=et100_reporter_receive_details(&reporter, report->addr.addr.addr,
+            report->addr.addr_type, report->rssi, report->data, report->length, now, &details);
+        et100_scan_accepted += accepted;
+        if(accepted) et100_app_server_receive(report->addr.addr.addr,report->addr.addr_type,
+            report->rssi,report->evt_type==GAP_SCAN_EVT_NONCONN_NONSCAN?3:report->evt_type,
+            report->data,report->length,&details,now);
+    }
     taskEXIT_CRITICAL();
 }
 #endif

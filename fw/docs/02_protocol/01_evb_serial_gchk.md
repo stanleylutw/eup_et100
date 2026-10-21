@@ -1,10 +1,12 @@
 # DEV1.4 UART3 — Gateway 查詢、CID 與 BLE 回報子集
 
-Version: v0.4
+Version: v0.5
 日期：2026-10-21
 狀態：GCHK、基本 BLE scan／Type 1、CID 切換對照與 CID／GTIME 手動 RST 後保存已由 Stanley 驗證；詳細證據及限制見測試紀錄
 
 ## 用途與接線
+
+0.7.0-dev 新增手機 App GATT Server，名稱 EUP_AIoT_HUB_FR，見 [App GATT 規格](03_evb_app_gatt_server.md)。原 FFF0 demo service 已被 manager service 取代；UART／sensor GATT Client 行為保留，版本辨識更新如下。
 
 0.6.0-dev 新增 Gateway-style GATT client，命令、Type 8 與限制見 [GATT 規格](02_evb_gatt_client.md)。此前 0.5.0-dev 的 scan／CID 實測證據保留；新 GATT 硬體驗收尚待執行。
 
@@ -18,12 +20,12 @@ HTML tester 為 command initiator，DEV1.4 為 responder。使用同一 DAPLink 
 
 ```text
 BLEGW$GCHK;A1b2\r\n
-AT$PD=BLEGW$GCHK;1;<identity>;Freqchip;DEV1.4_fr3068ep-c;0.6.0-dev;<state>;A1b2\r\n
+AT$PD=BLEGW$GCHK;1;<identity>;Freqchip;DEV1.4_fr3068ep-c;0.7.0-dev;<state>;A1b2\r\n
 ```
 
 - `identity`：依 SDK `app_btdm_init()` 相同演算法讀 unique ID 並建立 random static BLE identity，以 MSB-first 12 位 uppercase hex 顯示。不是 LTE IMEI；並非已驗證的工廠唯一性保證。
 - `Freqchip` 為 EVB MCU vendor；板型明確標示 FR3068EP-C，不冒用量產 E-C 或 nRF 板型。
-- `0.6.0-dev` 是 GATT 版開發識別，非 release tag。
+- `0.7.0-dev` 是 App GATT Server 版開發識別，非 release tag。
 - `state=0` 為 IDLE，1 為準備／認證／清理，2 為已認證 READY。
 - token 原樣回傳，包含大小寫。Query response 依 Gateway 現行實作，不含 XOR checksum；本版沒有 Type 0 heartbeat 或其他主動回報。
 

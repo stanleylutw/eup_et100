@@ -5,6 +5,9 @@
 
 #define ET100_REPORT_CACHE 32
 #define ET100_REPORT_BATCH 15
+struct et100_adv_details {
+    uint8_t version, token, mode, state, firmware[3], identity[6], identity_ready;
+};
 struct et100_report_entry {
     uint8_t mac[6], address_type, used, updated, length;
     uint8_t payload[31];
@@ -23,6 +26,8 @@ struct et100_reporter {
 void et100_reporter_init(struct et100_reporter *, const uint16_t[4], uint16_t, uint32_t);
 int et100_reporter_receive(struct et100_reporter *, const uint8_t[6], uint8_t,
                            int8_t, const uint8_t *, size_t, uint32_t);
+int et100_reporter_receive_details(struct et100_reporter *, const uint8_t[6], uint8_t,
+    int8_t, const uint8_t *, size_t, uint32_t, struct et100_adv_details *);
 size_t et100_reporter_poll(struct et100_reporter *, uint32_t, char *, size_t);
 
 /* RTOS adapter: all cache access is serialized with short critical sections. */

@@ -16,7 +16,7 @@ $(BASE_ElF): $(OBJECT_DIR)/ble_reporter.o
 $(OBJECT_DIR)/ble_reporter.o: $(ET100_FW)/src/ble_reporter.c
 	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
 
-GATT_OBJECTS = gatt_client eup_aiot_uuid_client eup_aiot_metadata eup_aiot_auth status_led
+GATT_OBJECTS = gatt_client eup_aiot_uuid_client eup_aiot_metadata eup_aiot_auth status_led app_manager app_gatt_server
 $(BASE_ElF): $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(GATT_OBJECTS))) $(OBJECT_DIR)/tinycrypt_aes.o $(OBJECT_DIR)/tinycrypt_utils.o
 $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(GATT_OBJECTS))): $(OBJECT_DIR)/%.o: $(ET100_FW)/src/%.c
 	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<

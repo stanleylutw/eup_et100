@@ -4,6 +4,10 @@
 
 static uint32_t ticks;
 static unsigned calls, mode;
+void et100_app_server_clear(void) {}
+void et100_app_server_receive(const uint8_t mac[6],uint8_t type,int8_t rssi,uint8_t adv_type,
+    const uint8_t *raw,size_t n,const struct et100_adv_details *details,uint32_t now)
+{ (void)mac;(void)type;(void)rssi;(void)adv_type;(void)raw;(void)n;(void)details;(void)now; }
 uint32_t xTaskGetTickCount(void) { return ticks; }
 ble_api_err_t gap_scan_start(struct gap_scan_param *params)
 {

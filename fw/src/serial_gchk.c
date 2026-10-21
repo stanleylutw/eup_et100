@@ -133,7 +133,7 @@ static void handle_line(struct et100_serial_parser *p)
     *end = '\0';
     if (strcmp(command, "GCHK") == 0 && token == end + 1) {
         length = snprintf(response, sizeof(response),
-            "AT$PD=BLEGW$GCHK;1;%s;Freqchip;DEV1.4_fr3068ep-c;0.6.0-dev;%u;%s\r\n",
+            "AT$PD=BLEGW$GCHK;1;%s;Freqchip;DEV1.4_fr3068ep-c;0.7.0-dev;%u;%s\r\n",
             p->identity, current_gatt_state(), token);
     } else if (strcmp(command, "GGTIME") == 0 && token == end + 1) {
         length = snprintf(response, sizeof(response),
@@ -219,6 +219,7 @@ void et100_serial_feed(struct et100_serial_parser *p, uint8_t byte)
 #include "app_at.h"
 #include "fdb_app.h"
 #include "ble_reporter.h"
+#include "app_gatt_server.h"
 
 /* Reserved user key; distinct from SDK random seed and BT keys. */
 #define ET100_FDB_GTIME_KEY 0x00030002U
@@ -362,6 +363,7 @@ static void serial_task(void *argument)
             }
         }
         et100_gatt_poll(serial_send, serial_uart);
+        et100_app_server_poll();
         et100_scan_poll(serial_send, serial_uart);
         if (!received)
             vTaskDelay(pdMS_TO_TICKS(10));

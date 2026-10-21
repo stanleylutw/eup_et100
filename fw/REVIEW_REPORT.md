@@ -381,6 +381,20 @@ _None remaining after restoring the FR509x header selector._
 
 ---
 
+# Addendum — Phase 1b.6 App GATT Server（2026-10-21）
+
+**Stanley 實測更新**：燒入 EUP_AIoT_HUB_FR／0.7.0-dev 後，Stanley 回覆「yes, it works.」，App 基本連線與 manager 路徑記為使用者確認可用；沒有逐筆 log，不將雙角色並行／長時間／所有驗收步驟一併列為 PASS。詳細證據界線見 [測試紀錄](docs/04_testing/07_evb_app_gatt_server.md)。下方「待驗收」描述保留為當時狀態，以本補充為準。
+
+在已推送 checkpoint `db4f2f7` 之後，依授權分支新增 Gateway manager 四 characteristic、八筆 RAM table、status/list v5/select/selected-data 格式。Scanner 與 UART 共用同一 AD/filter；FFF0 demo service 被取代，vendor OTA 保留但未驗證。UART 仍 9600、版本 0.7.0-dev；原 clock／linker／FlashDB／按鍵／D4/D3 邏輯保留，SDK patch 新增 0。
+
+**相容性阻擋與決策**：先前只依 service UUID 推論 App 不需修改不完整；實讀 App code 發現 EUP_AIoT_FR 會觸發 sensor AES 分類。已停在燒錄前請示；Stanley 明確選擇 EUP_AIoT_HUB_FR，不改 App。ADV 與 GAP name 已一致更新，byte 長度由 host tests 核對。只證明 code-level compatibility，沒有 iOS 實測通過宣稱。
+
+**自我檢查**：七組 ASan／UBSan tests、ARM build、獨立 FR509x header／CRC／payload／FlashEnv／名稱版本比對 PASS。READ_REQ buffer capacity／offset、WRITE callback 無 ATT error 回傳能力，以及通知 payload copy 依 SDK binary 只讀查證；未為繞過限制修改 SDK。App／sensor link 分開，second peer rejection 不重啟既有 App 廣播，sensor disconnect 不清 App CCCD。尚未獨立 reviewer 審查。
+
+**限制**：單 App link，table 五秒 TTL／八筆、僅辨識 EUP v1/v2；selected notify latest-only、MTU 不足時 read-blob、不發截斷資料。無強制加密／App AES／OTA／sensor-control relay，非法 write 僅忽略，SDK 可能仍回 ATT success。真正 App／sensor 雙角色、read-blob／MTU、CCCD／advertising recovery、heap／stack／長時間壓力尚待 Stanley 驗收。產物與燒錄狀態見 [App GATT 紀錄](docs/04_testing/07_evb_app_gatt_server.md)。本新功能尚未 commit／push。
+
+---
+
 # Addendum — Phase 1b.5 Gateway-style GATT（2026-10-21）
 
 **D4 LED 增補**：依 Stanley 指示，專案 source 以 PA7 驅動 D4 Gateway 狀態、PA6 固定低電位關閉 D3。採 Gateway 的待機／資料／GATT 100／200／3000 ms 規則，移植到 sensor central link；不是認證成功指示。獨立 task 避免 UART blocking 影響更新；LED 模型 ASan／UBSan、四組 regression、ARM build 與 header／CRC／FlashEnv 檢查 PASS。SDK 新 patch 0，未改按鍵。實體亮滅、heap／stack 與時序由 Stanley 驗收，詳見 [LED 紀錄](docs/04_testing/06_evb_gateway_led.md)；本小改尚未獨立 reviewer 審查。

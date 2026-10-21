@@ -1,4 +1,29 @@
-# IMPLEMENTATION_PLAN — Phase 1b.5 Gateway-style GATT Client
+# IMPLEMENTATION_PLAN — Phase 1b.6 App GATT Server
+
+## Branch／授權
+
+Stanley 2026-10-21 要求 Gateway 同款 App 連線功能、名稱 `EUP_AIoT_FR`，並先 commit/push。Checkpoint `db4f2f7` 已推 origin/v0.6.0_evb_gatt_client，SHA 核對一致；Stanley 明確同意新分支 `v0.7.0_evb_app_gatt_server` 後才實作。沿用修改／build／flash、Stanley App／HTML 驗收分工，不替使用者操作 App，不改 SDK／sibling repos／PCB 資料，不自動 commit/push 新功能。
+
+實作中查到現有 App 在 discovery 前依名稱分類：以 EUP_AIoT 開頭、不含 HUB 者要求 sensor AES。Stanley 明確選擇改名 **EUP_AIoT_HUB_FR**，不修改 App；以下 EUP_AIoT_FR 名稱規劃均由此決策取代。名稱同時套用 ADV 與 GAP name。
+
+## 本次範圍
+
+- 新增 `src/app_manager.c`／`.h`（portable 八筆 RAM table、Gateway status/list/selected/select binary codec）、`src/app_gatt_server.c`／`.h`（SDK service、單 App link、CCCD／MTU／通知／GAP 生命週期）。
+- 修改 `ble_reporter.c`／`.h`：沿用同一 AD parser/filter 輸出所選 manufacturer/service metadata，僅 RTOS adapter 將已接受 raw ADV 送入 manager；不改 Type 1 格式／節流／GTIME／CID 保存。
+- 修改專案 `evb_serial_ble.c`：以 App manager 四 characteristic 取代 FFF0 demo service，保留 vendor OTA service（未驗證），改 GAP name／ADV／scan response 為 EUP_AIoT_FR，廣播包含 manager 128-bit UUID，App 斷線後重新廣播，不因 sensor 斷線重複啟動。
+- 修改 `serial_gchk.c`、`targets/evb_serial.mk` 與 host tests／optional UART script：0.7.0-dev、poll 通知、加入新 objects／mock adapter tests。更新 protocol／test／platform／review／bring-up 文件；保留既有硬體 README 編輯。
+- 新增 `tools/test_evb_serial_host.sh`，統一編譯並執行七組 native sanitizer tests，僅使用 /tmp 測試產物，不安裝工具。
+- 不含 App 操作 sensor GATT／OTA relay、新認證協定、SDK patch、配對安全性產品化、按鍵／clock／linker 變動。App manager 的選取僅為觀察，不會對 sensor 建立連線。
+
+## 驗證與限制
+
+Host ASan／UBSan：codec／ADR 邊界、timeout／selection／capacity、CCCD／MTU／read offset／bounded write、notify backpressure 與雙角色隔離；既有五組回歸、ARM build、header／CRC／FlashEnv 後燒錄／讀回。Logs `/tmp/et100_app_gatt_{build,host_tests,flash}.log`。App／scan／sensor GATT 並行、真正 read-blob／MTU／通知、heap／stack 皆待 Stanley 實測。
+
+SDK binary callback 已只讀反組譯確認：READ_REQ 的 msg_len 是容量、offset 是起點，return 為實際 copy 長度；WRITE callback return 被 SDK 忽略，無應用層 ATT error setter。不合法寫入只保證不改狀態，不能宣稱有 Gateway 等價 ATT error；不為此修改 SDK。
+
+---
+
+# 歷史施工單 — Phase 1b.5 Gateway-style GATT Client
 
 ## Branch／授權
 

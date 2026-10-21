@@ -101,6 +101,10 @@
 
 ## ⚙️ Category 8 — Build 產物（Reference BLE Peripheral Example）
 
+**Stanley App 確認**：0.7.0-dev／EUP_AIoT_HUB_FR 燒錄後回覆「yes, it works.」，記為 App 基本連線與 manager 路徑可用；沒有逐筆 log，不擴大為全部步驟／雙角色並行／長時間穩定性通過。詳見 App GATT 紀錄的驗收補充。
+
+**最新 App GATT build（0.7.0-dev）**：新增手機可連的 Gateway manager status／list／select／selected-data，名稱依 Stanley 選擇為 **EUP_AIoT_HUB_FR**，避免舊 App 將 FR 誤判為 AES sensor；不改 App／SDK。七組 host tests、ARM build 與 header／CRC／FlashEnv 通過。Burn 284,712 bytes，ELF text/data/bss=240,744/35,768/66,528 bytes，data+bss=102,296 bytes，取代下方歷史數據；runtime heap 餘量未量測。實機 App／sensor 並行仍待驗收，最新 flash 狀態見 [App GATT 紀錄](../../fw/docs/04_testing/07_evb_app_gatt_server.md)。SDK active patches 仍 8 組，新增 0。
+
 **最新 D4 LED build**：0.6.0-dev 新增 PA7／D4 Gateway LED、PA6／D3 固定低電位熄滅，待機／資料／sensor GATT link 使用不同亮滅規則，不改 K1-K3。Burn 283,400 bytes，ELF text/data/bss=239,912/35,288/66,304 bytes，取代下方早期 build 的同名數字；SDK active patches 仍 8 組，新增 0。LED task 另需 1.5 KiB stack 與 TCB，runtime heap 餘量未量測。實體驗收及最新燒錄結果見 [LED 紀錄](../../fw/docs/04_testing/06_evb_gateway_led.md)。
 
 **0.6.0-dev HTML 修正版**：STYPESWITCH 接受 `0;` 取消空欄位與 `1;<MAC>` 連線格式，回覆正規化；修正前的 HTML cancel 被 valid=0 拒絕。修正版 burn=283,120 bytes，ELF text/data/bss=239,632/35,288/66,304 bytes；數據取代下段首版 build 的對應數字，data+bss 不變。燒錄／測試最新狀態見 GATT 紀錄；未修改 SDK。
