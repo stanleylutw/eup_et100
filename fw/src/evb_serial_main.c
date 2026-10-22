@@ -272,7 +272,12 @@ static void app_hw_init(void)
     *(volatile uint32_t *)0xE000E43C = 0x40404040;
     *(volatile uint32_t *)0xE000E440 = 0x40404040;
 
+    iwdt_Init_t boot_wdt={.iwdt_Count=32000u*60,.iwdt_Timeout=1024,.iwdt_int_Enable=WDT_INT_DISABLE};
     pmu_init();
+    /* SDK pmu_init gates the inherited WDT clock: re-arm on every App boot. */
+    iwdt_init(boot_wdt);
+    iwdt_Enable();
+    iwdt_Refresh();
 //    /* Power Keep: 32KB PRAM, 96KB SRAM */
 //    pmu_ram_retention_set(PMU_RAM_RET_CACHE_BIT
 //                            | PMU_RAM_RET_CRAM0_BIT

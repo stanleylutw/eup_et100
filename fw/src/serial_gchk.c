@@ -221,6 +221,7 @@ void et100_serial_feed(struct et100_serial_parser *p, uint8_t byte)
 #include "fdb_app.h"
 #include "ble_reporter.h"
 #include "app_gatt_server.h"
+#include "boot_health.h"
 
 /* Reserved user key; distinct from SDK random seed and BT keys. */
 #define ET100_FDB_GTIME_KEY 0x00030002U
@@ -339,6 +340,7 @@ static void serial_task(void *argument)
     et100_gatt_poll(serial_send, serial_uart);
 
     for (;;) {
+        et100_boot_poll(storage_initialized);
         unsigned received = 0;
         /* Drain queued input before a potentially 200-ms UART transmission. */
         for (; received < RX_RING_SIZE; received++) {

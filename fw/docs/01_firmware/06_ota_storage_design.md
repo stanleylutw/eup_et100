@@ -104,6 +104,8 @@ App 完整驗證 Candidate 後，才向內建 state 原子提交 INSTALL_PENDING
 
 ### 一般開機不碰 NOR
 
+**Watchdog（D3，Stanley 2026-10-22 修訂）**：**App always runs the watchdog; installer arms it before the jump**。Installer 每次跳 App 前啟動約 60 秒 PMU watchdog；App 每次開機在 `pmu_init()` 返回後立即重新 arm，TRIAL／CONFIRMED 都持續定期清除，確認後不停止。這不要求一般開機初始化 NOR。已知盲窗是 SDK `pmu_init()` 內關掉 WDT clock 的期間，以及返回後緊接的重新 arm 指令；若卡在該函式內，不能保證 watchdog reset。重新 arm 之間不插入其他 App 初始化工作；不改 SDK、不宣稱盲窗已消除。
+
 CONFIRMED 狀態：讀內建 state、驗內部 App 後直接啟動，不初始化／讀取 NOR 來決定版本。NOR 故障不能阻擋一份有效 confirmed App 的正常開機；App 啟動後仍可依 logging 功能需求初始化 NOR，這與 boot 決策分開。
 
 只有安裝相關狀態（INSTALL_PENDING／BACKUP_READY／INSTALLING）或恢復相關狀態（ROLLBACK_REQUIRED／ROLLING_BACK）才由 installer 初始化 NOR。TRIAL 正常再試／CONFIRMED 都不需 NOR；TRIAL 超次時先持久化 rollback 決策再進 NOR 恢復路徑。Bootloader 不需要 LTE、BLE 或完整產品 App 才能執行上述工作。
@@ -213,4 +215,21 @@ Logs 從 0x460000 起，EVB 只能使用其 16 MB 實體範圍內的部分；不
 
 實作前必須通過：Q43-5 ROM header／CRC 範圍與自有 installer，Q48-6 exact E-C 2 MB map／保留區／runtime writes；installer 120 KB 大小可行性；NOR board driver；FlashEnv 無損遷移與 schema rollback；VTOR relocation；16 KB journal 容量／磨耗模型；完整斷電故障矩陣。
 
-建議順序：host model／record 與 bounds → NOR driver → installer／斷電復原 → RS232 → BLE → LTE → sensor relay。此順序不代表 transport 可以繞過 boot gate 提前宣稱安全更新。簽章／公鑰／降版政策、驗證錯誤與不可用時的安全輸出須列正式產品 gate；本輪不宣稱 secure boot root-of-trust 已成立。
+### 8.1 Roadmap（2026-10-22 更新）
+
+| # | Branch | 內容 | 適用入口 | 狀態／阻擋 |
+|---|---|---|---|---|
+| — | v0.8.1 | NOR 驅動（EVB U11） | 共用 | ✅ |
+| — | v0.8.2 | Download journal | 共用 | ✅ |
+| — | v0.8.3 | Installer、App 搬到 0x08020200、DFU zip | 共用 | ✅ |
+| — | v0.8.4 | Trial／confirm／rollback＋watchdog | 共用 | ✅（EVB：正常更新、備份中 reset、NO_CONFIRM 與 HANG 回滾） |
+| 2 | v0.8.5 | **OTA manager 進產品 App**：journal＋NOR 後端移入 FreeRTOS App（等待不阻塞系統、單一 session owner、與 BLE／UART task 共存），對三個入口提供統一 API | 共用 | 先前漏列（Stanley 2026-10-22 補入）；目前 journal 只在測試韌體與 installer loader |
+| 3 | v0.8.5 | RS232 正式協定（9600 協商 → 115200、分塊、ACK、續傳）＋host 工具；與第 2 步同 branch，用最容易測的入口打通 App 整合 | RS232 | 無 |
+| 4 | v0.8.6 | BLE SMP server＋`GET_FW_INFO`／`GET_DEVICE_ID`，先以 nRF Connect Device Manager 驗證 | BLE | 無 |
+| 5 | — | App 端修改（§6.1） | BLE | 排在 FR3068 韌體端完成後，App 團隊 |
+| 6 | — | EG800Q modem 驅動＋FTP 分塊下載 | LTE | 需 ET-100 實板或 EG800Q 開發板 |
+| 7 | — | 簽章驗證（installer 驗 MCUboot 簽章 TLV、打包帶 key） | 量產 gate | Q42 |
+| 8 | — | ET-100 移植：SPIMX2_1 NOR 後端、4-byte 定址、XM25QH256D、實機斷電（T8）、E-C ROM 行為 | 量產 gate | ET-100 實板 |
+| 9 | — | Sensor OTA relay | 第四種 target | 排程待定 |
+
+EVB 上完成第 1–4 步後，RS232 與 BLE 即可端到端更新；LTE 與量產 gate 需 ET-100 實板。此順序不代表 transport 可以繞過 boot gate 提前宣稱安全更新。簽章／公鑰／降版政策、驗證錯誤與不可用時的安全輸出須列正式產品 gate；本輪不宣稱 secure boot root-of-trust 已成立。

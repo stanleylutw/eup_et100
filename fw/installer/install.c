@@ -20,24 +20,31 @@ int installer_copy(const struct internal_port *p,image_read_fn source,void *ctx,
                    struct boot_record *record,install_hook hook)
 {
     struct image_info info;uint8_t block[256];
-    if (record->kind!=BOOT_PENDING) return -1;
-    int rc=image_candidate_verify(source,ctx,record->length,record->hash,&info);
+    if (record->kind!=BOOT_BACKUP_READY && record->kind!=BOOT_ROLLBACK_REQUIRED) return -1;
+    struct boot_record image=*record;
+    if (record->kind==BOOT_ROLLBACK_REQUIRED) {
+        image.length=record->confirmed_length;memcpy(image.hash,record->confirmed_hash,32);
+    }
+    int rc=image_candidate_verify(source,ctx,image.length,image.hash,&info);
     if (rc) return rc;
-    uint32_t erase_length=(record->length+4095)&~4095u;
+    uint32_t erase_length=(image.length+4095)&~4095u;
     for (uint32_t off=0;off<erase_length;off+=4096) {
         if (p->erase(0x20000+off,4096)) return -10;
         if (!off && hook && (rc=hook(1,record))) return rc;
     }
-    for (uint32_t off=0;off<record->length;) {
-        size_t n=record->length-off;if (n>sizeof block) n=sizeof block;
+    for (uint32_t off=0;off<image.length;) {
+        size_t n=image.length-off;if (n>sizeof block) n=sizeof block;
         if (source(ctx,off,block,n) || p->program(0x20000+off,block,n)) return -11;
         if (!off && hook && (rc=hook(2,record))) return rc;
         off+=n;
     }
-    struct verify_context verify={.port=p,.record=record,.hook=hook};
-    rc=image_candidate_verify(internal_read,&verify,record->length,record->hash,&info);
+    struct verify_context verify={.port=p,.record=&image,.hook=hook};
+    rc=image_candidate_verify(internal_read,&verify,image.length,image.hash,&info);
     if (rc) return rc;
-    struct boot_record installed=*record;installed.kind=BOOT_INSTALLED;installed.reset_mask=0;
+    struct boot_record installed=*record;
+    installed.kind=record->kind==BOOT_ROLLBACK_REQUIRED ? BOOT_CONFIRMED : BOOT_TRIAL;
+    if (record->kind==BOOT_ROLLBACK_REQUIRED) installed.last_update=UPDATE_FAILED;
+    installed.reset_mask=0;
     if (boot_state_write(p,&installed)) return -12;
     *record=installed;return 0;
 }

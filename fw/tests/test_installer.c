@@ -82,19 +82,20 @@ int main(int argc,char **argv)
     frame[6]=1;frame[7]=16;put32(frame+16,installer_crc32(frame,16));assert(loader_header(frame,&op,&index,&n));
 
     memset(flash,0xa5,sizeof flash);memset(flash+0x1fc000,0xff,0x4000);memcpy(original,flash,sizeof flash);
-    struct boot_record pending={.kind=BOOT_PENDING,.length=image_length};memcpy(pending.hash,hash,32);
+    struct boot_record pending={.kind=BOOT_BACKUP_READY,.length=image_length,.confirmed_length=image_length};
+    memcpy(pending.hash,hash,32);memcpy(pending.confirmed_hash,hash,32);
     assert(!boot_state_write(&port,&pending));memcpy(saved,flash,sizeof flash);calls=0;
     assert(!installer_copy(&port,source,NULL,&pending,NULL));unsigned operations=calls;
-    struct boot_record record;assert(!boot_state_read(&port,&record) && record.kind==BOOT_INSTALLED);
+    struct boot_record record;assert(!boot_state_read(&port,&record) && record.kind==BOOT_TRIAL);
     assert(!memcmp(flash+0x20000,image,image_length));protected_check();
     unsigned injections=0;
     for (unsigned mode=0;mode<3;mode++) for (unsigned at=1;at<=operations;at++) {
         memcpy(flash,saved,sizeof flash);assert(!boot_state_read(&port,&record));
         calls=0;cut=at;cut_mode=mode;assert(installer_copy(&port,source,NULL,&record,NULL));
         cut=0;assert(!boot_state_read(&port,&record));
-        assert(record.kind==BOOT_PENDING || record.kind==BOOT_INSTALLED);
-        if (record.kind==BOOT_PENDING) assert(!installer_copy(&port,source,NULL,&record,NULL));
-        assert(!boot_state_read(&port,&record) && record.kind==BOOT_INSTALLED);
+        assert(record.kind==BOOT_BACKUP_READY || record.kind==BOOT_TRIAL);
+        if (record.kind==BOOT_BACKUP_READY) assert(!installer_copy(&port,source,NULL,&record,NULL));
+        assert(!boot_state_read(&port,&record) && record.kind==BOOT_TRIAL);
         assert(!memcmp(flash+0x20000,image,image_length));protected_check();injections++;
     }
     /* Wrong hash/target must not erase even one App or state byte. */
@@ -104,7 +105,7 @@ int main(int argc,char **argv)
     memcpy(flash,saved,sizeof flash);assert(!boot_state_read(&port,&record));record.reset_mask=7;
     assert(!boot_state_write(&port,&record));hook_expected=1;
     for (unsigned i=0;i<3;i++) {
-        assert(!boot_state_read(&port,&record) && record.kind==BOOT_PENDING);
+        assert(!boot_state_read(&port,&record) && record.kind==BOOT_BACKUP_READY);
         assert(installer_copy(&port,source,NULL,&record,reset_hook)!=0);
     }
     assert(hook_expected==8);assert(!boot_state_read(&port,&record) && !record.reset_mask);

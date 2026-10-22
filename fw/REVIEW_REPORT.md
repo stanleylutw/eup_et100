@@ -1,5 +1,15 @@
 # REVIEW_REPORT — Phase 1a: Validate GCC Build Chain
 
+## 2026-10-22 Claude Code Step 5 review — v0.8.4 M-WDT／M-RB
+
+**結論：PASS（含已記錄的限制）。**
+
+- 首輪 HANG 未 reset，依停止條件停下；SWD 唯讀診斷定位根因：SDK `pmu_init()` 以 `ool_write(PMU_REG_CLK_EN, …)` 覆寫時脈，WDT clock bit 被清掉（CLK_EN=0x05）。修正：App 在 `pmu_init()` 後立即 `iwdt_init／Enable／Refresh`（`evb_serial_main.c:276-280`），不改 SDK。
+- 修正後 HANG：loader 提交 PENDING 後**無主機 reset／燒錄**，最終 boot state seq 37／CONFIRMED／FAILED、confirmed hash＝修正版 A、App readback 吻合 → 由 watchdog 觸發的自主回滾成立。UART runner 逾時未取得過程訊息，屬觀測缺口，依「測試不做太細」接受，不重跑。
+- 正常 A：120 秒內 WDT clock／enable 持續為 1，無異常 reset；B-info 全程不變。
+- 限制：`pmu_init()` 內部盲窗（記於 06 §5）；簽章未做。
+- 提醒：repo 根目錄新增的 `docs/02_protocol/`（TMT 周邊資料格式報告）非本 branch 產出，commit 時不納入，待 Stanley 決定。
+
 ## 2026-10-22 Claude Code Step 5 review — v0.8.3 M-E0／M-INST／§8
 
 **結論：PASS。** 一個 Major 已在 Step 6 修正。

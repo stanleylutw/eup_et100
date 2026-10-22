@@ -40,6 +40,7 @@ void et100_gatt_gap(struct gap_event *event) {(void)event;}
 unsigned et100_gatt_state(void) {return 0;}
 void et100_scan_event(struct gap_event *event) {(void)event;}
 void et100_scan_start(void) {scan_starts++;}
+void et100_boot_adv_started(void) {}
 adv_handle gap_adv_create(void) {return (void *)1;}
 ble_api_err_t gap_adv_set_param(adv_handle handle,struct gap_adv_param *p)
 {assert(handle==(void *)1 && p->adv_intv_min==160);return 0;}

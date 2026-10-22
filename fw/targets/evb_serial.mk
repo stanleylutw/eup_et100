@@ -6,7 +6,20 @@ LD := $(ET100_FW)/ld/evb_app.ld
 LDFLAGS += -L$(ET100_FW)/installer
 INC_PATH := -I"$(ET100_FW)/include" $(INC_PATH)
 INC_PATH += -I"$(ET100_FW)/third_party/tinycrypt/include"
-CFLAGS += $(ET100_VERSION_FLAGS)
+ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.8.4-dev\"
+CFLAGS += $(ET100_VERSION_FLAGS) $(ET100_TEST_FLAGS)
+INC_PATH += -I"$(ET100_FW)/common" -I"$(ET100_FW)/installer" -I"$(TOP_DIR)/components/modules/mbedtls/include"
+$(BASE_ElF): $(OBJECT_DIR)/boot_health.o $(OBJECT_DIR)/boot_state.o $(OBJECT_DIR)/mcuboot_image.o $(OBJECT_DIR)/sha256.o $(OBJECT_DIR)/platform_util.o
+$(OBJECT_DIR)/boot_health.o: $(ET100_FW)/src/boot_health.c
+	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
+$(OBJECT_DIR)/boot_state.o: $(ET100_FW)/common/boot_state.c
+	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
+$(OBJECT_DIR)/mcuboot_image.o: $(ET100_FW)/installer/mcuboot_image.c
+	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
+$(OBJECT_DIR)/sha256.o: $(TOP_DIR)/components/modules/mbedtls/library/sha256.c
+	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
+$(OBJECT_DIR)/platform_util.o: $(TOP_DIR)/components/modules/mbedtls/library/platform_util.c
+	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
 $(BASE_ElF): $(OBJECT_DIR)/app_fw_info.o
 $(OBJECT_DIR)/app_fw_info.o: $(ET100_FW)/installer/app_fw_info.c
 	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<

@@ -10,6 +10,7 @@ override SRC_FILES := $(TOP_DIR)/components/drivers/device/fr30xx/system_fr30xx.
  $(TOP_DIR)/components/drivers/peripheral/Src/driver_qspi.c \
  $(TOP_DIR)/components/drivers/peripheral/Src/driver_frspim.c \
  $(TOP_DIR)/components/drivers/peripheral/Src/driver_pmu.c \
+ $(TOP_DIR)/components/drivers/peripheral/Src/driver_pmu_iwdt.c \
  $(TOP_DIR)/components/drivers/peripheral/Src/driver_gpio.c \
  $(TOP_DIR)/components/drivers/peripheral/Src/driver_uart.c \
  $(TOP_DIR)/components/modules/common/src/co_util.c \
@@ -18,8 +19,11 @@ include Makefile
 LD := $(ET100_FW)/installer/installer.ld
 LIB :=
 LDFLAGS += -L$(ET100_FW)/installer
-INC_PATH += -I"$(ET100_FW)/installer" -I"$(ET100_FW)/include" -I"$(ET100_FW)/src" -I"$(TOP_DIR)/components/modules/mbedtls/include"
-STUB_OBJECTS := main mcuboot_image candidate boot_state loader_frame install device jump
+INC_PATH += -I"$(ET100_FW)/common" -I"$(ET100_FW)/installer" -I"$(ET100_FW)/include" -I"$(ET100_FW)/src" -I"$(TOP_DIR)/components/modules/mbedtls/include"
+STUB_OBJECTS := main mcuboot_image candidate loader_frame install device jump transaction
+$(BASE_ElF): $(OBJECT_DIR)/boot_state.o
+$(OBJECT_DIR)/boot_state.o: $(ET100_FW)/common/boot_state.c
+	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
 $(BASE_ElF): $(addprefix $(OBJECT_DIR)/stub_,$(addsuffix .o,$(STUB_OBJECTS))) $(OBJECT_DIR)/sha256.o $(OBJECT_DIR)/platform_util.o
 $(addprefix $(OBJECT_DIR)/stub_,$(addsuffix .o,$(STUB_OBJECTS))): $(OBJECT_DIR)/stub_%.o: $(ET100_FW)/installer/%.c
 	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<

@@ -111,6 +111,8 @@
 
 **v0.8.3 installer（2026-10-22）**：EVB 已是新布局——ROM → installer（0x08002000）→ App（0x08020200，0.8.4-dev）。實機證實 ROM 只驗 A 資訊段涵蓋的 installer、不驗 App；B 資訊段（全 00）全程未寫。Installer 從 NOR Candidate 安裝新版（erase／program／驗證各 reset 一次都能重做完成），拒絕壞 SHA、真實 nRF image 與 CRC=0 的 FR image。Build 自動產生與 NCS 同格式的 `dfu_application.zip`（EUPFWV1 CRC 已填）。**僅 SHA-256、不驗簽章，原型專用**；trial／confirm／rollback 在 v0.8.4。
 
+**v0.8.4 trial／rollback（2026-10-22）**：安裝前備份到 NOR Rollback；新版 TRIAL → 自檢後自動 CONFIRMED；未確認（NO_CONFIRM）或卡死（HANG，watchdog reset）都自動回滾到舊版並記錄 FAILED；備份中 reset 可續完。找到並修正 SDK `pmu_init()` 關掉 WDT clock 的問題（App 開機後重新啟用）。限制：`pmu_init()` 內部的短暫盲窗；HANG 那輪 UART 過程訊息未完整擷取（以 boot state 與 hash 證據判定）。下一步：v0.8.5 OTA manager 進 App＋RS232。
+
 **最新 App GATT build（0.7.0-dev）**：新增手機可連的 Gateway manager status／list／select／selected-data，名稱依 Stanley 選擇為 **EUP_AIoT_HUB_FR**，避免舊 App 將 FR 誤判為 AES sensor；不改 App／SDK。七組 host tests、ARM build 與 header／CRC／FlashEnv 通過。Burn 284,712 bytes，ELF text/data/bss=240,744/35,768/66,528 bytes，data+bss=102,296 bytes，取代下方歷史數據；runtime heap 餘量未量測。實機 App／sensor 並行仍待驗收，最新 flash 狀態見 [App GATT 紀錄](../../fw/docs/04_testing/07_evb_app_gatt_server.md)。SDK active patches 仍 8 組，新增 0。
 
 **最新 D4 LED build**：0.6.0-dev 新增 PA7／D4 Gateway LED、PA6／D3 固定低電位熄滅，待機／資料／sensor GATT link 使用不同亮滅規則，不改 K1-K3。Burn 283,400 bytes，ELF text/data/bss=239,912/35,288/66,304 bytes，取代下方早期 build 的同名數字；SDK active patches 仍 8 組，新增 0。LED task 另需 1.5 KiB stack 與 TCB，runtime heap 餘量未量測。實體驗收及最新燒錄結果見 [LED 紀錄](../../fw/docs/04_testing/06_evb_gateway_led.md)。

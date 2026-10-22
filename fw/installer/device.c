@@ -33,7 +33,7 @@ const struct internal_port installer_internal={read_internal,erase_internal,prog
 int installer_nor_init(void)
 {
     struct nor_port *p=nor_qspi1_port();int rc=p->init();
-    /* Initialization is read-only; authorizing writes is confined to the dev loader. */
+    /* Read-only init; caller explicitly authorizes dev download or rollback backup writes. */
     return rc;
 }
 int installer_candidate_read(void *ctx,uint32_t off,void *data,size_t n)

@@ -4,6 +4,7 @@
 #include "app_gatt_server.h"
 #include "gap_api.h"
 #include "gatt_api.h"
+#include "boot_health.h"
 
 static adv_handle advertising;
 static uint8_t manager_service;
@@ -42,6 +43,7 @@ static uint16_t gap_callback(struct gap_event *event)
         }
         break;
     case GAP_EVT_ADV_START:
+        if(!event->param.adv_start.status) et100_boot_adv_started();
         if(!event->param.adv_start.status && et100_gatt_state()==0) et100_scan_start();
         break;
     case GAP_EVT_SLAVE_CONNECT:

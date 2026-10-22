@@ -1,4 +1,90 @@
-# IMPLEMENTATION_PLAN — v0.8.3 Installer 與 App 搬家（從 NOR 安裝到內建 Flash）
+# IMPLEMENTATION_PLAN — v0.8.4 Trial／Confirm／Rollback
+
+## Branch
+
+Before starting implementation, create and switch to the new branch:
+
+git checkout -b v0.8.4_trial_rollback
+
+Base branch: v0.8.3_installer（5dd5d0e）
+
+## 0. 工作模式、決策與授權
+
+**採用 [comm.md](../comm.md) 的「Hardware bring-up loop」**。Stanley 2026-10-22 核准 D1–D4，並要求**測試不要做太細**。
+
+| 決策 | 內容 |
+|---|---|
+| D1 confirm | **App 自己確認**：BLE 開始廣播、FlashEnv 讀寫正常、main loop 持續 30 秒 → 寫入 CONFIRMED。v0.8.6 的 SMP `confirm` 之後也接受，但非必要 |
+| D2 機會次數 | **1 次**：TRIAL 狀態下重開（未確認）即回滾，同 MCUboot 預設 |
+| D3 卡死 | **App always runs the watchdog; installer arms it before the jump**。Installer 每次跳 App 前啟動 PMU watchdog（約 60 秒）；App 每次開機在 pmu_init() 後立即重新 arm，TRIAL／CONFIRMED 均定期清除，確認後不中止。未確認 App 卡死 → reset → 回滾 |
+| D4 測試 | EVB 只跑 3 個情境（§5）；host 沿用既有斷電矩陣擴充新狀態 |
+
+| Milestone | 內容 | 之後 |
+|---|---|---|
+| M-WDT | 確認 PMU watchdog 可啟動、可清除、逾時會 reset；**是否可關閉**（關不掉也可以，但要記錄） | 只在**做不到 reset 或無法清除**時停下回報；否則直接往下 |
+| M-RB | §5 三個情境 PASS | 停下 review → Step 7／8 |
+
+**本施工單核准即授權**：在 EVB 燒錄本 branch 的 installer／App／測試版 App、寫入 U11 scratch、啟用 PMU watchdog。0x08001000 sector 規則不變（永不擦寫）。
+
+## 1. 流程（06 §5）
+
+```text
+安裝前  boot state = PENDING
+        → 備份目前已確認的 App 到 NOR Rollback（0x220000–0x41FFFF）→ 讀回驗 hash
+          （Rollback 已是同一份且實際讀回驗證通過 → 跳過）→ BACKUP_READY
+        → 安裝 Candidate（v0.8.3 流程）→ TRIAL → 啟動 watchdog → 跳新 App
+新 App  自檢通過（D1）→ 寫 CONFIRMED（新 hash）
+重開機  installer 看到 TRIAL（未確認就重開了）→ ROLLBACK_REQUIRED
+        → 從 Rollback 搬回舊版（同安裝流程，reset 就重做）→ CONFIRMED（舊 hash），記錄 last_update=FAILED
+```
+
+- 備份失敗（NOR 錯誤）→ 放棄這次安裝、清除 PENDING、舊 App 照常開機，記錄 last_update=ABORTED。
+- 回滾時 Rollback 驗證失敗 → 停在 installer、UART 印錯誤（06 §5：沒有 factory image 可退，誠實回報）。
+- **相容 v0.8.3**：EVB 上現有的 `INSTALLED` record 視為 `CONFIRMED`。
+
+## 2. Boot state 擴充
+
+沿用 v0.8.3 的雙 record 格式（seq＋CRC＋commit marker）。狀態：`CONFIRMED／PENDING／BACKUP_READY／TRIAL／ROLLBACK_REQUIRED`，另存 `confirmed_hash`、`candidate_hash`、`last_update`（OK／FAILED／ABORTED）。
+
+**App 也要寫 boot state**（只寫 CONFIRMED）：把 boot state 模組移到 installer 與 App 共用的位置（例如 `fw/common/`），App 只呼叫 `boot_state_confirm(hash)`；只有在目前是 TRIAL 且 hash 等於自己的 image hash 時才寫入。App 寫入時用 SDK `flash_write`（QSPI0，短暫關中斷，一筆 record）。
+
+## 3. Watchdog（D3）
+
+- 先做 M-WDT 小實驗（只用 installer／測試韌體，不必 BLE）。
+- Installer：每次跳 App 前均啟動，包含 TRIAL／CONFIRMED；installer 自身安裝／回滾期間的處理維持既有流程。
+- App：**每次開機**在 SDK pmu_init() 返回後立即重新配置並啟動約 60 秒 watchdog，不能只依賴繼承 installer 設定；定期清除，**確認後也持續清除**。
+- 已知盲窗：SDK pmu_init() 內會關閉 WDT clock；若該函式在關閉後卡死，不能保證 watchdog reset。返回後緊接重新 arm，不把盲窗延到其他 App 初始化步驟；本輪不改 SDK。
+- Watchdog 造成的 reset 要能從 reset reason 分辨，記錄在 UART／GCHK 可查的地方（選做，不擋 milestone）。
+
+## 4. 檔案範圍（Codex）
+
+| 檔案 | 內容 |
+|---|---|
+| `fw/common/boot_state.c／.h`（從 installer 移出） | 狀態擴充、App 用的 confirm API |
+| `fw/installer/` | 備份、TRIAL／回滾流程、watchdog 啟動 |
+| `fw/src/`（App） | 自檢＋confirm、watchdog 清除；測試用 build flag：`ET100_TEST_NO_CONFIRM`、`ET100_TEST_HANG`（**只用於測試 build，預設關閉**） |
+| `fw/targets/*.mk`、`fw/tools/build_*.sh`、`make_dfu_package.py` | 共用模組、測試版 App 的 build／打包 |
+| `fw/tests/` | 擴充 boot state 與安裝／回滾斷電矩陣 |
+| `fw/docs/04_testing/12_evb_trial_rollback.md` | 測試報告（精簡） |
+
+**不做**：簽章、RS232／BLE 傳輸、連續失敗次數限制、installer 自我更新、SDK 修改。
+
+## 5. 驗收（M-RB，精簡）
+
+1. **正常更新**：A→B，B 自檢通過 → CONFIRMED；再重開仍是 B。
+2. **壞的 App**：B 用 `ET100_TEST_NO_CONFIRM` 或 `ET100_TEST_HANG` → reset 或 watchdog → 回滾到 A，GCHK 版本變回 A，last_update=FAILED。兩種 flag 各跑一次。
+3. **備份中 reset**：備份途中 MCU reset 一次 → 重開後接著完成更新。
+4. 全程 B 資訊段 SHA-256 不變。
+
+Host：斷電注入涵蓋新狀態（備份、TRIAL、回滾每一步），全部 PASS 即可，不必另列細部統計。
+
+## 6. 交付
+
+M-RB 停下 review；Step 7 同步 06 §5（實作狀態）、platform plan、status MD、REVIEW_REPORT；`git diff --check`、`check_plan_vs_code.py` PASS；不 commit／push。
+
+---
+
+# 歷史施工單 — v0.8.3 Installer 與 App 搬家（從 NOR 安裝到內建 Flash）
 
 ## Branch
 
