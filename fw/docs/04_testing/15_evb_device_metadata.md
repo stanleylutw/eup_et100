@@ -23,6 +23,18 @@
 - EVB 重新部署 ✅：板上原為 Codex review 留下的測試 image `0.8.63`（停在 115200、無 GFWINFO），直接以 115200 SMP 上傳修正版（298184 B，53.6 s）→ test → reset → 自檢 30 s 後自動 confirm；slot 0 `0.8.7.0` hash `7f1cb09c…` active confirmed。`GFWINFO` 9600 回 `…;0.8.7-dev;fr3068e_c;M087`；CFSR 0、`et100_meta_dropped` 0；B-info `ad7facb2…` 不變。
 - Codex 複審 PASS。手機 BLE 實機複測（連續 PING、斷線重連後查詢、BLE SMP 更新）依 Stanley 決定未做；修正以 host 重現程式驗證。
 
+## HTML 工具驗收（`tools/rs232_tester.html` ET-100 SMP，Codex 實作）
+
+Stanley 以 Chrome 在 EVB 實測（log `rs232_log_20261022_152526.txt`），測試 zip 由 Claude 準備：
+
+| # | 檔案 | 結果 |
+|---|---|---|
+| 1 | `0.8.72-dev`，EUPFWV1 hardware 改 `ET100_EVB_DEV9.9` | ✅ GFWINFO 比對擋下：「裝置／檔案硬體不符」，未切 baud、未上傳 |
+| 2 | `0.8.71-dev` 正常 | ✅ OTABAUD 115200 → 上傳 53 s → 驗證 → Test／重啟 → 自動確認；GCHK／GFWINFO 回 `0.8.71-dev` |
+| 3 | `0.8.7-dev`（還原） | ✅ 同流程，回 `0.8.7-dev` |
+
+B-info `ad7facb2…` 不變。`tools/tests/test_et100_smp.cjs`、`test_et100_ui.cjs` PASS（含 180 s 確認逾時、ASCII 逾時提示、pre-0.8.7 警告）。`tools/vendor/README.md` 已附 fflate MIT 授權說明。GLIST／GMAXRPT／GSOTAPKG 回 0 為 HTML 既有 gateway 查詢，ET-100 未實作，不影響更新。
+
 ## 限制
 
 - 未以手機實際送 PING／GET_FW_INFO；格式相容性以 FR3068 既有、已與真實 nRF sensor 互通的 client parser 驗證。

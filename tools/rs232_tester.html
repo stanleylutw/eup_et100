@@ -2363,6 +2363,14 @@
   .ota-device-submode[hidden] {
     display: none !important;
   }
+  .ota-mode[aria-label="OTA 目標"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #et100-panel dl { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px; margin: 12px 0; font-size: var(--fs-xs); }
+  #et100-panel dt { color: var(--sub); }
+  #et100-panel dd { margin: 0; overflow-wrap: anywhere; }
+  #et100-panel input { max-width: 100%; font-size: var(--fs-xs); }
+  #et100-phase, #et100-result { font-size: var(--fs-xs); overflow-wrap: anywhere; margin-top: 8px; }
+  #et100-result[data-kind="error"], #et100-result[data-kind="rollback"] { color: var(--err); }
+  #et100-result[data-kind="success"], #et100-result[data-kind="already"] { color: var(--ok); }
   .ota-mode button {
     display: inline-flex;
     align-items: center;
@@ -2939,6 +2947,7 @@
             </svg>
             Device
           </button>
+          <button type="button" data-ota-mode="et100">ET-100</button>
         </div>
         <div class="ota-mode ota-device-submode" id="ota-device-submode" role="group" aria-label="Device OTA 模式" hidden>
           <button type="button" class="active" data-device-submode="rs232">
@@ -2955,6 +2964,25 @@
             </svg>
             GATT OTA
           </button>
+        </div>
+      </div>
+      <div id="et100-panel" hidden>
+        <div class="section">
+          <div class="section-label">ET-100 · RS232 / UART · SMP</div>
+          <button type="button" class="qbtn" id="et100-query" disabled>查詢裝置</button>
+          <dl id="et100-device" aria-live="polite"><dt>裝置</dt><dd>尚未查詢</dd></dl>
+        </div>
+        <div class="section">
+          <div class="section-label">更新檔案</div>
+          <input id="et100-file" type="file" accept=".zip,.bin" aria-label="ET-100 韌體 ZIP 或 BIN" />
+          <dl id="et100-file-info" aria-live="polite"></dl>
+          <div class="form-row">
+            <button type="button" class="sbtn ble-sbtn" id="et100-start" disabled>開始更新</button>
+            <button type="button" class="qbtn" id="et100-cancel" disabled>取消</button>
+          </div>
+          <progress id="et100-progress" max="100" value="0" aria-label="ET-100 上傳進度" style="width:100%;margin-top:12px"></progress>
+          <div id="et100-phase" role="status" aria-live="polite">等待開始</div>
+          <div id="et100-result" role="status" aria-live="polite"></div>
         </div>
       </div>
       <div id="ota-rs232-panel">
@@ -3523,6 +3551,274 @@
 </script>
 <script src="vendor/fflate.min.js"></script>
 <script src="sensor_ota_package.js"></script>
+<script id="et100-smp-core">
+'use strict';
+// ET-100 SMP 核心不依賴 DOM，離線測試與頁面共用。
+const ET100Smp = (() => {
+  const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', {fatal:true});
+  const concat = (...arrays) => {
+    const out = new Uint8Array(arrays.reduce((n, a) => n + a.length, 0));
+    let at = 0; for (const a of arrays) { out.set(a, at); at += a.length; } return out;
+  };
+  const equal = (a, b) => a?.length === b?.length && a.every((v, i) => v === b[i]);
+  function cbor(value) {
+    function head(type, n) {
+      if (!Number.isSafeInteger(n) || n < 0 || n > 0xffffffff) throw Error('CBOR 整數超界');
+      if (n < 24) return Uint8Array.of(type * 32 + n);
+      const count = n <= 255 ? 1 : n <= 65535 ? 2 : 4;
+      const b = new Uint8Array(1 + count); b[0] = type * 32 + ({1:24,2:25,4:26})[count];
+      for (let i = count; i; i--) { b[i] = n & 255; n = Math.floor(n / 256); } return b;
+    }
+    if (value instanceof Uint8Array) return concat(head(2, value.length), value);
+    if (typeof value === 'string') { const b = encoder.encode(value); return concat(head(3,b.length),b); }
+    if (typeof value === 'number') return head(0,value);
+    if (typeof value === 'boolean') return Uint8Array.of(value ? 245 : 244);
+    if (Array.isArray(value)) return concat(head(4,value.length),...value.map(cbor));
+    if (value && typeof value === 'object') {
+      const entries = Object.entries(value); return concat(head(5,entries.length),...entries.flatMap(([k,v]) => [cbor(k),cbor(v)]));
+    }
+    throw Error('不支援的 CBOR 型別');
+  }
+  function uncbor(b) {
+    let at = 0;
+    function read(depth = 0) {
+      if (depth > 8 || at >= b.length) throw Error('CBOR 截斷／巢狀過深');
+      const h = b[at++], type = h >> 5, info = h & 31;
+      if (h === 244 || h === 245) return h === 245;
+      if (h === 246) return null;
+      if (info >= 28) throw Error('不支援的 CBOR 格式');
+      let n = info;
+      if (info >= 24) {
+        const count = 2 ** (info - 24); n = 0;
+        if (at + count > b.length) throw Error('CBOR 截斷');
+        for (let i = 0; i < count; i++) n = n * 256 + b[at++];
+        if (!Number.isSafeInteger(n)) throw Error('CBOR 整數超界');
+      }
+      if (type === 0) return n;
+      if (type === 1) return -1-n;
+      if (type === 2 || type === 3) {
+        if (n > b.length-at) throw Error('CBOR 截斷');
+        const data = b.slice(at,at+n); at+=n; return type === 2 ? data : decoder.decode(data);
+      }
+      if ((type !== 4 && type !== 5) || n > b.length-at) throw Error('CBOR 容器無效');
+      if (type === 4) return Array.from({length:n},() => read(depth+1));
+      const out = Object.create(null);
+      for (let i=0;i<n;i++) {
+        const k=read(depth+1);
+        if (typeof k !== 'string' || Object.hasOwn(out,k)) throw Error('CBOR 重複／無效 key');
+        out[k]=read(depth+1);
+      }
+      return out;
+    }
+    const result=read(); if(at!==b.length) throw Error('CBOR 尾端多餘資料'); return result;
+  }
+  function crc16(b) {
+    let c=0; for(const v of b) { c^=v<<8; for(let i=0;i<8;i++) c=((c<<1)^((c&32768)?0x1021:0))&65535; } return c;
+  }
+  function crc32(b) {
+    let c=0xffffffff; for(const v of b) { c^=v; for(let i=0;i<8;i++) c=(c>>>1)^((c&1)?0xedb88320:0); } return (c^0xffffffff)>>>0;
+  }
+  function packet(op,group,id,seq,body) {
+    const data=cbor(body); if(data.length+8>1024) throw Error('SMP 封包超過 1024 B');
+    return concat(Uint8Array.of(8|op,0,data.length>>8,data.length&255,group>>8,group&255,seq,id),data);
+  }
+  function frame(p) {
+    if(p.length>1024) throw Error('SMP 封包超過 1024 B');
+    const c=crc16(p), n=p.length+2, raw=concat(Uint8Array.of(n>>8,n&255),p,Uint8Array.of(c>>8,c&255));
+    let text=''; for(let at=0;at<raw.length;at+=93) {
+      text+=(at?'\x04\x14':'\x06\x09')+btoa(String.fromCharCode(...raw.slice(at,at+93)))+'\n';
+    } return encoder.encode(text);
+  }
+  class Decoder {
+    constructor(onPacket,onLine=()=>{}) { this.onPacket=onPacket; this.onLine=onLine; this.reset(); }
+    reset() { this.line=[]; this.raw=new Uint8Array(); this.last=0; }
+    feed(bytes) {
+      for(const b of bytes) {
+        if(Date.now()-this.last>2000) this.reset(); this.last=Date.now();
+        if(b===6 || b===4) this.line=[];
+        if(b!==10) { if(this.line.length<2048) this.line.push(b); else this.reset(); continue; }
+        const line=this.line; this.line=[];
+        if(!((line[0]===6&&line[1]===9)||(line[0]===4&&line[1]===20))) {
+          this.onLine(String.fromCharCode(...line).replace(/\r$/,'')); continue;
+        }
+        try {
+          const txt=String.fromCharCode(...line.slice(2)).replace(/\r$/,'');
+          if(!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(txt)) throw Error();
+          const data=Uint8Array.from(atob(txt),ch=>ch.charCodeAt(0));
+          if(line[0]===6) this.raw=new Uint8Array();
+          else if(!this.raw.length) continue;
+          this.raw=concat(this.raw,data);
+          if(this.raw.length>1028) throw Error();
+          if(this.raw.length<2) continue;
+          const total=this.raw[0]*256+this.raw[1]; if(total<10||total>1026||this.raw.length>total+2) throw Error();
+          if(this.raw.length<total+2) continue;
+          const p=this.raw.slice(2,-2), crc=this.raw.at(-2)*256+this.raw.at(-1); this.raw=new Uint8Array();
+          if(crc16(p)!==crc) throw Error(); this.onPacket(p);
+        } catch { this.raw=new Uint8Array(); }
+      }
+    }
+  }
+  const digest=async b=>new Uint8Array(await crypto.subtle.digest('SHA-256',b));
+  function errorCode(rc) {
+    return ({10:'其他介面正在更新（EBUSY）',6:'裝置有待安裝或未確認映像（EBADSTATE）',9:'映像或儲存校驗失敗（ECORRUPT）'})[rc]||`SMP 錯誤 rc=${rc}`;
+  }
+  async function validate(bytes,manifest=null) {
+    const b=new Uint8Array(bytes), view=new DataView(b.buffer,b.byteOffset,b.byteLength);
+    if(b.length<560||b.length>0x1c0000) throw Error('ET-100 映像大小超界');
+    if(view.getUint32(0,true)!==0x96f3b83d||view.getUint32(4,true)!==0||view.getUint16(8,true)!==512||view.getUint16(10,true)!==0||view.getUint32(16,true)!==0) throw Error('不支援的 MCUboot header');
+    const payload=view.getUint32(12,true), end=512+payload;
+    if(payload<8||end+40!==b.length||!equal(b.slice(end,end+8),Uint8Array.of(7,105,40,0,16,0,32,0))) throw Error('MCUboot 映像長度／TLV 無效');
+    const tlvHash=await digest(b.slice(0,end)); if(!equal(tlvHash,b.slice(end+8))) throw Error('MCUboot SHA-256 不符');
+    const magic=encoder.encode('EUPFWV1\0'), found=[];
+    for(let i=0;i+8<=b.length;i++) if(equal(b.subarray(i,i+8),magic)) found.push(i);
+    if(found.length!==1||found[0]+286>b.length) throw Error('EUPFWV1 metadata 缺失／重複');
+    const at=found[0];
+    function fixed(off,len) { const raw=b.slice(at+off,at+off+len), zero=raw.indexOf(0); if(zero<0) throw Error('metadata 字串未終止'); return decoder.decode(raw.slice(0,zero)); }
+    const project=fixed(10,24), hardware=fixed(34,20), firmware=fixed(54,32);
+    if(view.getUint16(at+8,true)!==1||project!=='EUP_ET100'||!hardware.startsWith('ET100_EVB_')) throw Error('不是 ET-100 EVB 韌體');
+    const crc=view.getUint32(at+282,true); if(!crc||crc!==crc32(b.slice(at,at+282))) throw Error('metadata CRC 必須非 0 且正確');
+    if(manifest) {
+      if(manifest.board!=='dev14_fr3068ep_c'||manifest.soc!=='fr3068e_c') throw Error('manifest board／soc 不符');
+      if(manifest.size!==undefined&&manifest.size!==b.length) throw Error('manifest size 不符');
+    }
+    const sp=view.getUint32(512,true), pc=view.getUint32(516,true);
+    if(sp<=0x20000000||sp>0x20080000||sp%8||!(pc&1)||(pc>>>1)*2<0x08020200||(pc>>>1)*2>=0x08020200+payload) throw Error('MCUboot vector 無效');
+    return {bytes:b,project,hardware,firmware,version:[b[20],b[21],view.getUint16(22,true),view.getUint32(24,true)].join('.'),sha:await digest(b),tlvHash,manifest};
+  }
+  async function loadFile(name,source,unzip) {
+    if(source.length>4*1024*1024) throw Error('檔案超過 4 MB');
+    if(!/\.zip$/i.test(name)) { if(!/\.bin$/i.test(name)) throw Error('只接受 ZIP／BIN'); return validate(source); }
+    if(!unzip) throw Error('ZIP 相依套件未載入');
+    const entries=unzip(source,{filter:f=>f.name==='manifest.json'&&f.originalSize<=65536});
+    if(!entries['manifest.json']||entries['manifest.json'].length>65536) throw Error('缺少有效 manifest.json');
+    const manifest=JSON.parse(decoder.decode(entries['manifest.json']));
+    if(!Array.isArray(manifest.files)||manifest.files.length!==1) throw Error('ZIP 必須只有一筆 application 映像');
+    const entry=manifest.files[0];
+    if(entry.type!=='application'||typeof entry.file!=='string'||entry.file==='manifest.json') throw Error('manifest application 檔案無效');
+    const images=unzip(source,{filter:f=>f.name===entry.file&&f.originalSize<=0x1c0000});
+    if(!images[entry.file]) throw Error('manifest application 檔案不存在／過大');
+    return validate(images[entry.file],entry);
+  }
+  class Client {
+    constructor(io) { this.io=io; this.seq=0; this.pending=null; this.cancelled=false; this.testSent=false; this.running=false; this.decoder=new Decoder(p=>this.receive(p),line=>this.receiveLine(line)); }
+    receiveLine(line) { this.lineWaiter?.(line); this.io.line?.(line); }
+    receive(p) {
+      const q=this.pending;
+      if(!q||p.length<8||p.length!==8+p[2]*256+p[3]||p[6]!==q.seq||p[7]!==q.id||p[4]*256+p[5]!==q.group||(p[0]&7)!==q.op+1||(p[0]>>3&3)!==1) return;
+      try {
+        const body=uncbor(p.slice(8));
+        if(!body||typeof body!=='object'||Array.isArray(body)) throw Error('SMP 回應不是 map');
+        if(body.rc) throw Error(errorCode(body.rc));
+        if(body.err) throw Error(`SMP group error ${body.err.rc}`);
+        q.finish(null,body);
+      } catch(e) { q.finish(e); }
+    }
+    close(reason='Serial 連線中斷') { this.pending?.finish(Error(reason)); this.lineWaiter?.(null); this.decoder.reset(); }
+    async request(op,group,id,body={},timeout=30000) {
+      if(this.pending) throw Error('已有 SMP 請求進行中');
+      const seq=this.seq=(this.seq+1)&255;
+      return new Promise((resolve,reject)=>{
+        const finish=(err,value)=>{ if(this.pending?.seq!==seq) return; clearTimeout(timer); this.pending=null; err?reject(err):resolve(value); };
+        const timer=setTimeout(()=>finish(Error('SMP 回應逾時；重新連線後可續傳')),timeout);
+        this.pending={seq,group,id,op,finish};
+        Promise.resolve().then(()=>this.io.write(frame(packet(op,group,id,seq,body)))).catch(e=>finish(e));
+      });
+    }
+    ascii(command,match,timeout=5000) {
+      if(this.lineWaiter) return Promise.reject(Error('已有 ASCII 查詢進行中'));
+      return new Promise((resolve,reject)=>{
+        const finish=(err,value)=>{ clearTimeout(timer); this.lineWaiter=null; err?reject(err):resolve(value); };
+        const timer=setTimeout(()=>finish(Error('ASCII 回應逾時')),timeout);
+        this.lineWaiter=line=>{ if(line===null) finish(Error('Serial 連線中斷')); else if(match(line)) finish(null,line); };
+        Promise.resolve().then(()=>this.io.write(encoder.encode(command+'\r\n'))).catch(e=>finish(e));
+      });
+    }
+    async identify(file=null) {
+      await this.io.reopen(9600); this.decoder.reset();
+      const token=this.io.token();
+      let line, infoLine;
+      const infoToken=this.io.token();
+      try {
+        line=await this.ascii('BLEGW$GCHK;'+token,l=>l.startsWith('AT$PD=BLEGW$GCHK;1;')&&l.endsWith(';'+token));
+        infoLine=await this.ascii('BLEGW$GFWINFO;'+infoToken,l=>l.startsWith('AT$PD=BLEGW$GFWINFO;')&&l.endsWith(';'+infoToken));
+      } catch(e) {
+        if(e.message==='ASCII 回應逾時') throw Error('ASCII 回應逾時；若剛中斷更新，請等 30 秒後再查詢');
+        throw e;
+      }
+      const fields=infoLine.split(';'); let fwInfo=null, hardwareCheck;
+      if(fields[1]==='0'&&(fields.length===3||(fields.length===7&&fields.slice(2,6).every(v=>v==='')))) {
+        hardwareCheck='裝置韌體早於 0.8.7，無法比對硬體';
+      } else if(fields[1]==='1'&&fields.length===7&&fields.slice(2,6).every(v=>v.length>0)) {
+        fwInfo={project:fields[2],hardware:fields[3],firmware:fields[4],soc:fields[5]};
+        if(file&&(fwInfo.project!==file.project||fwInfo.hardware!==file.hardware||fwInfo.soc!==(file.manifest?.soc||'fr3068e_c')))
+          throw Error(`裝置／檔案硬體不符：裝置 ${fwInfo.project} / ${fwInfo.hardware} / ${fwInfo.soc}；檔案 ${file.project} / ${file.hardware} / ${file.manifest?.soc||'fr3068e_c'}`);
+        hardwareCheck=file?'裝置／檔案硬體一致':'GFWINFO 已讀取，尚未選擇檔案';
+      } else throw Error('GFWINFO 回應格式無效，禁止更新');
+      const state=await this.request(0,1,0,{},60000), slot=state.images?.find(i=>i.slot===0);
+      if(!slot||typeof slot.version!=='string'||!(slot.hash instanceof Uint8Array)||slot.hash.length!==32) throw Error('缺少有效 slot 0');
+      return {line,slot,state,fwInfo,hardwareCheck};
+    }
+    cancel() { if(!this.testSent) this.cancelled=true; }
+    checkCancel() { if(this.cancelled) throw Error('已取消；未送出 Test，裝置未安排安裝'); }
+    async update(file) {
+      if(this.running) throw Error('更新正在進行');
+      this.running=true; this.cancelled=false; this.testSent=false; let high=false, reset=false;
+      try {
+        this.io.stage('查詢裝置'); const before=await this.identify(file); this.io.identity(before);
+        if(!before.slot.confirmed) throw Error(errorCode(6)); this.checkCancel();
+        this.io.stage('切換 115200'); const token=this.io.token();
+        await this.ascii('BLEGW$OTABAUD;115200;'+token,l=>l.startsWith('AT$PD=BLEGW$OTABAUD;')&&l.endsWith(';'+token)).then(line=>{
+          if(line!=='AT$PD=BLEGW$OTABAUD;1;115200;'+token) throw Error('OTABAUD 被拒絕');
+        });
+        high=true; await this.io.reopen(115200); this.decoder.reset();
+        this.io.stage('上傳'); let off=0, first=true, stalled=0;
+        while(first||off<file.bytes.length) {
+          this.checkCancel();
+          const body={off,data:file.bytes.slice(off,off+600)};
+          if(first||off===0) Object.assign(body,{len:file.bytes.length,sha:file.sha,image:0});
+          const reply=await this.request(2,1,1,body,60000); first=false;
+          if(!Number.isInteger(reply.off)||reply.off<0||reply.off>file.bytes.length) throw Error('裝置回覆無效 offset');
+          stalled=reply.off<=off?stalled+1:0; if(stalled>3) throw Error('上傳沒有進展；請重新連線續傳');
+          off=reply.off; this.io.progress(off,file.bytes.length);
+        }
+        this.checkCancel(); this.io.stage('驗證 Candidate');
+        const state=await this.request(0,1,0,{},60000);
+        const candidate=state.images?.find(i=>i.slot===1);
+        const current=state.images?.find(i=>i.slot===0);
+        if(!candidate) {
+          if(current?.confirmed&&current.version===file.version&&equal(current.hash,file.tlvHash)) return {kind:'already',slot:current};
+          throw Error('Candidate 未列出；映像驗證未通過');
+        }
+        if(!candidate.bootable||candidate.version!==file.version||!equal(candidate.hash,file.tlvHash)) throw Error('Candidate 版本／hash 不符');
+        this.checkCancel(); this.testSent=true; this.io.stage('Test／重啟');
+        await this.request(2,1,0,{hash:candidate.hash,confirm:false},60000);
+        await this.request(2,0,5,{},30000); reset=true;
+        await this.io.reopen(9600); high=false; this.decoder.reset();
+        this.io.stage('安裝／等待自動確認'); const deadline=this.io.now()+180000;
+        while(this.io.now()<deadline) {
+          await this.io.sleep(5000);
+          let images;
+          try { images=(await this.request(0,1,0,{},Math.min(5000,Math.max(1,deadline-this.io.now())))).images; }
+          catch { continue; }
+          const slot=images?.find(i=>i.slot===0); if(!slot?.confirmed) continue;
+          if(slot.version===file.version&&equal(slot.hash,file.tlvHash)) return {kind:'success',slot};
+          if(slot.version===before.slot.version&&file.version!==before.slot.version) return {kind:'rollback',slot};
+          throw Error('裝置已確認，但版本／hash 不符合預期');
+        }
+        throw Error('180 秒內未確認新版；結果未知，請查詢裝置（不是更新成功）');
+      } finally {
+        if(high&&!reset) {
+          try { await this.ascii('BLEGW$OTABAUD;9600;'+this.io.token(),l=>/^AT\$PD=BLEGW\$OTABAUD;1;9600;/.test(l)); }
+          catch { this.io.stage('等待裝置恢復 9600'); await this.io.sleep(31000); }
+          try { await this.io.reopen(9600); this.decoder.reset(); } catch {}
+        }
+        this.running=false;
+      }
+    }
+  }
+  return {concat,equal,cbor,uncbor,crc16,crc32,packet,frame,Decoder,validate,loadFile,Client};
+})();
+</script>
 <script>
 // ── utils ──
 function formatTesterVersion(lastModified) {
@@ -4014,6 +4310,7 @@ function renderFlashOtaVisualization() {
 }
 
 function flashOtaSetVisible() {
+  if (otaMode === 'et100') { document.getElementById('flash-ota-viz').hidden = true; return; }
   const showVisualization = activeTab === 'ota';
   const visualization = document.getElementById('flash-ota-viz');
   const parsedBody = document.querySelector('.parsed-panel > .parsed-body');
@@ -5375,6 +5672,8 @@ connectBtn.addEventListener('click', async () => {
 });
 
 async function disconnect() {
+  if (et100Busy) et100Client.cancel();
+  et100Client.close();
   setConnected(false);
   settleOtaGchk(null);
   try {
@@ -5425,6 +5724,7 @@ function setConnected(c) {
   canSbtns.forEach(b => b.disabled = !c);
   document.getElementById('ota-start').disabled = !(c && otaFileData);
   updateSensorPackageActionButtons();
+  et100Controls();
 }
 
 const gattMacInput = document.getElementById('gatt-mac');
@@ -5851,7 +6151,7 @@ setInterval(() => trySendGattKeepalive(false), 1000);
 
 async function syncGatewaySettings(serialPort) {
   for (const name of ['GCHK', 'GCID', 'GLIST', 'GGTIME', 'GMAXRPT', 'GAUTOLIST']) {
-    if (!connected || port !== serialPort) return;
+    if (!connected || port !== serialPort || otaMode === 'et100') return;
     const result = await gattCommand(name, '');
     if (!connected || port !== serialPort) return;
     if (!result?.valid) addLog('sys', `${name} 查詢失敗或逾時`);
@@ -5968,6 +6268,7 @@ async function readLoop() {
     while (true) {
       const { value, done } = await r.read();
       if (done) break;
+      if (otaMode === 'et100') { et100Client.decoder.feed(value); continue; }
       rxBuf += decoder.decode(value, { stream: true });
       let idx;
       while ((idx = rxBuf.indexOf('\r\n')) !== -1) {
@@ -5981,6 +6282,7 @@ async function readLoop() {
   } finally {
     r.releaseLock();
     reader = null;
+    if (!connected) et100Client.close();
   }
 }
 
@@ -7621,6 +7923,7 @@ function drawDashboardTrend(canvas, entry, ctx, width, height, style, enabled = 
 
 // ── send ──
 async function send(frame) {
+  if (otaMode === 'et100' || et100Busy) return;
   if (!writer) return;
   const full = frame + '\r\n';
   const entry = document.createElement('div');
@@ -8250,7 +8553,144 @@ function updateOtaStatusVisibility() {
   el.hidden = (otaMode === 'sensor' || otaState === OTA_STATE.IDLE);
 }
 
+// ET-100 與舊 OTA 狀態機隔離，只共用現有 Web Serial port。
+let et100Busy = false, et100File = null, et100Device = null, et100FileGeneration = 0;
+let et100Started = 0, et100PortGeneration = 0;
+const et100Sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+function et100Rows(id, rows) {
+  const dl = document.getElementById(id); dl.replaceChildren();
+  for (const [label, value] of rows) {
+    const dt = document.createElement('dt'), dd = document.createElement('dd');
+    dt.textContent = label; dd.textContent = String(value); dd.dataset.field = label; dl.append(dt, dd);
+  }
+}
+function et100Controls() {
+  document.getElementById('et100-query').disabled = !connected || et100Busy;
+  document.getElementById('et100-start').disabled = !connected || et100Busy || !et100File;
+  document.getElementById('et100-file').disabled = et100Busy;
+  document.getElementById('et100-cancel').disabled = !et100Busy || !et100Client.running || et100Client.testSent;
+  document.querySelectorAll('[data-ota-mode]').forEach(button => {
+    if (button.dataset.otaMode !== 'sensor') button.disabled = et100Busy;
+    else if (et100Busy) button.disabled = true;
+  });
+}
+async function et100Reopen(baud) {
+  if (!port || !connected) throw Error('Serial 未連線');
+  const selected = port, generation = ++et100PortGeneration;
+  if (reader) await reader.cancel();
+  if (readLoopPromise) { await readLoopPromise; readLoopPromise = null; }
+  if (writer) { writer.releaseLock(); writer = null; }
+  await selected.close();
+  if (!connected || port !== selected || generation !== et100PortGeneration) throw Error('Serial 連線已變更');
+  await selected.open({baudRate:baud, dataBits:8, stopBits:1, parity:'none'});
+  writer = selected.writable.getWriter(); rxBuf = ''; readLoopPromise = readLoop();
+  addLog('sys', `ET-100 Serial ${baud} bps`);
+}
+const et100Client = new ET100Smp.Client({
+  write: async bytes => {
+    if (!writer || !connected || otaMode !== 'et100') throw Error('ET-100 Serial 已中斷');
+    if (bytes[0] === 0x42) {
+      const command = new TextDecoder().decode(bytes).trim();
+      if (/^BLEGW\$(GCHK|GFWINFO|OTABAUD);/.test(command))
+        addLogTagged('tx', command, 'tag-tx', 'TX');
+    }
+    await writer.write(bytes);
+  },
+  reopen: et100Reopen, token: randCode, now: Date.now, sleep: et100Sleep,
+  line: line => {
+    if (/^AT\$PD=BLEGW\$(GCHK|GFWINFO|OTABAUD);/.test(line)) processFrame(line);
+  },
+  stage: text => {
+    document.getElementById('et100-phase').textContent = text;
+    et100Controls(); addLog('sys', `ET-100：${text}`);
+  },
+  identity: result => {
+    et100Device = result;
+    const parts = result.line.split(';');
+    et100Rows('et100-device', [['裝置 ID', parts[2]], ['GCHK 硬體', parts[4]],
+      ['GCHK 韌體', parts[5]], ['MCUboot', result.slot.version],
+      ['確認狀態', result.slot.confirmed ? '已確認' : '尚未確認'],
+      ...(result.fwInfo ? [['專案', result.fwInfo.project], ['硬體', result.fwInfo.hardware], ['SoC', result.fwInfo.soc]] : []),
+      ['裝置硬體比對', result.hardwareCheck]]);
+    const check = document.querySelector('#et100-file-info [data-field="裝置硬體比對"]');
+    if (check) check.textContent = result.hardwareCheck;
+  },
+  progress: (off, total) => {
+    document.getElementById('et100-progress').value = off * 100 / total;
+    document.getElementById('et100-phase').textContent =
+      `上傳 ${off.toLocaleString()} / ${total.toLocaleString()} B · ${Math.floor(off*100/total)}% · ${((Date.now()-et100Started)/1000).toFixed(0)} s`;
+  }
+});
+async function et100Action(action) {
+  if (et100Busy || !connected || otaState !== OTA_STATE.IDLE ||
+      SENSOR_RELAY_ACTIVE_STATES.has(sensorRelay.state) || SENSOR_PROBE_ACTIVE_STATES.has(sensorProbe.state)) return;
+  et100Busy = true; et100Controls();
+  const result = document.getElementById('et100-result'); result.textContent = ''; result.dataset.kind = '';
+  try { await action(); }
+  catch (err) {
+    result.dataset.kind = 'error';
+    result.textContent = err.message + (et100Client.testSent ? '；Test 已送出，請查詢實際裝置狀態。' : '');
+    addLog('sys', `ET-100：${result.textContent}`);
+  } finally {
+    et100Busy = false; et100Controls(); updateGatewayFeatureAvailability();
+  }
+}
+document.getElementById('et100-query').addEventListener('click', () => et100Action(async () => {
+  et100Client.testSent = false;
+  const identity = await et100Client.identify(et100File); et100Client.io.identity(identity);
+  document.getElementById('et100-phase').textContent = '裝置狀態已讀取';
+}));
+document.getElementById('et100-file').addEventListener('change', async event => {
+  const generation = ++et100FileGeneration, file = event.target.files[0];
+  et100File = null; et100Controls(); document.getElementById('et100-result').textContent = '';
+  if (!file) { document.getElementById('et100-file-info').replaceChildren(); return; }
+  try {
+    if (file.size > 4*1024*1024) throw Error('檔案超過 4 MB');
+    const checked = await ET100Smp.loadFile(file.name, new Uint8Array(await file.arrayBuffer()), window.fflate?.unzipSync);
+    if (generation !== et100FileGeneration) return;
+    et100File = checked;
+    et100Rows('et100-file-info', [['檔案', file.name], ['專案', checked.project], ['硬體', checked.hardware],
+      ['MCUboot', checked.version], ['EUP 韌體', checked.firmware], ['大小', `${checked.bytes.length.toLocaleString()} B`],
+      ['檔案校驗', 'metadata CRC／MCUboot SHA-256 通過'], ['Manifest', checked.manifest ? 'board／soc 通過' : 'BIN，無 manifest'],
+      ['裝置硬體比對', '更新前以 GFWINFO 比對裝置'], ['安全', '未驗簽章，開發原型']]);
+  } catch (err) {
+    if (generation !== et100FileGeneration) return;
+    et100Rows('et100-file-info', [['檔案無效', err.message]]);
+  }
+  et100Controls();
+});
+document.getElementById('et100-start').addEventListener('click', () => {
+  if (!et100File) return;
+  const file = et100File;
+  return et100Action(async () => {
+    et100Started = Date.now(); document.getElementById('et100-progress').value = 0;
+    const outcome = await et100Client.update(file);
+    const result = document.getElementById('et100-result'); result.dataset.kind = outcome.kind;
+    result.textContent = outcome.kind === 'rollback' ? `推定已回滾：slot 0 ${outcome.slot.version}，已確認；請檢查裝置安裝 log` :
+      outcome.kind === 'already' ? `裝置已是相同映像：${outcome.slot.version}，已確認` :
+      `更新成功：${outcome.slot.version}，已確認 · ${((Date.now()-et100Started)/1000).toFixed(0)} s`;
+    document.getElementById('et100-phase').textContent = outcome.kind === 'rollback' ? '未完成新版更新' : '已完成';
+    et100Rows('et100-device', [['裝置 ID', et100Device?.line.split(';')[2] || '—'],
+      ['MCUboot', outcome.slot.version], ['確認狀態', '已確認']]);
+  });
+});
+document.getElementById('et100-cancel').addEventListener('click', () => {
+  et100Client.cancel(); document.getElementById('et100-cancel').disabled = true;
+  document.getElementById('et100-phase').textContent = '取消中，等待目前封包回應；不送出 Test';
+});
+
 function updateOtaModeUi() {
+  const et100 = otaMode === 'et100';
+  document.getElementById('et100-panel').hidden = !et100;
+  if (et100) {
+    document.querySelectorAll('[data-ota-mode]').forEach(button =>
+      button.classList.toggle('active', button.dataset.otaMode === otaMode));
+    for (const id of ['ota-device-submode','ota-rs232-panel','sensor-relay-panel','sensor-relay-no-pkg','sensor-probe-panel','flash-ota-viz'])
+      document.getElementById(id).hidden = true;
+    document.getElementById('ota-sidebar').classList.remove('sensor-mode');
+    et100Controls();
+    return;
+  }
   const sensor = otaMode === 'sensor';
   flashOtaSetMode(sensor ? 'sensor' : 'gateway');
   document.querySelectorAll('[data-ota-mode]').forEach(button =>
@@ -8320,10 +8760,12 @@ function updateOtaModeUi() {
 
 document.querySelectorAll('[data-ota-mode]').forEach(button => {
   button.addEventListener('click', () => {
-    if (button.disabled || otaState !== OTA_STATE.IDLE || SENSOR_PROBE_ACTIVE_STATES.has(sensorProbe.state) ||
+    if (et100Busy || button.disabled || otaState !== OTA_STATE.IDLE || SENSOR_PROBE_ACTIVE_STATES.has(sensorProbe.state) ||
         SENSOR_RELAY_ACTIVE_STATES.has(sensorRelay.state) ||
         button.dataset.otaMode === otaMode) return;
     otaMode = button.dataset.otaMode;
+    et100Client.close('更新模式已切換');
+    rxBuf = '';
     sensorProbeResetAvailability();
     sensorRelayReset();
     resetOtaFileSelection();
