@@ -1146,25 +1146,29 @@
   .ota-step.done { color: var(--ok); }
   .ota-step.error { color: var(--err); }
   /* ── OTA progress button & download result ── */
-  #ota-start:not(.in-progress):not(:disabled) {
+  #ota-start:not(.in-progress):not(:disabled),
+  #et100-start:not(:disabled) {
     color: #34a853;
     border: none;
     background: color-mix(in srgb, #34a853 15%, var(--panel));
   }
-  #ota-start:not(.in-progress):not(:disabled):hover {
+  #ota-start:not(.in-progress):not(:disabled):hover,
+  #et100-start:not(:disabled):hover {
     background: color-mix(in srgb, #34a853 25%, var(--panel));
   }
-  #ota-start.in-progress {
+  #ota-start.in-progress,
+  #et100-start.in-progress {
     color: #ffffff !important;
     background: linear-gradient(to right, #34a853 var(--progress, 0%), #475569 var(--progress, 0%)) !important;
     border: none !important;
     opacity: 1 !important;
     cursor: wait !important;
     font-weight: 600;
-    letter-spacing: 0.5px;
+    letter-spacing: 0;
     font-variant-numeric: tabular-nums;
   }
-  #ota-start.in-progress.verify-progress {
+  #ota-start.in-progress.verify-progress,
+  #et100-start.in-progress.verify-progress {
     background: linear-gradient(to right,
       color-mix(in srgb, #34a853 82%, #000000) var(--progress, 0%),
       #34a853 var(--progress, 0%)) !important;
@@ -1397,6 +1401,7 @@
     padding-inline: 6px;
   }
   .flash-viz-source.gatt .flash-viz-source-slots .flash-viz-slot-addr { display: none; }
+  .flash-viz-source[data-et100-relay="true"] .flash-viz-slot.target { min-height: 72px; flex-shrink: 0; }
   .flash-viz-pipe {
     position: relative;
     min-height: 80px;
@@ -1858,6 +1863,8 @@
     min-width: 0;
   }
   .ota-file-picker #ota-pick-file { width: 100%; }
+  .ota-file-picker #et100-pick-file { width: 100%; }
+  #et100-package-delete { color: var(--err); background: color-mix(in srgb, var(--err) 10%, var(--panel)); }
   .gateway-bin-menu {
     position: absolute;
     z-index: 20;
@@ -3014,9 +3021,39 @@
         </div>
       </div>
       <div id="et100-panel" hidden>
-        <div class="section">
+        <div class="section" id="et100-load-section">
+          <div class="section-label">載入 DFU 檔案</div>
+          <input id="et100-file" type="file" accept=".zip,.bin" aria-label="ET-100 韌體 ZIP 或 BIN" hidden />
+          <div class="ota-file-row" id="et100-file-row">
+            <div class="ota-file-picker">
+              <button type="button" class="qbtn" id="et100-pick-file">載入 ZIP / BIN 檔案</button>
+              <div class="gateway-bin-menu" id="et100-sensor-menu" role="menu" hidden>
+                <button type="button" role="menuitem" data-et100-sensor="p1"><span>P1</span><small>build_p1_ota</small></button>
+                <button type="button" role="menuitem" data-et100-sensor="e9"><span>E9</span><small>build_e9_ota</small></button>
+                <button type="button" role="menuitem" class="gateway-bin-local" data-et100-sensor="local"><span>本機檔案…</span><small>選擇其他 ZIP</small></button>
+              </div>
+            </div>
+            <button type="button" class="qbtn ota-icon-btn" id="et100-package-download" title="下載 Relay BIN" aria-label="下載 Relay BIN" disabled hidden>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </button>
+          </div>
+          <div class="ota-meta-card" id="et100-file-card">
+            <div class="ota-meta-header" id="et100-file-header" title="點擊展開或收合完整資訊">
+              <span class="ota-meta-title">詳細資訊</span>
+              <button type="button" id="et100-file-toggle" class="ota-meta-toggle" aria-expanded="false" aria-controls="et100-file-info" title="展開完整資訊">▾</button>
+            </div>
+            <div id="et100-file-info" aria-live="polite"><div class="ota-meta-empty">尚未載入更新檔案</div></div>
+          </div>
+          <div class="form-row" style="gap:6px">
+            <button type="button" class="sbtn ble-sbtn" id="et100-start" style="flex:1" disabled>開始 OTA</button>
+            <button type="button" class="qbtn" id="et100-cancel" disabled hidden>取消</button>
+          </div>
+          <div id="et100-phase" hidden>等待開始</div>
+          <div id="et100-result" role="status" aria-live="polite"></div>
+        </div>
+        <div class="section" id="et100-version-section">
           <div class="section-label">ET-100 版本資訊</div>
-          <button type="button" class="qbtn" id="et100-query" disabled>讀取 ET-100 資訊</button>
+          <div class="gateway-version-actions"><button type="button" class="qbtn" id="et100-query" disabled>讀取 ET-100 資訊</button></div>
           <div class="ota-meta-card" id="et100-device-card">
             <div class="ota-meta-header" id="et100-device-header" title="點擊展開或收合完整資訊">
               <span class="ota-meta-title">詳細資訊</span>
@@ -3025,30 +3062,11 @@
             <div id="et100-device" aria-live="polite"><div class="ota-meta-empty">尚未查詢裝置</div></div>
           </div>
         </div>
-        <div class="section">
-          <div class="section-label">載入 DFU 檔案</div>
-          <input id="et100-file" type="file" accept=".zip,.bin" aria-label="ET-100 韌體 ZIP 或 BIN" hidden />
-          <div class="ota-file-row"><button type="button" class="sbtn ble-sbtn" id="et100-pick-file">載入 ZIP / BIN 檔案</button></div>
-          <div class="ota-meta-card" id="et100-file-card">
-            <div class="ota-meta-header" id="et100-file-header" title="點擊展開或收合完整資訊">
-              <span class="ota-meta-title">詳細資訊</span>
-              <button type="button" id="et100-file-toggle" class="ota-meta-toggle" aria-expanded="false" aria-controls="et100-file-info" title="展開完整資訊">▾</button>
-            </div>
-            <div id="et100-file-info" aria-live="polite"><div class="ota-meta-empty">尚未載入更新檔案</div></div>
-          </div>
-          <div class="form-row">
-            <button type="button" class="sbtn ble-sbtn" id="et100-start" disabled>開始更新</button>
-            <button type="button" class="qbtn" id="et100-cancel" disabled>取消</button>
-          </div>
-          <progress id="et100-progress" max="100" value="0" aria-label="ET-100 上傳進度" style="width:100%;margin-top:12px"></progress>
-          <div id="et100-phase" role="status" aria-live="polite">等待開始</div>
-          <div id="et100-result" role="status" aria-live="polite"></div>
-        </div>
         <div class="section" id="et100-sensor-store" hidden>
-          <div class="section-label">NOR Sensor 套件 · 256 KB</div>
+          <div class="section-label">ET-100 儲存區</div>
           <div class="sensor-package-actions">
             <button type="button" class="qbtn" id="et100-package-query" disabled>讀取 NOR</button>
-            <button type="button" class="qbtn" id="et100-package-delete" disabled>刪除套件</button>
+            <button type="button" class="qbtn" id="et100-package-delete" disabled>刪除 NOR</button>
           </div>
           <div class="ota-meta-card" id="et100-package-card">
             <div class="ota-meta-header" id="et100-package-header">
@@ -3146,7 +3164,7 @@
         </div>
       </div>
       <div id="sensor-relay-no-pkg" class="section" hidden style="text-align:center;color:var(--sub);font-size:var(--fs-xs)">
-        Gateway Flash 尚未儲存有效 Sensor Package。<br>
+        <span id="sensor-relay-no-pkg-label">Gateway Flash 尚未儲存有效 Sensor Package。</span><br>
         請先切換至 <button type="button" class="sbtn" style="display:inline-block;margin-top:6px;padding:3px 10px;font-size:var(--fs-xs)" id="sensor-goto-rs232-btn">RS232 OTA</button> 上傳韌體套件。
       </div>
       <div id="sensor-relay-panel" hidden>
@@ -4211,7 +4229,11 @@ function flashOtaEnsureCurveObserver() {
 
 function renderFlashOtaVisualization() {
   const gattView = flashOtaIsGattView();
-  const gatewayBoard = FLASH_PARTITION_MAP[flashOtaViz.boardKey];
+  const et100Relay = gattView && et100SensorTarget();
+  const gatewayBoard = et100Relay ? {partitions:et100StoragePartitions('evb').map(([name,address,size])=>({
+    name,addr:'0x'+address.toString(16).toUpperCase().padStart(6,'0'),size:size/1024,
+    role:name==='Sensor OTA'?'sensor_ota':name
+  }))} : FLASH_PARTITION_MAP[flashOtaViz.boardKey];
   const storedPackage = sensorProbe.packageValid ? sensorPackageStored : null;
   const metadata = storedPackage || otaPackageMetadata;
   const relayStep = sensorRelay.workflowStep !== 'NONE' ? sensorRelay.workflowStep : sensorRelay.state;
@@ -4240,16 +4262,17 @@ function renderFlashOtaVisualization() {
   phaseEl.dataset.phase = viz.phase;
   const source = document.getElementById('flash-viz-source');
   source.classList.toggle('gatt', gattView);
+  source.dataset.et100Relay=String(et100Relay);
   source.dataset.phase = gattView ? 'IDLE' : viz.phase;
   source.dataset.ready = !gattView && otaFileData ? 'true' : 'false';
   document.getElementById('flash-viz-stage').classList.toggle('gatt', gattView);
   document.getElementById('flash-viz-chip').classList.toggle('gatt', gattView);
-  document.getElementById('flash-viz-source-title').textContent = gattView ? 'Gateway' : 'Tracker_168';
+  document.getElementById('flash-viz-source-title').textContent = et100Relay ? 'ET-100 · NOR 16 MB（EVB）' : gattView ? 'Gateway' : 'Tracker_168';
   document.getElementById('flash-viz-source-icon').hidden = gattView;
   const sourceSlots = document.getElementById('flash-viz-source-slots');
   sourceSlots.hidden = !gattView;
   if (gattView) {
-    const sourceIdentity = flashOtaViz.boardKey || '';
+    const sourceIdentity = et100Relay ? 'ET100_NOR_16MB' : flashOtaViz.boardKey || '';
     if (sourceSlots.dataset.mapIdentity !== sourceIdentity) {
       sourceSlots.dataset.mapIdentity = sourceIdentity;
       sourceSlots.innerHTML = gatewayBoard ? [...gatewayBoard.partitions]
@@ -4463,7 +4486,7 @@ function renderFlashOtaVisualization() {
 
 function flashOtaSetVisible() {
   const showVisualization = activeTab === 'ota';
-  const et100 = et100TransportMode();
+  const et100 = et100TransportMode() && !et100RelayView();
   document.getElementById('et100-viz').hidden = !(showVisualization && et100);
   const visualization = document.getElementById('flash-ota-viz');
   const parsedBody = document.querySelector('.parsed-panel > .parsed-body');
@@ -5118,6 +5141,8 @@ function renderSensorRelay() {
   const inGatt = otaMode === 'sensor' && deviceSubMode === 'gatt';
   renderFlashOtaVisualization();
   const hasPkg = Boolean(sensorProbe.packageValid && sensorRelay.available);
+  document.getElementById('sensor-relay-no-pkg-label').textContent = et100SensorTarget() ?
+    'ET-100 NOR 尚未取得有效 Sensor 套件或 relay 尚未就緒。' : 'Gateway Flash 尚未儲存有效 Sensor Package。';
 
   if (noPkg) noPkg.hidden = !(inGatt && !hasPkg);
   const visible = inGatt && hasPkg;
@@ -5182,6 +5207,7 @@ function sensorRelayScheduleFinalQuery(delayMs = 250) {
 }
 
 function sensorRelayDetectCapability() {
+  if (et100SensorTarget() && !et100RelaySupported()) return;
   if (connected && otaMode === 'sensor' && sensorProbe.packageValid) {
     /* GSENSOROTA reply handler chains GSENSOROTAFLOW; don't query FLOW here too. */
     send(`BLEGW$GSENSOROTA;${randCode()}`);
@@ -5551,7 +5577,7 @@ function sensorProbeSuggestedMac() {
 
 function renderSensorProbe() {
   const panel = document.getElementById('sensor-probe-panel');
-  const visible = otaMode === 'sensor' && deviceSubMode === 'gatt' && sensorProbe.packageValid && sensorProbe.available;
+  const visible = !et100SensorTarget() && otaMode === 'sensor' && deviceSubMode === 'gatt' && sensorProbe.packageValid && sensorProbe.available;
   panel.hidden = !visible;
   if (!visible) return;
 
@@ -5606,6 +5632,7 @@ function sensorProbeSchedulePoll(delayMs = 1500) {
 }
 
 function sensorProbeDetectCapability() {
+  if (et100SensorTarget()) return;
   if (!connected || otaMode !== 'sensor' || !sensorProbe.packageValid) return;
   if (sensorProbe.capabilityTimer) clearTimeout(sensorProbe.capabilityTimer);
   const token = randCode();
@@ -8077,7 +8104,7 @@ function drawDashboardTrend(canvas, entry, ctx, width, height, style, enabled = 
 
 // ── send ──
 async function send(frame) {
-  if (et100TransportMode() || et100Busy) return;
+  if (et100Busy) return;
   if (!writer) return;
   const full = frame + '\r\n';
   const entry = document.createElement('div');
@@ -8710,12 +8737,37 @@ function updateOtaStatusVisibility() {
 // ET-100 與舊 OTA 狀態機隔離，只共用現有 Web Serial port。
 let et100Busy = false, et100File = null, et100Device = null, et100FileGeneration = 0;
 let et100Started = 0, et100PortGeneration = 0;
-let et100StoredPackage = null, et100SelectionTarget = 0;
+let et100StoredPackage = null, et100SelectionTarget = -1;
 const et100Files = [null, null];
 function et100SensorTarget() {
   return otaMode === 'sensor' && document.getElementById('ota-self-target').dataset.otaMode === 'et100';
 }
 function et100TransportMode() { return otaMode === 'et100' || et100SensorTarget(); }
+function et100RelaySupported() {
+  if (document.getElementById('ota-self-target').dataset.otaMode!=='et100') return false;
+  const version=String(gatewayVersionInfo?.fwVer || '').match(/^(\d+)\.(\d+)\.(\d+)(?:[.+-]|$)/);
+  if (!version) return false;
+  const [major,minor,patch]=version.slice(1).map(Number);
+  return major>0 || minor>8 || (minor===8 && patch>=9);
+}
+function et100RelayView() { return et100SensorTarget() && deviceSubMode==='gatt'; }
+function et100ApplyPackage(value) {
+  et100StoredPackage=value;
+  sensorProbe.packageValid=value.state==='VALID';
+  sensorProbe.imageLength=sensorProbe.packageValid?value.image_length:0;
+  sensorPackageStored=sensorProbe.packageValid?{...value,build_time:formatBuildId(value.build_id)}:null;
+  et100RenderPackage(); et100RefreshVisual(); et100Controls();
+  if (et100RelayView()) renderSensorRelay();
+}
+async function et100RefreshRelayPackage() {
+  if (!et100RelaySupported() || !et100RelayView()) return;
+  let refreshed=false;
+  await et100Action(async()=>{
+    await et100Client.sensorPackage();
+    refreshed=true;
+  });
+  if (refreshed && et100RelayView()) sensorRelayDetectCapability();
+}
 const et100Sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const et100Visual = {stage:'idle', off:null, base:null, firstAck:0, speed:0, elapsed:0, logBucket:-1, stateLog:''};
 const et100FlashPartitions = [
@@ -8817,42 +8869,58 @@ function et100Flow(stage) {
 et100RenderStorage();
 function et100Rows(id, rows) {
   const content = document.getElementById(id);
-  const labels = id === 'et100-file-info' ? ['專案','產品','Board','SoC','硬體','EUP 韌體','韌體','大小','裝置硬體比對'] : ['裝置 ID','品牌','硬體','韌體'];
+  const labels = id === 'et100-file-info' ?
+    (et100SensorTarget() ? ['韌體大小','產品','Board','韌體','建置時間'] : ['韌體大小','產品','硬體','韌體','建置時間']) : ['裝置 ID','品牌','硬體','韌體'];
   const primary = rows.filter(([label])=>labels.includes(label));
   const ordered = primary.length ? [...primary, ...rows.filter(([label])=>!labels.includes(label))] : rows;
-  content.innerHTML = ordered.map(([label,value],index)=>renderMetaRow(label,value,'',index >= (primary.length || 5))).join('');
+  content.innerHTML = ordered.map(([label,value,badge],index)=>renderMetaRow(label,value,badge || '',index >= (primary.length || 5))).join('');
   for (const [index,[label]] of ordered.entries()) {
     content.children[index].querySelector('.ota-meta-val-text').dataset.field = label;
   }
 }
+function et100PackageBadge(key, target) {
+  const stored=et100StoredPackage, selected=et100Files[1]?.metadata;
+  if (!key || stored?.state!=='VALID' || !selected) return '';
+  const clean=value=>value==null || ['-','—'].includes(String(value).trim()) ? '' : String(value).trim().toUpperCase();
+  const a=clean(selected[key]), b=clean(stored[key]);
+  if (!a && !b) return '';
+  const match=a===b;
+  return `<span class="meta-compare-badge ${match?'same':'diff'}" title="與${target}${match?'一致':'不同'}">${match?'✓':'≠'}</span>`;
+}
 function et100RenderFile() {
   if (!et100File) {
-    document.getElementById('et100-file-info').innerHTML = '<div class="ota-meta-empty">尚未載入更新檔案</div>';
+    et100Rows('et100-file-info', (et100SensorTarget() ? ['韌體大小','產品','Board','韌體','建置時間'] :
+      ['韌體大小','產品','硬體','韌體','建置時間']).map(label=>[label,'']));
     return;
   }
   const f = et100File;
   if (f.image === 1) {
     const m = f.metadata;
-    et100Rows('et100-file-info', [['產品',m.product],['Board',m.board],['SoC',m.soc],['韌體',m.firmware],['大小',`${f.bytes.length.toLocaleString()} B`],
+    et100Rows('et100-file-info', [['韌體大小',`${m.image_length.toLocaleString()} bytes`,et100PackageBadge('image_length','NOR')],
+      ['產品',m.product,et100PackageBadge('product','NOR')],['Board',m.board,et100PackageBadge('board','NOR')],
+      ['韌體',m.firmware,et100PackageBadge('firmware','NOR')],['建置時間',m.build_time || formatBuildId(m.build_id) || '—',et100PackageBadge('build_id','NOR')],
+      ['SoC',m.soc],['套件大小',`${f.bytes.length.toLocaleString()} B`],
       ['檔案',f.displayName],['套件', 'Relay Header v1 · CRC／SHA-256 通過'],['Sensor image SHA',m.upload_sha256],['MCUboot hash',m.mcuboot_image_hash],
       ['建置編號',m.build_id || '—'],['安全','未驗簽章']]);
   } else {
-    et100Rows('et100-file-info', [['檔案',f.displayName],['專案',f.project],['硬體',f.hardware],['MCUboot',f.version],['EUP 韌體',f.firmware],
-      ['大小',`${f.bytes.length.toLocaleString()} B`],['檔案校驗','metadata CRC／MCUboot SHA-256 通過'],['Manifest',f.manifest ? 'board／soc 通過' : 'BIN，無 manifest'],
+    et100Rows('et100-file-info', [['韌體大小',`${f.bytes.length.toLocaleString()} B`],['產品',f.project],['硬體',f.hardware],['韌體',f.firmware],['建置時間',f.build_time || '—'],
+      ['檔案',f.displayName],['專案',f.project],['MCUboot',f.version],['EUP 韌體',f.firmware],['檔案校驗','metadata CRC／MCUboot SHA-256 通過'],['Manifest',f.manifest ? 'board／soc 通過' : 'BIN，無 manifest'],
       ['裝置硬體比對','更新前以 GFWINFO 比對裝置'],['安全','未驗簽章，開發原型']]);
   }
 }
 function et100RenderPackage() {
-  const stored = et100StoredPackage, selected = et100Files[1]?.metadata;
+  if (et100SensorTarget()) et100RenderFile();
+  const stored = et100StoredPackage;
   const content = document.getElementById('et100-package-info');
   if (!stored) { content.innerHTML = '<div class="ota-meta-empty">尚未查詢</div>'; return; }
-  const rows = [['狀態',stored.state],['Generation',stored.generation]];
-  if (stored.state === 'VALID') rows.push(['產品',stored.product,'product'],['Board',stored.board,'board'],['SoC',stored.soc,'soc'],
-    ['韌體',stored.firmware,'firmware'],['套件大小',stored.package_length,'package_length'],['Image 大小',stored.image_length,'image_length'],
-    ['Sensor image SHA',stored.upload_sha256,'upload_sha256'],['建置編號',stored.build_id,'build_id']);
+  const rows = stored.state === 'VALID' ? [
+    ['韌體大小',`${stored.image_length.toLocaleString()} bytes`,'image_length'],['產品',stored.product,'product'],['Board',stored.board,'board'],
+    ['韌體',stored.firmware,'firmware'],['建置時間',formatBuildId(stored.build_id) || '—','build_id'],
+    ['狀態',stored.state],['Generation',stored.generation],['SoC',stored.soc,'soc'],['套件大小',stored.package_length,'package_length'],
+    ['Sensor image SHA',stored.upload_sha256,'upload_sha256'],['建置編號',stored.build_id,'build_id']
+  ] : [['狀態',stored.state],['Generation',stored.generation]];
   content.innerHTML = rows.map(([label,value,key],index)=>{
-    const match = key && selected ? String(value).toUpperCase() === String(selected[key] || (key==='build_id'?'-':'')).toUpperCase() : null;
-    const badge = match === null ? '' : `<span class="meta-compare-badge ${match?'same':'diff'}" title="${match?'與檔案一致':'與檔案不同'}">${match?'✓':'≠'}</span>`;
+    const badge = et100PackageBadge(key,'檔案');
     return renderMetaRow(label,value,badge,index>=5);
   }).join('');
 }
@@ -8873,12 +8941,48 @@ for (const prefix of ['et100-device','et100-file','et100-package']) {
   };
   document.getElementById(prefix+'-header').addEventListener('click',toggle);
 }
-document.getElementById('et100-pick-file').addEventListener('click',()=>document.getElementById('et100-file').click());
+document.getElementById('et100-pick-file').addEventListener('click',()=>{
+  if (!et100SensorTarget()) { document.getElementById('et100-file').click(); return; }
+  const menu=document.getElementById('et100-sensor-menu');
+  menu.hidden=!menu.hidden;
+  document.getElementById('et100-pick-file').setAttribute('aria-expanded',String(!menu.hidden));
+});
+function et100CloseFileMenu() {
+  document.getElementById('et100-sensor-menu').hidden=true;
+  document.getElementById('et100-pick-file').setAttribute('aria-expanded','false');
+}
+document.getElementById('et100-sensor-menu').addEventListener('click',async event=>{
+  const option=event.target.closest('[data-et100-sensor]');
+  if (!option || et100Busy || !et100SensorTarget()) return;
+  et100CloseFileMenu();
+  if (option.dataset.et100Sensor==='local') { document.getElementById('et100-file').click(); return; }
+  const generation=et100FileGeneration;
+  try {
+    const file=await getSensorDfuFile(option.dataset.et100Sensor);
+    if (!et100Busy && et100SensorTarget() && generation===et100FileGeneration) await et100LoadFile(file);
+  } catch(err) {
+    if(err.name!=='AbortError' && et100SensorTarget() && generation===et100FileGeneration)
+      et100Rows('et100-file-info',[['檔案無效',err.message]]);
+  }
+});
+document.addEventListener('click',event=>{
+  if (!event.target.closest('#et100-file-row')) et100CloseFileMenu();
+});
+document.getElementById('et100-package-download').addEventListener('click',()=>{
+  const file=et100Files[1];
+  if (!et100SensorTarget() || !file || et100Busy) return;
+  const url=URL.createObjectURL(new Blob([file.bytes],{type:'application/octet-stream'}));
+  const link=document.createElement('a'); link.href=url;
+  link.download=file.displayName.replace(/\.zip$/i,'')+'.sensor-ota.bin'; link.click(); URL.revokeObjectURL(url);
+});
 function et100Controls() {
+  document.getElementById('et100-cancel').hidden = !et100Busy;
+  et100RenderTransferButton();
   document.getElementById('et100-query').disabled = !connected || et100Busy;
   document.getElementById('et100-start').disabled = !connected || et100Busy || !et100File;
   document.getElementById('et100-file').disabled = et100Busy;
   document.getElementById('et100-pick-file').disabled = et100Busy;
+  document.getElementById('et100-package-download').disabled = et100Busy || !et100Files[1];
   document.getElementById('et100-package-query').disabled = !connected || et100Busy;
   document.getElementById('et100-package-delete').disabled = !connected || et100Busy || !et100StoredPackage || et100StoredPackage.state==='EMPTY';
   document.getElementById('et100-cancel').disabled = !et100Busy || !et100Client.running || et100Client.testSent;
@@ -8886,6 +8990,22 @@ function et100Controls() {
     if (button.dataset.otaMode !== 'sensor') button.disabled = et100Busy;
     else if (et100Busy) button.disabled = true;
   });
+}
+function et100RenderTransferButton() {
+  const button=document.getElementById('et100-start');
+  const active=et100Busy && et100Client.running;
+  const verifying=['verify','sensor-verify'].includes(et100Visual.stage);
+  button.classList.toggle('in-progress',active);
+  button.classList.toggle('verify-progress',active && verifying);
+  if (!active) {
+    button.style.removeProperty('--progress');
+    button.textContent=et100SensorTarget()?'儲存到 ET-100':'開始 OTA';
+    return;
+  }
+  const pct=et100File?.bytes.length ? Math.min(100,Math.max(0,(et100Visual.off || 0)/et100File.bytes.length*100)) : 0;
+  button.style.setProperty('--progress',pct.toFixed(1)+'%');
+  button.textContent=et100Visual.stage==='upload' ? `上傳    ${Math.floor(pct)}%` :
+    verifying ? '驗證中…' : document.getElementById('et100-phase').textContent;
 }
 async function et100Reopen(baud) {
   if (!port || !connected) throw Error('Serial 未連線');
@@ -8911,10 +9031,10 @@ const et100Client = new ET100Smp.Client({
   },
   reopen: et100Reopen, token: randCode, now: Date.now, sleep: et100Sleep,
   line: line => {
-    if (/^AT\$PD=BLEGW\$(GCHK|GFWINFO|OTABAUD);/.test(line)) processFrame(line);
-    else if (/^AT\$PD=BLEGW\$(GSOTAPKG|DSOTAPKG);/.test(line)) addLogTagged('rx',line,'tag-ota','OTA');
+    if (/^AT\$PD=BLEGW\$(GSOTAPKG|DSOTAPKG);/.test(line)) addLogTagged('rx',line,'tag-ota','OTA');
+    else if (line.trim()) processFrame(line.trim());
   },
-  sensorPackage: value => { et100StoredPackage=value; et100RenderPackage(); et100RefreshVisual(); et100Controls(); },
+  sensorPackage: et100ApplyPackage,
   event: text => addLog('sys', `ET-100：${text}`),
   imageState: images => {
     if (!Array.isArray(images)) return;
@@ -8951,9 +9071,9 @@ const et100Client = new ET100Smp.Client({
       et100Visual.logBucket = bucket;
       addLog('sys', `ET-100 SMP upload ACK：${off.toLocaleString()} / ${total.toLocaleString()} B (${(off/total*100).toFixed(1)}%)`);
     }
-    document.getElementById('et100-progress').value = off * 100 / total;
     document.getElementById('et100-phase').textContent =
       `上傳 ${off.toLocaleString()} / ${total.toLocaleString()} B · ${Math.floor(off*100/total)}% · ${((Date.now()-et100Started)/1000).toFixed(0)} s`;
+    et100RenderTransferButton();
   }
 });
 async function et100Action(action) {
@@ -8976,13 +9096,12 @@ document.getElementById('et100-query').addEventListener('click', () => et100Acti
   const identity = await et100Client.identify(et100SensorTarget()?null:et100File); et100Client.io.identity(identity);
   document.getElementById('et100-phase').textContent = '裝置狀態已讀取';
 }));
-document.getElementById('et100-file').addEventListener('change', async event => {
-  const generation = ++et100FileGeneration, file = event.target.files[0];
+async function et100LoadFile(file) {
+  const generation = ++et100FileGeneration;
   const image = et100SensorTarget()?1:0;
   et100Files[image] = null;
   et100File = null; et100Controls(); document.getElementById('et100-result').textContent = '';
   Object.assign(et100Visual,{off:null,base:null,speed:0,elapsed:0,logBucket:-1,stateLog:''});
-  document.getElementById('et100-progress').value = 0;
   et100Flow('idle');
   if (!file) { et100RenderFile(); et100RenderPackage(); return; }
   try {
@@ -9013,14 +9132,15 @@ document.getElementById('et100-file').addEventListener('change', async event => 
     et100Rows('et100-file-info', [['檔案無效', err.message]]);
   }
   et100Controls();
-});
+}
+document.getElementById('et100-file').addEventListener('change', event => et100LoadFile(event.target.files[0]));
 document.getElementById('et100-start').addEventListener('click', () => {
   if (!et100File) return;
   const file = et100File;
   const image = et100SensorTarget()?1:0;
   if (file.image!==image) return;
   return et100Action(async () => {
-    et100Started = Date.now(); document.getElementById('et100-progress').value = 0;
+    et100Started = Date.now();
     Object.assign(et100Visual,{off:null,base:null,speed:0,elapsed:0,logBucket:-1,stateLog:''});
     const outcome = await et100Client.update(file,image);
     if (outcome.kind==='stored') {
@@ -9081,35 +9201,54 @@ function syncOtaSelfTarget(info) {
   if (otaMode !== 'sensor' && otaMode !== mode) {
     otaMode = mode;
     updateOtaModeUi();
-  } else if(changed&&otaMode==='sensor') updateOtaModeUi();
+  } else if(otaMode==='sensor') updateOtaModeUi();
 }
 
 function updateOtaModeUi() {
   const et100 = et100TransportMode(), sensorTarget = et100SensorTarget();
   document.getElementById('et100-panel').hidden = !et100;
   if (et100) {
+    if (!sensorTarget || !et100RelaySupported()) deviceSubMode='rs232';
+    const relayView=et100RelayView();
+    document.getElementById('et100-panel').hidden=relayView;
     const target=sensorTarget?1:0;
     if (et100SelectionTarget!==target) {
       et100SelectionTarget=target; et100FileGeneration++;
       et100File=et100Files[target]; document.getElementById('et100-file').value='';
       Object.assign(et100Visual,{off:null,base:null,speed:0,elapsed:0,logBucket:-1,stateLog:''});
       document.getElementById('et100-result').textContent='';
-      document.getElementById('et100-progress').value=0;
       document.getElementById('et100-phase').textContent='等待開始';
       et100Flow('idle'); et100RenderFile();
     }
     document.getElementById('et100-sensor-store').hidden=!sensorTarget;
-    document.getElementById('et100-start').textContent=sensorTarget?'儲存套件':'開始更新';
-    document.getElementById('et100-pick-file').textContent=sensorTarget?'載入 Sensor DFU ZIP':'載入 ZIP / BIN 檔案';
+    document.getElementById('et100-version-section').hidden=sensorTarget;
+    document.getElementById('et100-file-row').classList.toggle('sensor-mode',sensorTarget);
+    document.getElementById('et100-package-download').hidden=!sensorTarget;
+    document.getElementById('et100-start').textContent=sensorTarget?'儲存到 ET-100':'開始 OTA';
+    const picker=document.getElementById('et100-pick-file');
+    picker.textContent=sensorTarget?'選擇 Sensor DFU ZIP ▾':'載入 ZIP / BIN 檔案';
+    if(sensorTarget) picker.setAttribute('aria-haspopup','menu'); else picker.removeAttribute('aria-haspopup');
+    et100CloseFileMenu();
     document.getElementById('et100-file').accept=sensorTarget?'.zip':'.zip,.bin';
     et100RefreshVisual(); et100RenderPackage();
     document.querySelectorAll('[data-ota-mode]').forEach(button =>
       button.classList.toggle('active', button.dataset.otaMode === otaMode));
-    for (const id of ['ota-device-submode','ota-rs232-panel','sensor-relay-panel','sensor-relay-no-pkg','sensor-probe-panel','flash-ota-viz'])
+    const subMenu = document.getElementById('ota-device-submode');
+    subMenu.hidden = !sensorTarget;
+    subMenu.style.display = sensorTarget ? 'grid' : 'none';
+    document.querySelectorAll('[data-device-submode]').forEach(button => {
+      const gatt = button.dataset.deviceSubmode === 'gatt';
+      button.disabled = et100Busy || (gatt && !et100RelaySupported());
+      button.classList.toggle('active', button.dataset.deviceSubmode===deviceSubMode);
+      if (gatt && !et100RelaySupported()) button.title = 'ET-100 尚未支援：需要 0.8.9 以上的 Sensor OTA relay 韌體';
+      else button.removeAttribute('title');
+    });
+    for (const id of ['ota-rs232-panel','sensor-relay-panel','sensor-relay-no-pkg','sensor-probe-panel','flash-ota-viz'])
       document.getElementById(id).hidden = true;
     document.getElementById('ota-sidebar').classList.remove('sensor-mode');
     flashOtaSetVisible();
     et100Controls();
+    if (relayView) renderSensorRelay();
     return;
   }
   const sensor = otaMode === 'sensor';
@@ -9198,12 +9337,13 @@ document.querySelectorAll('[data-ota-mode]').forEach(button => {
 
 document.querySelectorAll('[data-device-submode]').forEach(button => {
   button.addEventListener('click', () => {
-    if (button.disabled) return;
+    if (button.disabled || et100Busy) return;
     if (otaState !== OTA_STATE.IDLE || SENSOR_PROBE_ACTIVE_STATES.has(sensorProbe.state) ||
         SENSOR_RELAY_ACTIVE_STATES.has(sensorRelay.state) ||
         button.dataset.deviceSubmode === deviceSubMode) return;
     deviceSubMode = button.dataset.deviceSubmode;
     updateOtaModeUi();
+    if (et100RelayView()) et100RefreshRelayPackage();
   });
 });
 
@@ -9634,6 +9774,7 @@ document.getElementById('sensor-relay-mac').addEventListener('input', event => {
 });
 
 document.getElementById('sensor-relay-start').addEventListener('click', () => {
+  if (et100SensorTarget() && (!et100RelaySupported() || et100Busy)) return;
   if (SENSOR_RELAY_ACTIVE_STATES.has(sensorRelay.state)) {
     if (connected && sensorRelay.available) {
       send(`BLEGW$CSENSOROTA;${randCode()}`);
@@ -9702,7 +9843,8 @@ document.getElementById('sensor-relay-query').addEventListener('click', () => {
   } else if (val === 'META') {
     send(`BLEGW$GSENSOROTAMETA;${randCode()}`);
   } else if (val === 'PKG') {
-    send(`BLEGW$GSOTAPKG;${randCode()}`);
+    if (et100RelayView()) et100RefreshRelayPackage();
+    else send(`BLEGW$GSOTAPKG;${randCode()}`);
   }
 });
 
