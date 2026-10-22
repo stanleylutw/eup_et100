@@ -1,4 +1,109 @@
-# IMPLEMENTATION_PLAN — v0.8.1 外部 NOR bring-up（EVB 板上 U11）
+# IMPLEMENTATION_PLAN — v0.8.2 Download journal（NOR 下載進度與斷電恢復）
+
+## Branch
+
+Before starting implementation, create and switch to the new branch:
+
+git checkout -b v0.8.2_download_journal
+
+Base branch: v0.8.1_nor_driver_bringup（a425358）
+
+## 0. 工作模式與決策
+
+**採用 [comm.md](../comm.md) 的「Hardware bring-up loop」**。Stanley 2026-10-22 決定：
+
+- **斷電驗證只用 host 模擬（方案 A）**；實機斷電延到 ET-100 實板。v0.8.1 的 G2（韌體關 LDO）**取消**，原因是無法量測 C11／C30。
+- Chunk 大小 **4 KB**（= 最小 erase 單位）。
+
+| Milestone | 內容 | 之後 |
+|---|---|---|
+| M-HOST | Host 斷電注入矩陣全部 PASS（§5） | 停下 review；EVB 上寫 U11 需 Stanley 核准 |
+| M-EVB | U11 上完成「下載 → MCU reset 中斷 → 續傳 → 完成」並寫入報告 | 停下 review → Step 7／8 |
+
+## 1. 目標
+
+依 [06 OTA 儲存規格](docs/01_firmware/06_ota_storage_design.md) §4，實作 NOR 上的 **download journal**：記錄一次下載的進度，讓下載在 MCU reset 或斷電後可以續傳，且**絕不把沒寫完或寫壞的 chunk 當成已完成**。
+
+Journal **只管下載**，不決定安裝、trial、confirm、rollback；那些屬於內建 boot state（之後的 installer branch）。
+
+## 2. 範圍
+
+| NOR 區域（06 §3） | 用途 |
+|---|---|
+| 0x000000–0x01FFFF（128 KB，32 sectors） | Journal |
+| 0x020000–0x21FFFF（2 MB） | ET100 Candidate 資料，512 chunks |
+| 0x420000–0x45FFFF（256 KB） | Sensor slot 資料，64 chunks；package 上限 225,280 B |
+
+**不做**：RS232／BLE／LTE 傳輸、簽章驗證（只比 SHA-256）、installer／內建 Flash、Rollback 區、FreeRTOS 產品 app 整合、4-byte 定址、SDK／linker／FlashEnv 修改。
+
+## 3. 設計不變式（Codex 依此設計格式，寫成 07 文件後實作）
+
+1. **單一 session**：同時只有一個下載；target（ET100／sensor）與 source（LTE／BLE／RS232，此版只記錄）寫在 session 開頭。
+2. **長度上限**：ET100 package ≤ 2,097,152 B，sensor package ≤ 225,280 B；`begin` 時就拒絕，不靠 slot 大小判斷。
+3. **Chunk 完成的定義**：該 4 KB 資料 sector「erase → program → 全區讀回比對」成功，**且**對應的 journal entry 已 commit。兩者缺一，就視為未完成。
+4. **ACK 順序**：只有在第 3 點成立後才回報 chunk 完成；重複寫同一個 chunk 要冪等（內容相同直接回成功，內容不同回錯誤）。
+5. **Commit 判斷**：每筆 journal record／entry 有 CRC 與最後寫入的 commit marker；marker 不完全吻合就視為無效（torn write）。**不以 sector 內容（例如全 0xFF）判斷是否完成。**
+6. **不重寫半寫過的位置**：被中斷的 record 位置直接跳過，下一筆寫到下一個空位；不對同一位置做第二次 program。
+7. **Sector 使用前必須可信**：journal sector 在 erase＋全區驗證後寫入 sector header；沒有有效 header 的 sector 一律重新 erase 才能用。資料 chunk 被中斷時，該 4 KB sector 也一律重新 erase（06 §7 規則 2）。
+8. **開機恢復**：先等 WIP 清除（規則 1）→ 掃描 journal → 取最新有效的 session 狀態 → 回報可續傳的 bitmap。Journal 全部無效時視為沒有 session，不猜測。
+9. **GC**：sector 用滿時，先在新 sector 寫入完整 snapshot（session＋整份 bitmap）並 commit，之後才能 erase 舊 sector；GC 任何一步斷電都不能遺失已 commit 的狀態。
+10. **Finish**：所有 chunk 完成後，對整個 package 計算 SHA-256，與 `begin` 時的值比對；相同才進 VERIFIED，否則 FAILED。VERIFIED 只代表「下載完整」，不觸發安裝。
+11. **Timeout**：不只依賴 DWT（06 §7 規則 3）。
+
+## 4. 檔案範圍（Codex）
+
+| 檔案 | 內容 |
+|---|---|
+| `fw/docs/01_firmware/07_download_journal_design.md` | **先寫**：record／entry／sector header 格式、bitmap、狀態機、GC 流程、每一步的斷電後果表。寫完即可開始實作，不必停下等 review |
+| `fw/src/ota_journal.c`／`.h` | 只依賴 `nor_port.h` 的可攜模組；API：`begin／write_chunk／query／finish／cancel／recover` |
+| `fw/tests/fake_nor.c`／`.h` | Host NOR 模型＋斷電注入（§5） |
+| `fw/tests/test_ota_journal.c` | 功能測試＋斷電矩陣 |
+| `fw/src/nor_test_main.c`、`fw/targets/evb_nor.mk` | 新增 journal console 指令（用 pattern 模擬 package），供 M-EVB 使用 |
+| `fw/tools/evb/nor_test_host.py` | 驅動 M-EVB 流程與 log |
+| `fw/docs/04_testing/10_download_journal.md` | 測試報告 |
+
+## 5. Host 斷電模擬（M-HOST，主要證據）
+
+Fake NOR 要模擬 NOR 真實限制：program 只能把 1 變 0、erase 以 sector 為單位、單次 PP 最多 8 B（與 v0.8.1 STIG 一致）。
+
+**斷電模型**（在第 i 個 NOR 操作中途注入）：
+
+| 被中斷的操作 | 模擬結果 |
+|---|---|
+| Erase | 該 sector 變成「舊內容與 0xFF 隨機混合」；另一種情況是全 0xFF 但標記為 weak，之後讀取可能隨機翻 bit |
+| Program | 只有部分 byte 被寫入，或某些 bit 只被清除了一部分 |
+| 重開機 | RAM 狀態全部清空，只留 fake NOR 的內容 |
+
+**測試矩陣**：
+
+1. **窮舉**：小型 package（16 chunks），從第 1 個到最後一個 NOR 操作，每個點都注入一次斷電 → recover → 續傳到完成。全部都要滿足：最終 SHA-256 正確、沒有 chunk 被錯判為完成、已 commit 的狀態沒有遺失、需要重傳的量有上限。
+2. **連續斷電**：在 recover 和 GC 的過程中再次斷電（最多連續 3 次）。
+3. **隨機**：2 MB package，以固定 seed 隨機注入斷電 ≥ 10,000 次。
+4. **GC 邊界**：讓 journal 用滿、反覆觸發 GC，並在 GC 的每一步注入斷電。
+5. **規則類**：長度超過上限被拒絕、重複寫同一 chunk（相同與不同內容）、cancel 後無法續傳、第二個 `begin` 被拒絕。
+
+全部以 ASan／UBSan 執行；列出每一類的注入次數與 PASS 數。
+
+## 6. EVB 驗證（M-EVB，需 Stanley 核准寫入 U11）
+
+用 v0.8.1 的獨立測試 target：以 pattern 模擬 2 MB ET100 package 和 225,280 B sensor package，透過 journal 寫入 U11。
+
+- 在隨機 chunk（含 GC 期間）觸發 MCU reset，**≥ 20 次** → reboot → recover → 續傳 → finish；SHA-256 必須與 host 期望值相同。
+- 記錄每次 reset 後的重傳量與 recover 時間。
+- 測完燒回 0.7.0-dev。
+
+**明確不宣稱**：實機斷電耐受度（延到 ET-100）、實際傳輸效能（STIG 8-byte PP）。
+
+## 7. 驗收與交付
+
+1. M-HOST：§5 全部 PASS → 停下給 Claude review。
+2. Stanley 核准後執行 M-EVB → 停下 review。
+3. Step 7：06 §7 規則 2 註明「T8 延到 ET-100，G2 取消」；09 報告同步 G2 取消；07 設計文件定稿；status MD、REVIEW_REPORT。
+4. `git diff --check`、`check_plan_vs_code.py` PASS；不 commit／push。
+
+---
+
+# 歷史施工單 — v0.8.1 外部 NOR bring-up（EVB 板上 U11）
 
 ## Branch
 

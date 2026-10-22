@@ -1,5 +1,14 @@
 # REVIEW_REPORT — Phase 1a: Validate GCC Build Chain
 
+## 2026-10-22 Claude Code Step 5 review — v0.8.2 M-HOST／M-EVB
+
+**結論：PASS，無 Critical／Major。** M1（session 身分）已修：`write_chunk／finish／cancel` 帶 session_id，不符回 `OTA_ESESSION` 且不存取 NOR；`resume(manifest)` 需 session_id／length／sha256／target 完全一致，換 source 寫 takeover snapshot。
+
+- M-HOST：42,388 次斷電注入 PASS（逐操作 3 模式、GC 矩陣、連續 3 次、2 MB 隨機 10,000 次），並斷言重傳 ≤1 chunk。fake NOR 以 `used[]`／weak assert 強制「不重寫半寫位置」「不在 weak sector program」。
+- M-EVB（Stanley 縮減範圍）：同一 session 2 MB，在 chunk 128／256／384 MCU reset，三次以不同 source takeover 續傳，整區 SHA-256 與 host 一致；已恢復 0.7.0-dev。
+- 首次 reset 的 UART collector 因非 ASCII byte 中止，已誠實記錄並修 runner（reset 路徑 raw 保存）；不影響結果判定。
+- 殘餘風險（07 已記錄）：已完整寫入並驗證的 cell 自行失效屬媒體故障，不在保證範圍。
+
 ## 2026-10-22 Claude Code Step 5 review — v0.8.1 M-G1／M-T7
 
 **結論：PASS，無 Critical／Major。** 依 comm.md「Hardware bring-up loop」在 milestone review。

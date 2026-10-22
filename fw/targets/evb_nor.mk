@@ -18,7 +18,7 @@ override SRC_FILES := $(TOP_DIR)/components/drivers/device/fr30xx/system_fr30xx.
  $(TOP_DIR)/components/modules/crc/crc32.c
 include Makefile
 INC_PATH += -I"$(ET100_FW)/src" -I"$(TOP_DIR)/components/modules/mbedtls/include"
-NOR_OBJECTS := nor_test_main nor_qspi1
+NOR_OBJECTS := nor_test_main nor_qspi1 ota_journal
 $(BASE_ElF): $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(NOR_OBJECTS))) \
  $(OBJECT_DIR)/sha256.o $(OBJECT_DIR)/platform_util.o
 $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(NOR_OBJECTS))): $(OBJECT_DIR)/%.o: $(ET100_FW)/src/%.c

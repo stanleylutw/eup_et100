@@ -3,6 +3,7 @@
  */
 #include "fr30xx.h"
 #include "nor_qspi1.h"
+#include "ota_journal.h"
 #include "mbedtls/sha256.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,23 @@
 static UART_HandleTypeDef uart;
 static struct nor_port *nor;
 static bool g2_confirmed;
+static struct ota_journal journal;
+static struct nor_port journal_port;
+static uint32_t journal_cut;
+
+/* Test-only MCU reset after a completed port call; never switches NOR power. */
+static int journal_after(int rc)
+{
+    if (!rc && journal_cut && !--journal_cut) {
+        printf("JOURNAL MCU_RESET boundary=port-call power_cut=0\r\n");
+        __DSB(); NVIC_SystemReset();
+    }
+    return rc;
+}
+static int journal_read(uint32_t a, void *p, size_t n) { return journal_after(nor->read(a,p,n)); }
+static int journal_program(uint32_t a, const void *p, size_t n) { return journal_after(nor->program(a,p,n)); }
+static int journal_erase(uint32_t a, uint32_t n) { return journal_after(nor->erase(a,n)); }
+static int journal_wait(uint32_t us) { return journal_after(nor->wait_ready(us)); }
 
 int _write(int fd, char *data, int length)
 {
@@ -95,6 +113,60 @@ static int sha_region(uint32_t offset, uint32_t length, uint8_t digest[32])
     if (!rc) rc = mbedtls_sha256_finish_ret(&ctx, digest);
     mbedtls_sha256_free(&ctx);
     return rc;
+}
+
+static int journal_hash(struct nor_port *port, uint32_t offset, uint32_t length,
+                        uint8_t digest[32], void *context)
+{
+    (void)port; (void)context;
+    return sha_region(offset,length,digest);
+}
+static int journal_recover(void)
+{
+    journal_port=*nor;
+    journal_port.read=journal_read; journal_port.program=journal_program;
+    journal_port.erase=journal_erase; journal_port.wait_ready=journal_wait;
+    return ota_journal_recover(&journal,&journal_port,journal_hash,NULL);
+}
+static int journal_begin(uint32_t target, uint32_t length, uint32_t seed, uint32_t source, bool resume)
+{
+    uint32_t max=target==OTA_ET100 ? OTA_JOURNAL_ET100_MAX :
+                 target==OTA_SENSOR ? OTA_JOURNAL_SENSOR_MAX : 0;
+    if (!length || length>max) return NOR_EINVAL;
+    struct ota_manifest m={.session_id=((uint64_t)seed<<32)|length,
+                          .target=target,.source=source,.length=length};
+    mbedtls_sha256_context hash;uint8_t b[256];
+    mbedtls_sha256_init(&hash);int rc=mbedtls_sha256_starts_ret(&hash,0);
+    for (uint32_t pos=0;!rc && pos<length;pos+=sizeof b) {
+        size_t n=length-pos<sizeof b ? length-pos : sizeof b;
+        pattern(b,pos,n,seed);rc=mbedtls_sha256_update_ret(&hash,b,n);
+    }
+    if (!rc) rc=mbedtls_sha256_finish_ret(&hash,m.sha256);
+    mbedtls_sha256_free(&hash);
+    return rc ? rc : resume ? ota_journal_resume(&journal,&m) : ota_journal_begin(&journal,&m);
+}
+static int journal_chunk(uint64_t session_id, uint32_t index, uint32_t seed)
+{
+    struct ota_progress p;int rc=ota_journal_query(&journal,&p);
+    if (rc) return rc;
+    if (session_id!=p.manifest.session_id) return OTA_ESESSION;
+    if ((p.manifest.session_id>>32)!=seed || index>=(p.manifest.length+4095)/4096)
+        return NOR_EINVAL;
+    static uint8_t b[4096];uint32_t pos=index*4096;
+    size_t n=p.manifest.length-pos<sizeof b ? p.manifest.length-pos : sizeof b;
+    pattern(b,pos,n,seed);
+    return ota_journal_write_chunk(&journal,session_id,index,b,n);
+}
+static int journal_query(void)
+{
+    struct ota_progress p;int rc=ota_journal_query(&journal,&p);
+    if (rc) return rc;
+    printf("JOURNAL state=%u target=%lu source=%lu length=%lu session=%08lX%08lX bitmap=",
+           p.state,(unsigned long)p.manifest.target,(unsigned long)p.manifest.source,
+           (unsigned long)p.manifest.length,(unsigned long)(p.manifest.session_id>>32),
+           (unsigned long)p.manifest.session_id);
+    hex(p.bitmap,sizeof p.bitmap);printf(" sha256=");hex(p.manifest.sha256,32);printf("\r\n");
+    return NOR_OK;
 }
 
 static int write_pattern(uint32_t offset, uint32_t length, uint32_t seed)
@@ -241,6 +313,14 @@ static int cut_test(uint32_t offset, bool erase_op, uint32_t percent, uint32_t r
     return NOR_OK;
 }
 
+static bool session_number(const char *s, uint64_t *value)
+{
+    char *end;
+    if (!s || !*s || *s=='-') return false;
+    errno=0;unsigned long long n=strtoull(s,&end,0);
+    if (errno || *end) return false;
+    *value=(uint64_t)n;return true;
+}
 static int dispatch(char *line)
 {
     char *args[7] = {0};
@@ -254,6 +334,21 @@ static int dispatch(char *line)
     uint32_t a = 0, b = 0, c = 0, d = 0;
     if (!strcmp(cmd, "init") && argc == 1) return nor->init();
     if (!strcmp(cmd, "diag-addr") && argc == 1) return nor_qspi1_diag_addr();
+    if (!strcmp(cmd, "jrecover") && argc == 1) {
+        int rc=journal_recover();
+        printf("JRECOVER rc=%d\r\n",rc);
+        return rc;
+    }
+    if (!strcmp(cmd, "jquery") && argc == 1) return journal_query();
+    uint64_t sid=0;
+    if ((!strcmp(cmd,"jfinish") || !strcmp(cmd,"jcancel")) && argc==2) {
+        if (!session_number(args[1],&sid)) return NOR_EINVAL;
+        return !strcmp(cmd,"jfinish") ? ota_journal_finish(&journal,sid) : ota_journal_cancel(&journal,sid);
+    }
+    if (!strcmp(cmd,"jwrite") && argc==4) {
+        if (!session_number(args[1],&sid) || !number(args[2],&a) || !number(args[3],&b)) return NOR_EINVAL;
+        return journal_chunk(sid,a,b);
+    }
     if (!strcmp(cmd, "arm") && argc == 2 && !strcmp(args[1], "U11-SCRATCH"))
         return nor_qspi1_authorize_writes();
     if (!strcmp(cmd, "g2-confirm") && argc == 2 && !strcmp(args[1], "C19-MEASURED")) {
@@ -290,6 +385,9 @@ static int dispatch(char *line)
     if (argc > 2 && !number(args[2], &b)) return NOR_EINVAL;
     if (argc > 3 && !number(args[3], &c)) return NOR_EINVAL;
     if (argc > 4 && !number(args[4], &d)) return NOR_EINVAL;
+    if ((!strcmp(cmd,"jbegin") || !strcmp(cmd,"jresume")) && argc==5)
+        return journal_begin(a,b,c,d,!strcmp(cmd,"jresume"));
+    if (!strcmp(cmd, "jcut") && argc == 2 && a>0 && a<=100000) { journal_cut=a;return NOR_OK; }
     if (!strcmp(cmd, "read") && argc == 3 && b <= 256) {
         uint8_t data[256]; int rc = nor->read(a, data, b);
         if (!rc) { printf("DATA "); hex(data, b); printf("\r\n"); } return rc;
@@ -318,7 +416,7 @@ int main(void)
     bool overflow = false;
     board_init();
     nor = nor_qspi1_port();
-    printf("ET100 NOR 0.8.1-dev UART=115200 BLE=off PSRAM=off\r\n");
+    printf("ET100 NOR 0.8.2-dev UART=115200 BLE=off PSRAM=off\r\n");
     /* Boot scans GPIO functions with RDID only, then normal read-only G1. */
     int rc = nor->init();
     printf("GPIO PortB_H_FuncMux=0x%08lX PortC_L_FuncMux=0x%08lX OOL_FC=0x%02lX\r\n",

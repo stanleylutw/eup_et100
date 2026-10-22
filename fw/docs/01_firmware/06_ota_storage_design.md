@@ -1,6 +1,6 @@
 # ET100 NOR Staging 與三入口更新規格
 
-Version: v0.1 REVIEW DRAFT
+Version: v0.2 REVIEW DRAFT（2026-10-22：BLE 更新採 SMP＋MCUboot image 格式，見 §6.1）
 日期：2026-10-21；分支：v0.8.0_ota_nor_spec；基底：v0.7.0_evb_app_gatt_server（e5274b2）。
 
 **狀態**：Stanley 已同意產品方向與本次文件修訂。以下為候選地址及行為契約，不是 SDK／linker／FlashDB 修改、燒錄或量產授權。EVB 仍執行 0.7.0-dev，現有 FlashEnv／linker 不變。Q43-5／Q48-6、installer 可獨立開機與斷電復原為實作 gate。
@@ -15,6 +15,7 @@ Version: v0.1 REVIEW DRAFT
 | Factory recovery | 使用者明確要求「no need, we need sensor ota slot」；不保留工廠映像 slot，但必須保留可獨立運作的 installer 與已確認 App rollback |
 | Sensor slot | 使用者將預留容量定為 256 KB；不是允許任意 256 KB package |
 | 更新方向 | 採單一內部 App＋外部 NOR candidate／rollback，不採晶片內 App A/B |
+| BLE 更新協定與 image 格式（2026-10-22） | **BLE 採 Nordic SMP（MCUmgr）＋MCUboot image 格式**，沿用 nRF52840 現行 App 流程；App 端可依需要修改以支援 FR3068。見 §6.1 |
 | 本次施工 | Stanley 明確同意文件／工具限定修訂，只恢復指定[08 報告](../04_testing/08_evb_internal_flash_size.md)及其工具，不恢復其他分區修改、不改 SDK、不執行工具／燒錄 |
 
 本文件以 byte／hex 定義邊界；文中 KB／MB 採二進位容量，1 KB=1024 B、1 MB=1048576 B（等同 KiB／MiB）。所有 end 地址均含該 byte。
@@ -110,12 +111,42 @@ SDK freertos_sleep.c 目前會保存／還原 SCB->VTOR，可沿用但必須驗�
 | 入口 | 已確認需求／尚待定義 |
 |---|---|
 | LTE／FTP | EG800Q-EU 分塊下載交 MCU；FTP 是已批准需求，不改寫成「僅 HTTPS」。可另建議 FTPS／HTTPS，但來源安全仍以簽章為必要條件；modem 斷點行為待 AT 文件／實測 |
-| BLE／App | MTU-aware binary chunks、流控、ACK／重傳／重連續傳；現有 App manager 不等於已支援此更新通道，UUID／授權／wire format 另訂 |
+| BLE／App | **SMP（MCUmgr）over BLE**，見 §6.1；MTU-aware、ACK／重連續傳由 SMP image upload 的 `off` 機制提供 |
 | RS232 | 9600 正常協定協商 → 115200／8N1 binary 傳輸；切速 ACK 順序、逾時與雙方恢復規則必須定義，不假定 RTS/CTS 已接線 |
 
 API 候選 begin(manifest,source)／write(session,offset,data)／query_progress／finish／cancel。第一階段全系統僅一個 update owner，兩個 target 也互斥：ET100 寫 Candidate，sensor 寫 Sensor slot。切換 transport 須先釋放／驗證映像 ID／明確接管，不能交錯下載兩個檔案。分塊 ACK 只確認已持久化範圍，重傳須可冪等處理；NOR 已寫過的不同內容不能不 erase 就覆寫。
 
 ET100 走 installer；Sensor 走現有相容 package＋BLE DFU relay，不走 MCU App 安裝器。Sensor 更新失敗不應修改 ET100 的 confirmed App／boot state，但 sensor 自身的 boot／rollback 保證需依其 DFU 契約確認。接收／續傳／授權都要套用各 target 的大小／型號／簽章規則。
+
+### 6.1 BLE 更新：SMP＋MCUboot image 格式（決策 2026-10-22）
+
+**決策**：ET100 的 BLE 更新沿用 eup_gateway／nRF52840 現行流程（`eup_gateway/prj.conf` 的 MCUmgr＋MCUboot；App 流程見 `eup_gateway/docs/protocol_cache/03_eup_aiot_ota_app_validation.md`），讓同一個 App 能更新 FR3068。App 端可配合修改（Stanley 確認）。
+
+```text
+dfu_application.zip
+  ├─ manifest.json        board / soc / version（FR3068 新增對應值）
+  └─ *.signed.bin         imgtool sign 產生的 MCUboot image，內含 EUPFWV1 metadata
+App：讀 EUPFWV1 → 連線 → GET_FW_INFO / GET_DEVICE_ID → 相容性比對 → SMP image upload
+FR3068：SMP server → OTA manager → download journal → NOR Candidate → installer
+```
+
+| 項目 | FR3068 端要求 |
+|---|---|
+| SMP transport | SMP GATT service／characteristic 與 Nordic 定義相同（service `8D53DC1D-1DB7-4CD3-868B-8A527460AA84`）；CBOR 編碼；只實作需要的子集 |
+| SMP 指令子集 | img group：upload、state read／test／confirm；os group：reset。其他指令回 not supported |
+| Upload 對應 journal | SMP 分包大小不固定，RAM 湊滿 4 KB 才 `write_chunk`；回給 App 的 `off` = **連續已 commit 的 byte 數**，App 重連後從該處續傳；第一包的 `len`／`sha` 對應 journal manifest（session 身分見 v0.8.2 M1） |
+| 狀態對應 | upload 完成＝journal VERIFIED；`test`＝內建 state INSTALL_PENDING；`reset`＝進 installer；新版開機自檢通過後＝CONFIRMED（`confirm` 由 App 或韌體自身發出，規則於 installer 施工單定義） |
+| Image 格式 | FR3068 App binary 以 `imgtool sign` 包成 MCUboot image（header＋TLV）；installer 驗 header magic、image hash TLV 與簽章 TLV，再安裝到 App slot；EUPFWV1 metadata 放在 image 內供 App 掃描 |
+| 裝置資訊 | FR3068 以「被更新裝置」身分回應 `GET_FW_INFO`／`GET_DEVICE_ID`（目前 FR3068 只有讀取 sensor 的 client 端，`src/eup_aiot_metadata.c`） |
+| 相容性 | `manifest.json` 的 board／soc 與 EUPFWV1 `hardware_version` 要能讓 App 擋下「nRF 韌體刷進 FR3068」及反向錯誤 |
+
+**同時適用 RS232／LTE**：三個入口共用同一個 MCUboot image 格式與 installer 驗證，transport 只負責把位元組送進 journal；RS232／LTE 不必使用 SMP。
+
+**開發驗證**：App 修改完成前，先用 Nordic 官方 **nRF Connect Device Manager**（通用 SMP client）驗證 FR3068 SMP server。
+
+**App 端待辦**（App 團隊）：允許清單加入 FR3068 的 board／soc／hardware_version；確認 SMP MTU／reassembly 設定可用於 FR3068 的 BLE stack。
+
+**仍待定**：簽章演算法與金鑰管理（Q42）、MCUboot header size／對齊與 App slot 0x08020000 的配合、`confirm` 由誰發出。
 
 ## 7. EVB 與產品差異
 
@@ -141,8 +172,10 @@ Logs 從 0x460000 起，EVB 只能使用其 16 MB 實體範圍內的部分；不
 給 v0.8.2 journal 的規則（目前已知）：
 
 1. MCU reset 不代表 NOR 操作被中斷；reboot 後一律先等 WIP 清除，再以 journal commit marker 判斷，不以 sector 內容判斷完成與否。
-2. 斷電中斷（T8）尚未量測，**在 T8 前一律假設被中斷的 sector 不可信，必須重新 erase**。
+2. 斷電中斷（T8）尚未量測，**一律假設被中斷的 sector 不可信，必須重新 erase**。G2（韌體關 LDO）已取消（無法量測 C11／C30）；實機斷電驗證延到 ET-100 實板（Stanley 2026-10-22）。
 3. Debugger disconnect 會清掉 DEMCR.TRCENA 讓 DWT 停止；timeout 不可只依賴 DWT（現行實作已有迴圈上限 fallback）。
+
+**v0.8.2 download journal（2026-10-22）**：格式與狀態機見 [07 設計](07_download_journal_design.md)。Host 斷電注入 42,388 次 PASS（含 session takeover、≤1 chunk 重傳斷言）；EVB U11 上 2 MB 下載＋3 次 MCU reset 續傳，整區 SHA-256 吻合（[10 報告](../04_testing/10_download_journal.md)）。API 已帶 session_id，`resume(manifest)` 為明確接管。
 
 限制：T5／T6 速度為 STIG 8-byte PP（約 55 KB/s），**不代表 OTA 效能**；4-byte 定址、XM25QH256D、SPIMX2_1 後端要等 ET-100 實板；download journal／installer／OTA manager 尚未實作。
 

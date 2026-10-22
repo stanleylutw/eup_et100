@@ -8,13 +8,14 @@ Requires an existing Python environment with pyserial; installs nothing.
 
 import argparse
 import datetime
+import hashlib
 import re
 import sys
 import time
 from pathlib import Path
 
 
-READ_ONLY = {"init", "id", "sfdp", "status", "read", "sha"}
+READ_ONLY = {"init", "id", "sfdp", "status", "read", "sha", "jrecover", "jquery"}
 POWER = {"power", "probe-off", "g2-confirm", "cut"}
 
 
@@ -39,6 +40,15 @@ Console syntax (numeric arguments use decimal or 0x hex):
   program OFFSET LENGTH SEED | bench OFFSET LENGTH SEED
   boundary | integrity 3 | reset | reset-op OFFSET KIND(0=program,1=erase)
   power on/off | probe-off | cut OFFSET KIND PERCENT(10/50/90) COUNT(>=20)
+  jrecover | jquery | jbegin/jresume TARGET LENGTH SEED SOURCE
+  jwrite SESSION_ID INDEX SEED | jfinish/jcancel SESSION_ID
+  jcut PORT_CALL_COUNT (MCU reset only, no power cut)
+
+Journal scenario (requires separate M-EVB approval):
+  nor_test_host.py PORT --allow-write --timeout 120 --journal-target et100
+  nor_test_host.py PORT --allow-write --timeout 120 --journal-target sensor
+  Reduced M-EVB: one ET100 package, 3 mid-download MCU resets and explicit resume.
+  Throughput: STIG 8-byte PP, not OTA-representative.
 
 G1 always runs before user commands; mismatched ID/geometry stops the runner.
 --allow-write explicitly authorizes U11 scratch writes, not MCU flashing.
@@ -53,9 +63,15 @@ erase/program to inspect recovery. SWD DAC comparison is a separate manual gate.
     parser.add_argument("--allow-write", action="store_true", help="authorize destructive U11 scratch commands")
     parser.add_argument("--allow-power", action="store_true", help="authorize U11 supply switching (G2)")
     parser.add_argument("--g2-measured", action="store_true", help="Stanley measured C19 and confirmed G2")
+    parser.add_argument("--journal-target", choices=["et100", "sensor"], help="M-EVB journal pattern scenario; U11 writes")
+    parser.add_argument("--journal-resets", type=int, default=3, choices=[3], help="reduced M-EVB: exactly 3 MCU resets")
+    parser.add_argument("--journal-resets-done", type=int, default=0, choices=range(4),
+                        help="already verified resets when reconnecting to the same test session")
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
+    if args.journal_target and (not args.allow_write or args.command or args.allow_power):
+        parser.error("journal scenario needs --allow-write, no extra commands or power options")
     for command in args.command:
         if not command or any(ord(c) < 32 or ord(c) > 126 for c in command):
             parser.error("commands must be single-line ASCII")
@@ -103,7 +119,13 @@ erase/program to inspect recovery. SWD DAC comparison is a separate manual gate.
                         raise RuntimeError("oversized console line")
                     if not pending.endswith(b"\n"):
                         continue
-                    line = pending.decode("ascii", errors="strict").strip()
+                    try:
+                        line = pending.decode("ascii", errors="strict").strip()
+                    except UnicodeDecodeError:
+                        emit("RX_RAW " + pending.hex())
+                        if not reboot:
+                            raise
+                        line = pending.decode("ascii", errors="backslashreplace").strip()
                     pending.clear()
                     emit("RX " + line)
                     lines.append(line)
@@ -136,6 +158,77 @@ erase/program to inspect recovery. SWD DAC comparison is a separate manual gate.
                 if not args.allow_power:
                     parser.error("--g2-measured requires --allow-power")
                 send("g2-confirm C19-MEASURED")
+            if args.journal_target:
+                target = 1 if args.journal_target == "et100" else 2
+                length = 2097152 if target == 1 else 225280
+                seed = 0x83e19a47
+                expected = hashlib.sha256()
+                for start in range(0, length, 4096):
+                    data = bytearray()
+                    for offset in range(start, min(start + 4096, length)):
+                        x = offset ^ seed
+                        x = (x ^ (x << 13)) & 0xffffffff
+                        x ^= x >> 17
+                        x = (x ^ (x << 5)) & 0xffffffff
+                        data.append((x ^ (x >> 8) ^ (x >> 16) ^ (x >> 24)) & 255)
+                    expected.update(data)
+                def progress():
+                    row = next(s for s in send("jquery") if s.startswith("JOURNAL "))
+                    fields = dict(item.split("=", 1) for item in row.split()[1:])
+                    return fields, bytes.fromhex(fields["bitmap"])
+                send("jrecover")
+                fields, bitmap = progress()
+                expected_sid = f"{seed:08X}{length:08X}"
+                if fields["state"] == "0":
+                    if args.journal_resets_done:
+                        raise RuntimeError("cannot resume reset count without original session; STOP")
+                    send(f"jbegin {target} {length} {seed} 3")
+                else:
+                    if (fields["state"] != "1" or fields["session"] != expected_sid
+                            or int(fields["target"]) != target or int(fields["length"]) != length
+                            or fields["sha256"].lower() != expected.hexdigest()):
+                        raise RuntimeError("existing journal belongs to another/completed session; STOP, no cancel")
+                    send(f"jresume {target} {length} {seed} {args.journal_resets_done or 3}")
+                fields, bitmap = progress()
+                sid = "0x" + fields["session"]
+                if fields["sha256"].lower() != expected.hexdigest():
+                    raise RuntimeError("host/MCU pattern SHA mismatch; STOP")
+                count = (length + 4095) // 4096
+                resets = {count//4: (0, 200), count//2: (1, 400), 3*count//4: (2, 528)}
+                bitmap = bytearray(bitmap)
+                for index in range(count):
+                    if index in resets and resets[index][0] >= args.journal_resets_done:
+                        sample, cut = resets[index]
+                        before = bytes(bitmap)
+                        send("jrecover")
+                        send(f"jcut {cut}")
+                        rows = send(f"jwrite {sid} {index} {seed}", reboot=True)
+                        if "G1 init_rc=0 writes=locked" not in rows:
+                            raise RuntimeError("requested journal reset did not occur; STOP")
+                        send("jrecover")
+                        fields, recovered = progress()
+                        if any(a & b != a for a, b in zip(before, recovered)):
+                            raise RuntimeError("committed journal progress lost; STOP")
+                        if "0x"+fields["session"] != sid or fields["sha256"].lower() != expected.hexdigest():
+                            raise RuntimeError("recovered session identity mismatch; STOP")
+                        emit(f"JOURNAL_RESET sample={sample} index={index} recovered=1")
+                        send("arm U11-SCRATCH")
+                        send(f"jresume {target} {length} {seed} {sample+1}")
+                        fields, recovered = progress()
+                        if int(fields["source"]) != sample+1:
+                            raise RuntimeError("explicit takeover not persisted; STOP")
+                        bitmap = bytearray(recovered)
+                    if not bitmap[index//8] & (1 << (index%8)):
+                        send(f"jwrite {sid} {index} {seed}")
+                        bitmap[index//8] |= 1 << (index%8)
+                send(f"jfinish {sid}")
+                fields, bitmap = progress()
+                if fields["state"] != "2" or fields["sha256"].lower() != expected.hexdigest():
+                    raise RuntimeError("journal finish verification failed; STOP")
+                actual = send(f"sha {0x20000 if target == 1 else 0x420000} {length}")
+                if "SHA256 " + expected.hexdigest().upper() not in actual:
+                    raise RuntimeError("final NOR readback SHA mismatch; STOP")
+                emit("M-EVB journal target COMPLETE; STIG 8-byte PP, not OTA-representative; no power-cut proof")
             for command in args.command:
                 # init/power/reset clear write authorization by design.
                 lines = send(command, reboot=command.split()[0] == "reset-op")
