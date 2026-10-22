@@ -25,7 +25,9 @@ static int metadata(image_read_fn read,void *ctx,uint32_t length)
         size_t n=length-off;if (n>sizeof block) n=sizeof block;
         if (read(ctx,off,block,n)) return IMAGE_EIO;
         for (unsigned i=0;i<256 && i+8<=n;i++) {
-            if (memcmp(block+i,"EUPFWV1\0",8)) continue;
+            /* Split literal: this file is also linked into the App, whose image must
+             * contain exactly one contiguous metadata magic (the real block). */
+            if (block[i]!='E' || memcmp(block+i+1,"UPFWV1",7)) continue;
             if (++found>1 || length-off-i<sizeof raw) return IMAGE_EMETADATA;
             if (read(ctx,off+i,raw,sizeof raw)) return IMAGE_EIO;
             if (raw[8]!=1 || raw[9]) return IMAGE_EMETADATA;

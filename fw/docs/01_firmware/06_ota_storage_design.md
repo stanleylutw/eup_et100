@@ -122,7 +122,7 @@ SDK freertos_sleep.c 目前會保存／還原 SCB->VTOR，可沿用但必須驗�
 |---|---|
 | LTE／FTP | EG800Q-EU 分塊下載交 MCU；FTP 是已批准需求，不改寫成「僅 HTTPS」。可另建議 FTPS／HTTPS，但來源安全仍以簽章為必要條件；modem 斷點行為待 AT 文件／實測 |
 | BLE／App | **SMP（MCUmgr）over BLE**，見 §6.1；MTU-aware、ACK／重連續傳由 SMP image upload 的 `off` 機制提供 |
-| RS232 | 9600 正常協定協商 → 115200／8N1 binary 傳輸；切速 ACK 順序、逾時與雙方恢復規則必須定義，不假定 RTS/CTS 已接線 |
+| RS232 | **SMP over serial**（MCUmgr UART transport，Stanley 2026-10-22；不用 ZVERO）：與 BLE 共用 SMP server；9600 下以 `BLEGW$OTABAUD;115200;<token>` 切速，完成／cancel／30 秒無 SMP frame 自動回 9600；不假定 RTS/CTS。協定細節見 `02_protocol/04_smp_serial_ota.md`（v0.8.5） |
 
 API 候選 begin(manifest,source)／write(session,offset,data)／query_progress／finish／cancel。第一階段全系統僅一個 update owner，兩個 target 也互斥：ET100 寫 Candidate，sensor 寫 Sensor slot。切換 transport 須先釋放／驗證映像 ID／明確接管，不能交錯下載兩個檔案。分塊 ACK 只確認已持久化範圍，重傳須可冪等處理；NOR 已寫過的不同內容不能不 erase 就覆寫。
 
@@ -223,8 +223,8 @@ Logs 從 0x460000 起，EVB 只能使用其 16 MB 實體範圍內的部分；不
 | — | v0.8.2 | Download journal | 共用 | ✅ |
 | — | v0.8.3 | Installer、App 搬到 0x08020200、DFU zip | 共用 | ✅ |
 | — | v0.8.4 | Trial／confirm／rollback＋watchdog | 共用 | ✅（EVB：正常更新、備份中 reset、NO_CONFIRM 與 HANG 回滾） |
-| 2 | v0.8.5 | **OTA manager 進產品 App**：journal＋NOR 後端移入 FreeRTOS App（等待不阻塞系統、單一 session owner、與 BLE／UART task 共存），對三個入口提供統一 API | 共用 | 先前漏列（Stanley 2026-10-22 補入）；目前 journal 只在測試韌體與 installer loader |
-| 3 | v0.8.5 | RS232 正式協定（9600 協商 → 115200、分塊、ACK、續傳）＋host 工具；與第 2 步同 branch，用最容易測的入口打通 App 整合 | RS232 | 無 |
+| — | v0.8.5 | OTA manager 進產品 App（journal＋NOR 後端在 App 內；v0.8.5 由 serial task 執行，BLE 時改 worker task） | 共用 | ✅ |
+| — | v0.8.5 | RS232：SMP over serial＋`OTABAUD`（[協定](../02_protocol/04_smp_serial_ota.md)）＋`smp_serial_ota.py` | RS232 | ✅（EVB：9600 續傳、115200 約 53 秒、SMP-only 更新 2 次） |
 | 4 | v0.8.6 | BLE SMP server＋`GET_FW_INFO`／`GET_DEVICE_ID`，先以 nRF Connect Device Manager 驗證 | BLE | 無 |
 | 5 | — | App 端修改（§6.1） | BLE | 排在 FR3068 韌體端完成後，App 團隊 |
 | 6 | — | EG800Q modem 驅動＋FTP 分塊下載 | LTE | 需 ET-100 實板或 EG800Q 開發板 |

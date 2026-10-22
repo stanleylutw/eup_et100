@@ -6,7 +6,7 @@ LD := $(ET100_FW)/ld/evb_app.ld
 LDFLAGS += -L$(ET100_FW)/installer
 INC_PATH := -I"$(ET100_FW)/include" $(INC_PATH)
 INC_PATH += -I"$(ET100_FW)/third_party/tinycrypt/include"
-ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.8.4-dev\"
+ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.8.5-dev\"
 CFLAGS += $(ET100_VERSION_FLAGS) $(ET100_TEST_FLAGS)
 INC_PATH += -I"$(ET100_FW)/common" -I"$(ET100_FW)/installer" -I"$(TOP_DIR)/components/modules/mbedtls/include"
 $(BASE_ElF): $(OBJECT_DIR)/boot_health.o $(OBJECT_DIR)/boot_state.o $(OBJECT_DIR)/mcuboot_image.o $(OBJECT_DIR)/sha256.o $(OBJECT_DIR)/platform_util.o
@@ -44,4 +44,12 @@ $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(GATT_OBJECTS))): $(OBJECT_DIR)/%.o: 
 $(OBJECT_DIR)/tinycrypt_aes.o: $(ET100_FW)/third_party/tinycrypt/source/aes_encrypt.c
 	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
 $(OBJECT_DIR)/tinycrypt_utils.o: $(ET100_FW)/third_party/tinycrypt/source/utils.c
+	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
+
+# v0.8.5: OTA manager + SMP over serial (UART3).
+OTA_OBJECTS = cbor_min smp_serial smp_server ota_manager ota_journal nor_qspi1
+$(BASE_ElF): $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(OTA_OBJECTS))) $(OBJECT_DIR)/candidate.o
+$(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(OTA_OBJECTS))): $(OBJECT_DIR)/%.o: $(ET100_FW)/src/%.c
+	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
+$(OBJECT_DIR)/candidate.o: $(ET100_FW)/installer/candidate.c
 	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<

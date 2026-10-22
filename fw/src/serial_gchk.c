@@ -156,6 +156,23 @@ static void handle_line(struct et100_serial_parser *p)
         length = snprintf(response, sizeof(response),
                           "AT$PD=BLEGW$SGTIME;%u;%s;%s\r\n",
                           valid, params, token);
+    } else if (strcmp(command, "OTABAUD") == 0) {
+        char *params = end + 1;
+        unsigned long baud = 0;
+        int valid = 0;
+        if (token != params) {
+            token[-1] = '\0';
+            if (!strcmp(params, "9600")) baud = 9600;
+            else if (!strcmp(params, "115200")) baud = 115200;
+        } else {
+            params = "";
+        }
+        if (baud && p->baud_supported) {
+            valid = 1;
+            p->baud_request = (uint32_t)baud;
+        }
+        length = snprintf(response, sizeof(response),
+                          "AT$PD=BLEGW$OTABAUD;%u;%s;%s\r\n", valid, params, token);
     } else if (strcmp(command, "GCID") == 0 && token == end + 1) {
         length = cid_response(response, sizeof(response), command,
                               p->storage_ready, p->cids, token);
@@ -222,6 +239,10 @@ void et100_serial_feed(struct et100_serial_parser *p, uint8_t byte)
 #include "ble_reporter.h"
 #include "app_gatt_server.h"
 #include "boot_health.h"
+#include "smp_serial.h"
+#include "smp_server.h"
+#include "ota_manager.h"
+#include "nor_qspi1.h"
 
 /* Reserved user key; distinct from SDK random seed and BT keys. */
 #define ET100_FDB_GTIME_KEY 0x00030002U
@@ -301,7 +322,9 @@ static int save_cids(const uint16_t cids[4], void *context)
     return cid_record_read(verify) && memcmp(record, verify, 20) == 0 ? 0 : -1;
 }
 
-#define RX_RING_SIZE 512
+/* 2 KB holds a full SMP request burst (~1.4 KB encoded) between task polls. */
+#define RX_RING_SIZE 2048
+#define SMP_IDLE_MS 30000
 static uint8_t rx_byte;
 static volatile uint16_t rx_head, rx_tail;
 static volatile unsigned char rx_overflow;
@@ -314,6 +337,71 @@ static void serial_send(const char *data, size_t length, void *context)
     UART_HandleTypeDef *uart = context;
     uart_transmit(uart, (void *)data, length);
     while (!uart->UARTx->USR.TFE) {}
+}
+
+/* ---- SMP over serial (v0.8.5): shares UART3 with the ASCII GCHK protocol ---- */
+static struct smp_serial smp_rx;
+static struct ota_manager ota;
+static struct smp_ops smp_ops;
+static uint8_t smp_response[SMP_SERIAL_MAX_PACKET];
+static TickType_t smp_last;
+static int smp_seen;
+static uint32_t uart_baud = 9600;
+static TickType_t baud_since;
+
+void nor_qspi1_yield(void) { taskYIELD(); }
+
+static int app_nor_prepare(void)
+{
+    struct nor_port *nor = nor_qspi1_port();
+    int rc = nor->init();
+    return rc ? rc : nor_qspi1_authorize_writes();
+}
+static void ota_lock(void) { taskENTER_CRITICAL(); }
+static void ota_unlock(void) { taskEXIT_CRITICAL(); }
+static struct ota_env ota_env;
+
+static void smp_setup(void)
+{
+    ota_env.nor = nor_qspi1_port();
+    ota_env.nor_prepare = app_nor_prepare;
+    ota_env.internal = et100_boot_port();
+    ota_env.app_slot = (const uint8_t *)ET100_APP_SLOT;
+    ota_env.lock = ota_lock;
+    ota_env.unlock = ota_unlock;
+    ota_env.source = OTA_RS232;
+    ota_manager_init(&ota, &ota_env);
+    ota_manager_smp_ops(&ota, &smp_ops);
+    smp_serial_init(&smp_rx);
+}
+
+static void smp_line_out(const char *data, size_t length, void *context)
+{
+    serial_send(data, length, context);
+}
+
+static void smp_handle(const uint8_t *packet, size_t length)
+{
+    bool reset = false;
+    size_t n = smp_server_process(&smp_ops, packet, length, smp_response,
+                                  sizeof smp_response, &reset);
+    if (n) smp_serial_encode(smp_response, n, smp_line_out, serial_uart);
+    if (reset) {
+        vTaskDelay(pdMS_TO_TICKS(50));   /* let the last byte leave the shift register */
+        NVIC_SystemReset();
+    }
+}
+
+static void set_baud(uint32_t baud)
+{
+    vTaskDelay(pdMS_TO_TICKS(5));        /* response fully shifted out at the old rate */
+    taskENTER_CRITICAL();
+    serial_uart->Init.BaudRate = baud;
+    uart_init(serial_uart);
+    uart_receive_IT(serial_uart, &rx_byte, 1);
+    taskEXIT_CRITICAL();
+    uart_baud = baud;
+    baud_since = xTaskGetTickCount();
 }
 
 static void serial_task(void *argument)
@@ -329,6 +417,8 @@ static void serial_task(void *argument)
     snprintf(identity, sizeof(identity), "%02X%02X%02X%02X%02X%02X",
              address[5], address[4], address[3], address[2], address[1], address[0]);
     et100_serial_init(&serial_parser, identity, serial_send, serial_uart);
+    serial_parser.baud_supported = 1;
+    smp_setup();
     et100_serial_set_storage(&serial_parser, storage_initialized,
         storage_initialized ? load_gtime() : ET100_GTIME_DEFAULT,
         save_gtime, NULL);
@@ -358,7 +448,21 @@ static void serial_task(void *argument)
             }
             taskEXIT_CRITICAL();
             if (value < 0) break;
+            const uint8_t *packet;
+            size_t packet_length;
+            int smp = smp_serial_feed(&smp_rx, (uint8_t)value, &packet, &packet_length);
+            if (smp) {
+                smp_last = xTaskGetTickCount();
+                smp_seen = 1;
+                if (smp == 2) smp_handle(packet, packet_length);
+                continue;
+            }
             et100_serial_feed(&serial_parser, (uint8_t)value);
+            if (serial_parser.baud_request) {
+                uint32_t baud = serial_parser.baud_request;
+                serial_parser.baud_request = 0;
+                if (baud != uart_baud) set_baud(baud);
+            }
             if (value == '\n') {
                 et100_scan_configure(serial_parser.cids, serial_parser.gtime,
                                   cid_revision != serial_parser.cid_revision);
@@ -367,7 +471,14 @@ static void serial_task(void *argument)
         }
         et100_gatt_poll(serial_send, serial_uart);
         et100_app_server_poll();
-        et100_scan_poll(serial_send, serial_uart);
+        TickType_t now = xTaskGetTickCount();
+        int smp_active = smp_seen && (TickType_t)(now - smp_last) < pdMS_TO_TICKS(SMP_IDLE_MS);
+        /* Pause unsolicited Type-1 reports while an SMP client is talking. */
+        if (!smp_active) et100_scan_poll(serial_send, serial_uart);
+        /* OTABAUD fallback: return to 9600 after 30 s without SMP traffic. */
+        if (uart_baud != 9600 && !smp_active &&
+            (TickType_t)(now - baud_since) >= pdMS_TO_TICKS(SMP_IDLE_MS))
+            set_baud(9600);
         if (!received)
             vTaskDelay(pdMS_TO_TICKS(10));
     }

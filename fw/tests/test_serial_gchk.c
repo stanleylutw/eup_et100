@@ -113,6 +113,19 @@ int main(void)
     et100_serial_set_storage(&p, 1, 0, save_setting, NULL);
     assert(p.gtime == ET100_GTIME_DEFAULT);
     puts("PASS: GTIME default, set/query, reload, 1/1800 boundaries, invalid input, storage failures");
+    expect(&p, "BLEGW$OTABAUD;115200;B000\r\n", "AT$PD=BLEGW$OTABAUD;0;115200;B000\r\n");
+    assert(p.baud_request == 0);                       /* transport did not opt in */
+    p.baud_supported = 1;
+    expect(&p, "BLEGW$OTABAUD;115200;B001\r\n", "AT$PD=BLEGW$OTABAUD;1;115200;B001\r\n");
+    assert(p.baud_request == 115200);
+    p.baud_request = 0;
+    expect(&p, "BLEGW$OTABAUD;9600;B002\r\n", "AT$PD=BLEGW$OTABAUD;1;9600;B002\r\n");
+    assert(p.baud_request == 9600);
+    p.baud_request = 0;
+    expect(&p, "BLEGW$OTABAUD;921600;B003\r\n", "AT$PD=BLEGW$OTABAUD;0;921600;B003\r\n");
+    expect(&p, "BLEGW$OTABAUD;B004\r\n", "AT$PD=BLEGW$OTABAUD;0;;B004\r\n");
+    assert(p.baud_request == 0);
+    puts("PASS: OTABAUD 9600/115200 accepted only when supported; other rates rejected");
     save_fails = 0;
     et100_serial_set_cid_storage(&p, durable_cids, save_cids);
     expect(&p, "BLEGW$GCID;C001\r\n", "AT$PD=BLEGW$GCID;1;0639;;;;C001\r\n");

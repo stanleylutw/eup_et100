@@ -1,4 +1,108 @@
-# IMPLEMENTATION_PLAN — v0.8.4 Trial／Confirm／Rollback
+# IMPLEMENTATION_PLAN — v0.8.5 OTA manager 進 App＋SMP serial（RS232 入口）
+
+> **備用規則：Claude 實作**（comm.md「備用規則」，Codex 無 token）。Step 5 review 由 Codex 恢復後補做。
+
+## Branch
+
+Before starting implementation, create and switch to the new branch:
+
+git checkout -b v0.8.5_ota_manager_smp_serial
+
+Base branch: v0.8.4_trial_rollback（182782f）
+
+## 0. 工作模式與決策
+
+採用 comm.md「Hardware bring-up loop」，**測試不做太細**。Stanley 2026-10-22 決定：
+
+| 決策 | 內容 |
+|---|---|
+| D1 協定 | RS232 入口採 **SMP over serial**（MCUmgr UART transport），不用 ZVERO；與 v0.8.6 BLE 共用同一個 SMP server |
+| D2 Port | 開發先用 EVB **UART3**（DAPLink VCOM，9600，與 GCHK 共用）；ET-100 的更新 port 待實板決定，程式中做成可設定 |
+| D3 HTML | 韌體完成後，`tools/rs232_tester.html` 再依本協定新增功能（不在本 branch） |
+
+| Milestone | 內容 | 之後 |
+|---|---|---|
+| M-SMP | 用現成 SMP client 經 UART3 完成「upload → test → reset → installer 安裝 → 新 App 自動 confirm」 | 停下，等 Codex review |
+
+授權：燒錄本 branch 的 App／installer、寫入 U11 scratch；0x08001000 sector 規則不變。
+
+## 1. 架構
+
+```text
+UART3 ISR（1 byte IT，既有）→ ring buffer → serial task 分流
+   ├─ ASCII 行（BLEGW$…）→ 既有 GCHK parser（不變）
+   └─ SMP frame（開頭 0x06 0x09 或續段 0x04 0x14）→ SMP serial decoder（base64＋CRC16＋長度）
+                                                     → SMP server（transport 無關）
+                                                        → OTA manager（單一 session）→ ota_journal → nor_qspi1（U11）
+                                                        → boot_state（test → PENDING）
+```
+
+- **OTA manager**（新 task）：持有 journal／NOR，唯一寫入者；SMP 請求以 queue 交給它，回應再送回 transport。
+- **NOR 在 App 內**：重用 `nor_qspi1.c`；等待 WIP 期間改用 `vTaskDelay(1)` 讓出 CPU（保留既有 timeout／非 DWT 上限）。STIG 關中斷區段很短，但需確認 UART3 9600／115200 不掉 byte（ring buffer 足夠大，ISR 只搬資料）。
+- **4 KB 組包**：SMP upload 每包大小不固定；RAM 湊滿 4 KB 才 `write_chunk`。回給 client 的 `off` = 連續已 commit 的 byte 數，斷線重連從那裡續傳。
+- **第一包**：`len`＋`sha`（整份 image SHA-256）→ journal `begin`／`resume`（session_id 由 sha 前 8 bytes 導出）。
+- 上傳完成 → journal `finish` → VERIFIED。`image state` 的 `test`（帶 hash）→ boot state PENDING。`os reset` → 重開 → installer 安裝（v0.8.3／v0.8.4 流程）。
+
+## 2. SMP 子集
+
+| Group／ID | 指令 | 實作 |
+|---|---|---|
+| OS (0) / 1 | reset | 回應後 reset |
+| OS (0) / 0 | echo | 選做（方便連線測試） |
+| IMG (1) / 0 | state read | 回報 slot 0（目前 App：version、hash、confirmed）與 slot 1（Candidate：hash、pending） |
+| IMG (1) / 0 | state write（test／confirm） | test → PENDING；confirm 只接受目前 App 自己的 hash（v0.8.4 規則） |
+| IMG (1) / 1 | upload | off／data／len／sha，續傳 |
+| 其他 | — | 回 `rc = MGMT_ERR_ENOTSUP` |
+
+CBOR：只做需要的子集（map／uint／bytes／text／bool），自寫或用小型函式庫（例如 zcbor 的子集）；**不修改 SDK**。
+
+## 3. Baud 切換（06：平常 9600、更新 115200）
+
+```text
+Host  → BLEGW$OTABAUD;115200;<token>
+ET100 → AT$PD=BLEGW$OTABAUD;1;115200;<token>    （送完才切換）
+雙方切 115200 → SMP → 完成／cancel／30 秒無 SMP frame → 自動回 9600
+```
+
+只接受 9600／115200。開發初期可先在 9600 打通 SMP，再加 OTABAUD。
+
+## 4. 檔案範圍
+
+| 檔案 | 內容 |
+|---|---|
+| `fw/src/ota_manager.c／.h`（新） | OTA task、session、4 KB 組包、journal／boot state 介接 |
+| `fw/src/smp_server.c／.h`（新） | transport 無關的 SMP 處理（v0.8.6 BLE 共用） |
+| `fw/src/smp_serial.c／.h`（新） | UART framing（base64、CRC16、分段） |
+| `fw/src/cbor_min.c／.h`（新） | CBOR 子集 |
+| `fw/src/serial_gchk.c` | ring buffer 分流、`OTABAUD` 指令 |
+| `fw/src/nor_qspi1.c` | App 內等待改為讓出 CPU（介面不變） |
+| `fw/src/evb_serial_main.c`、`fw/targets/evb_serial.mk` | 建立 task、加入新檔案 |
+| `fw/tests/` | CBOR、SMP serial framing、upload 續傳／4 KB 組包的 host tests |
+| `fw/tools/requirements-smp.txt`（新） | 現成 SMP client（`smpmgr` 或等效）安裝到 `fw/.venv`，版本鎖定 |
+| `fw/docs/02_protocol/04_smp_serial_ota.md`（新） | 給之後 HTML 工具用的協定說明（framing、指令、OTABAUD、流程範例） |
+| `fw/docs/04_testing/13_evb_smp_serial.md`（新） | 測試報告（精簡） |
+| `comm.md` | 備用規則（已加入） |
+
+**不做**：BLE transport（v0.8.6）、HTML 工具、簽章、LTE、sensor target、SDK 修改。
+
+## 5. 驗收（精簡）
+
+1. `smpmgr`（或等效）經 UART3：image state read 正確顯示目前 App。
+2. 上傳 `et100.signed.bin`（新版本號）→ test → reset → installer 安裝 → 新 App 自動 confirm；GCHK 版本變更。
+3. 上傳途中拔掉／中斷 host 連線一次 → 重連後從 `off` 續傳完成。
+4. 上傳期間 GCHK 指令仍可回應（分流正常），UART 無掉 byte（以 SHA-256 一致為準）。
+5. OTABAUD：115200 完成一次上傳；逾時自動回 9600。
+6. B-info SHA-256 不變。
+
+## 6. 交付
+
+> **實作結果（2026-10-22）**：M-SMP PASS，見 [13 報告](docs/04_testing/13_evb_smp_serial.md)。與本施工單的差異：OTA manager 在 serial task 內執行（未開獨立 task，SMP 一問一答不會掉 byte；BLE 時改 worker task）；SMP client 用 `smpclient`（`smpmgr` 需 Python ≥ 3.10）。
+
+M-SMP 停下；Codex 恢復後做 Step 5 review。Step 7 同步 06 §6／§8.1、platform plan、status MD、REVIEW_REPORT（標明實作者為 Claude）；不 commit／push（等 Stanley 說「git commit」）。
+
+---
+
+# 歷史施工單 — v0.8.4 Trial／Confirm／Rollback
 
 ## Branch
 

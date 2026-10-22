@@ -35,6 +35,7 @@ static int program_state(uint32_t off,const void *data,size_t n)
     return memcmp((const void *)(0x08000000u+off),data,n) ? -1 : 0;
 }
 static const struct internal_port port={read_flash,erase_state,program_state};
+const struct internal_port *et100_boot_port(void) { return &port; }
 void et100_boot_adv_started(void) { advertising_started=1; }
 void et100_boot_poll(int storage_ready)
 {

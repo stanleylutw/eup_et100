@@ -17,6 +17,7 @@ Last updated: 2026-10-21 Codex
 | v0.8 | 2026-10-21 | 文件決策：2 MB 單 App＋NOR staging、header 8 KB＋installer 120 KB、App 1792 KB、Settings 112 KB／唯一 boot state 16 KB；三入口及 sensor 225280 B package 上限。不改 firmware／SDK，不採 stash A/B | Codex | v0.8.0_ota_nor_spec |
 | v0.8.3 | 2026-10-22 | **韌體布局變更**：EVB App 搬到 0x08020200（MCUboot header 0x200，hash-only 原型）、FlashEnv 搬到 0x081E0000（不遷移）、移除 vendor OTA service；新增 installer @0x08002000（NOR Candidate → App slot，reset 重做）、最小 boot state、dev-only UART loader、EUPFWV1 metadata 與 `dfu_application.zip`。ROM A／B 資訊段：B（0x08001000）永不寫入。FR3068 EUPFWV1 CRC 必須非 0 | Codex＋Claude | v0.8.3_installer |
 | v0.8.4 | 2026-10-22 | **韌體行為變更**：安裝前備份已確認 App 到 NOR Rollback；新 App 為 TRIAL，自檢（BLE 廣播、FlashEnv、30 秒）通過才 CONFIRMED，未確認重開即回滾並記錄 FAILED；**App 每次開機都啟用 PMU watchdog**（SDK `pmu_init()` 會關 WDT clock，故於其後重新啟用），installer 跳轉前也啟用；boot state 模組移到 `fw/common/` 供 App confirm | Codex＋Claude | v0.8.4_trial_rollback |
+| v0.8.5 | 2026-10-22 | **新對外介面**：UART3 新增 SMP over serial（MCUmgr：echo、reset、params、image state／test／confirm／upload，續傳）與 `BLEGW$OTABAUD`（9600／115200，閒置 30 秒回 9600）；OTA manager（journal＋U11 NOR）進入產品 App；SMP 期間暫停 Type-1 回報。協定見 fw/docs/02_protocol/04_smp_serial_ota.md | Claude（備用規則，未經獨立 review） | v0.8.5_ota_manager_smp_serial |
 
 ## 1. 專案定位
 

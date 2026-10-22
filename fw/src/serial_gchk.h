@@ -26,6 +26,10 @@ struct et100_serial_parser {
     uint16_t cids[4];
     unsigned cid_revision;
     et100_serial_save_cids_fn save_cids;
+    /* OTABAUD: baud requested by the host, applied by the transport after the
+     * response is transmitted (0 = none). Only 9600 and 115200 are accepted. */
+    uint32_t baud_request;
+    unsigned char baud_supported;
 };
 
 void et100_serial_init(struct et100_serial_parser *, const char *,

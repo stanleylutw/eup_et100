@@ -345,6 +345,9 @@ static int discover(void)
     return supported == 7 ? NOR_OK : NOR_ESFDP;
 }
 
+/* Weak no-op; the App overrides it to let equal-priority tasks run while NOR is busy. */
+__attribute__((weak)) void nor_qspi1_yield(void) {}
+
 /* Derived from SDK flash_wait_wip_clear, replacing its unbounded loop. */
 static int wait_ready(uint32_t timeout_us)
 {
@@ -360,6 +363,7 @@ static int wait_ready(uint32_t timeout_us)
         if (!(sr & 1)) return NOR_OK;
         if ((uint32_t)(nor_qspi1_now_us() - start) >= timeout_us) break;
         /* IRQs are restored between commands; RTOS integration yields here. */
+        nor_qspi1_yield();
     }
     controller_abort();
     return NOR_ETIMEOUT;

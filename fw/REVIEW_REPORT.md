@@ -1,5 +1,15 @@
 # REVIEW_REPORT — Phase 1a: Validate GCC Build Chain
 
+## 2026-10-22 v0.8.5 自我檢查（Claude 實作，**未經獨立 review**，待 Codex 補 Step 5）
+
+依 comm.md 備用規則，本 branch 由 Claude 實作與測試，以下為自我檢查，不等同獨立 review。
+
+- 範圍：`cbor_min`、`smp_serial`、`smp_server`、`ota_manager`（新）；`serial_gchk.c` 分流＋`OTABAUD`；`nor_qspi1` weak yield；`boot_health` 匯出 boot port；`installer/candidate.c` magic 常數拆開；工具 `smp_serial_ota.py`；SDK 未修改。
+- 驗收 M-SMP PASS（見 [13 報告](docs/04_testing/13_evb_smp_serial.md)）：state、上傳、9600 中斷續傳、test／reset／安裝／自動確認、115200、閒置回 9600、B-info 不變。
+- 實機修正 4 項：App 內重複 `EUPFWV1` 字串（打包工具擋下）、OS reset ID 應為 5、pending 時 slot 0 應維持 confirmed、client 中斷後的半行。
+- **請 Codex review 時特別看**：`ota_manager.c` 的續傳／取消舊 session 邏輯與 boot state 檢查；`smp_serial.c` 的長度／溢位邊界；serial task 內 `set_baud()` 重新初始化 UART 的時序；`taskENTER_CRITICAL` 內寫 boot state（沿用 v0.8.4 作法）。
+- 已知差異：OTA manager 未開獨立 task（SMP 一問一答）；`load_image.py` 仍期望 v0.8.3 結果（未修改）。
+
 ## 2026-10-22 Claude Code Step 5 review — v0.8.4 M-WDT／M-RB
 
 **結論：PASS（含已記錄的限制）。**

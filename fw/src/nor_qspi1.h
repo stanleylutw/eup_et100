@@ -13,6 +13,8 @@ int nor_qspi1_probe_off(uint8_t id[3]);
 uint32_t nor_qspi1_now_us(void);
 uint32_t nor_qspi1_last_operation_us(void);
 void nor_qspi1_delay_us(uint32_t us);
+/* Called while polling WIP; weak no-op by default (App: taskYIELD). */
+void nor_qspi1_yield(void);
 /* T7/T8 only: start a single operation without waiting; same write gate. */
 int nor_qspi1_start(uint32_t offset, uint32_t erase_size,
                     const uint8_t *data, size_t length);
