@@ -157,11 +157,21 @@ adv start :0x00
 
 ## 11. 待辦
 
-2026-10-21 已新增獨立 UART3 **9600 bps** serial target 並燒入 EVB。目前板上為 `0.5.0-dev`，GCID／SCID FlashDB 保存、general discovery scan 與 Type 1 GTIME/RSSI/XOR 回報已實作，program/readback 通過；Stanley HTML log 已確認 4 個真實 MAC、55 筆 Type 1 且 XOR 全通過，並確認 CID 切換與 CID／GTIME 手動 RST 後保存正常。斷電／GC／長時間測試仍未驗收。此 target 不輸出 921600 vendor log；上方 921600 指令適用原 BLE baseline。規格見 [serial 協定](../../../fw/docs/02_protocol/01_evb_serial_gchk.md)，最新證據見 [CID／scan 紀錄](../../../fw/docs/04_testing/04_evb_cid_ble_scan.md)。
+**最新板上版本：0.7.0-dev／EUP_AIoT_HUB_FR**。已燒入手機 App GATT Manager（四個 8D2F characteristic），program／逐 byte readback PASS，App 實機連線／清單／notify 與 sensor 並行待 Stanley 驗收，見 [App GATT 紀錄](../../../fw/docs/04_testing/07_evb_app_gatt_server.md)。UART 保持 9600，D4／D3 與按鍵不變；下文 0.6.0-dev 為歷史進度，不再是目前板上版本。未修改 SDK 或 App。
 
-- 2026-10-21 D3/D4 觀察：按 RST 後兩燈先熄滅，約 3 秒後與 `FR5090: ble_simple_peripheral.` UART log 大致同時亮起。這只證明 application 啟動與 LED 狀態具有時間關聯；尚未確認 LED pin、active level 或是否由既有 all-port pull 設定間接造成。
-- 2026-10-21 K1-K3 被動 PMU scan：暫時 Patch #9 每 20 ms 唯讀 `PMU_REG_PIN_DATA`。受控長按測試看見 bit 0、2、3 候選變化，但電位持續跳動，無法可靠建立 K1-K3 mapping。診斷 patch 已撤回並燒回 Phase 1b baseline。
-- 取得 DEV1.4 原理圖或做斷電 continuity measurement；若要以 firmware 繼續定位，需另行授權只對候選 PMU pins 設定 input/pull，再重做逐鍵長按測試。
+2026-10-21 依 Stanley 指定，最新 serial target 將 **D4／PA7** 作 Gateway LED，**D3／PA6** 在 app 初始化後固定低電位關閉。D4 待機常亮、符合廣播資料時 200 ms 切換、sensor GATT link 存在時 100 ms 切換；不是 AES 認證指示。未改 K1-K3／PMU pull。實體亮滅與 regression 待 Stanley 驗收，最新 build／flash 證據見 [LED 紀錄](../../../fw/docs/04_testing/06_evb_gateway_led.md)。
+
+2026-10-21 已新增獨立 UART3 **9600 bps** serial target 並燒入 EVB。目前板上為 `0.6.0-dev`，新增 Gateway-style GATT client（manual／auto、AES、metadata／設定、Type 8）；host／build／program-readback 通過，真實 sensor 驗收待 Stanley 執行，見 [GATT 紀錄](../../../fw/docs/04_testing/05_evb_gatt_client.md)。前版 0.5.0-dev 的 GCID／SCID 保存、general discovery scan 與 Type 1 GTIME/RSSI/XOR 回報已由 Stanley HTML log 確認 4 個真實 MAC、55 筆 Type 1 且 XOR 全通過，並確認 CID 切換與 CID／GTIME 手動 RST 後保存正常；新版本仍須 regression。斷電／GC／長時間測試仍未驗收。此 target 不輸出 921600 vendor log；上方 921600 指令適用原 BLE baseline。規格見 [serial 協定](../../../fw/docs/02_protocol/01_evb_serial_gchk.md)，歷史證據見 [CID／scan 紀錄](../../../fw/docs/04_testing/04_evb_cid_ble_scan.md)。
+
+- 2026-10-21 **D3/D4 已由原理圖確認**：D3 連接 **PA6** (Pin 72)，D4 連接 **PA7** (Pin 73)，均串聯 1 kΩ 限流電阻接地，**高電平有效（Active HIGH）**。
+- 2026-10-21 **K1-K3 已由原理圖確認**：K1 連接 **PP0** (Pin 66)，K2 連接 **PP2** (Pin 68)，K3 連接 **PP3** (Pin 67)，直通 GND，板載**無外部上拉電阻**。先前電位跳動係因未開內部上拉（Floating）；韌體設定 PMU 啟用 Internal Pull-Up 即可作為穩定**低電平有效（Active LOW）**按鍵。
+- **官方 EVB 完整工程解析文件已建立**：
+  - [PCB 與原理圖工程索引 (README.md)](FR3068E-C_DEV1.4%20PCB文件/README.md)
+  - [MCU 核心電路規格書 (FR3068E-C_MCU_DEV1.4.md)](FR3068E-C_DEV1.4%20PCB文件/FR3068E-C_MCU_DEV1.4.md)
+  - [周邊與介面包規格書 (FR3068E-C_Device_DEV1.4.md)](FR3068E-C_DEV1.4%20PCB文件/FR3068E-C_Device_DEV1.4.md)
+  - [板載偵錯器規格書 (FR3068E-C_Debug_DEV1.4.md)](FR3068E-C_DEV1.4%20PCB文件/FR3068E-C_Debug_DEV1.4.md)
+  - [PCB Layout 實體工程規格書 (FR3068E-C_DEV1.4_PCB.md)](FR3068E-C_DEV1.4%20PCB文件/FR3068E-C_DEV1.4_PCB.md)
 - 做 96 MHz 下 BLE 長時間連線與 throughput 測試。
 - 驗證 Patch #7b runtime guard 在 EVB 不誤觸發。
-- 確認 K1-K3 與 D3/D4 mapping 後，再依獨立 `IMPLEMENTATION_PLAN.md` 進行 GPIO interrupt、LED drive、CAN、I2C bring-up。
+- 依獨立 `IMPLEMENTATION_PLAN.md` 進行 GPIO interrupt、LED drive、CAN、I2C bring-up。
+
