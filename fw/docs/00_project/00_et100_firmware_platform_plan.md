@@ -19,6 +19,7 @@ Last updated: 2026-10-21 Codex
 | v0.8.4 | 2026-10-22 | **韌體行為變更**：安裝前備份已確認 App 到 NOR Rollback；新 App 為 TRIAL，自檢（BLE 廣播、FlashEnv、30 秒）通過才 CONFIRMED，未確認重開即回滾並記錄 FAILED；**App 每次開機都啟用 PMU watchdog**（SDK `pmu_init()` 會關 WDT clock，故於其後重新啟用），installer 跳轉前也啟用；boot state 模組移到 `fw/common/` 供 App confirm | Codex＋Claude | v0.8.4_trial_rollback |
 | v0.8.5 | 2026-10-22 | **新對外介面**：UART3 新增 SMP over serial（MCUmgr：echo、reset、params、image state／test／confirm／upload，續傳）與 `BLEGW$OTABAUD`（9600／115200，閒置 30 秒回 9600）；OTA manager（journal＋U11 NOR）進入產品 App；SMP 期間暫停 Type-1 回報。協定見 fw/docs/02_protocol/04_smp_serial_ota.md | Claude（備用規則，未經獨立 review） | v0.8.5_ota_manager_smp_serial |
 | v0.8.6 | 2026-10-22 | **新對外介面**：BLE 新增 Nordic MCUmgr SMP GATT service（開發版 `ET100_SMP_BLE_OPEN` 才註冊，無認證）；SMP 改由 OTA worker task 處理，UART／BLE 單一更新 owner（30 秒，另一方回 EBUSY）；新增 OS bootloader info（MCUboot、mode 3）。nRF Connect Device Manager 可完整更新 | Claude（備用規則，未經獨立 review） | v0.8.6_ble_smp |
+| v0.8.7 | 2026-10-22 | **新對外介面**：BLE 新增 EUP AIoT Communication Service（`E9E00000-…`，GET_FW_INFO／GET_DEVICE_ID／GET_CAPABILITIES／PING，與 eup_gateway 相同、無驗證、所有 build 皆註冊）；UART3 新增 `BLEGW$GFWINFO`。App 相容性檢查所需的韌體端介面已完整 | Claude | v0.8.7_device_metadata |
 
 ## 1. 專案定位
 

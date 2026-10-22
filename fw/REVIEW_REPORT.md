@@ -24,6 +24,12 @@
 - **架構觀察（供 v0.8.6 參考）**：
   - v0.8.5 將 OTA manager 置於 serial task 內處理對於嚴格一問一答的 SMP serial 是合理的取捨；在 v0.8.6 引入 BLE SMP 時，因 GATT callback 不可阻塞，已正確規劃並實作獨立 `ota_worker` task。
 
+## 2026-10-22 v0.8.7 自我檢查（Claude 實作，待 Codex Step 5）
+
+- 範圍：`eup_meta_protocol`（packet／TLV／分 part，host 可測）、`eup_meta_service`（GATT，callback 內建好回應、serial loop 逐 part 送出，沿用 v0.8.6 的 completion 計數與連線世代）、`BLEGW$GFWINFO`、`evb_serial_ble.c` 一律註冊。SDK 未修改。
+- 驗收 M-META PASS（[15 報告](docs/04_testing/15_evb_device_metadata.md)）。
+- **請 Codex review 時特別看**：與 `eup_gateway/src/service/eup_ota_metadata_service.c` 的逐項行為一致性（錯誤 status、空 payload、分 part 規則、capabilities 值）；`server_callback` 在 `pending` 時直接丟棄新請求（gateway 用 queue 長度 2）是否可接受；identity MAC 推導是否與實際廣播位址一致（目前與 GCHK 同源，但未以手機掃描比對）。
+
 ## 2026-10-22 Codex Step 5 review — v0.8.6（Step 6 由 Claude 修正）
 
 Codex 審查 `521b933＋cf3daeb`，提出 4 項 P2，全部確認並修正：

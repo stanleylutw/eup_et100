@@ -1,4 +1,77 @@
-# IMPLEMENTATION_PLAN — v0.8.6 BLE SMP（BLE 更新入口）
+# IMPLEMENTATION_PLAN — v0.8.7 裝置端 GET_FW_INFO／GET_DEVICE_ID（App 相容性查詢）
+
+> **Claude 實作**（Stanley 2026-10-22 指定）。Step 5 review 由 Codex 做。
+
+## Branch
+
+Before starting implementation, create and switch to the new branch:
+
+git checkout -b v0.8.7_device_metadata
+
+Base branch: v0.8.6_ble_smp（6817f6c）
+
+## 0. 工作模式與決策
+
+採用 comm.md「Hardware bring-up loop」，**測試不做太細**。Stanley 2026-10-22 決定：
+
+| 決策 | 內容 |
+|---|---|
+| D1 | Claude 實作，Codex review |
+| D2 | **照 eup_gateway**：EUP AIoT Communication Service 只做 4 個唯讀指令、**不需驗證**、**一律註冊**（不受 `ET100_SMP_BLE_OPEN` 控制）；寫入（SMP）的安全 gate 不變（06 §6.1） |
+| D3 | RS232 新增 `BLEGW$GFWINFO;<token>`，讓 HTML 在 9600 下比對裝置與檔案的硬體 |
+
+| Milestone | 內容 | 之後 |
+|---|---|---|
+| M-META | Host：新回應經 FR3068 既有 client parser（`src/eup_aiot_metadata.c`）正確解析；EVB：`GFWINFO` 正確、BLE service 存在且 PING 有回應 | 停下，等 Codex review |
+
+授權：燒錄本 branch App（以 SMP serial 部署）；0x08001000 sector 規則不變。
+
+## 1. 參考來源（照抄行為，不自創）
+
+- 規格：`eup_gateway/docs/protocol_cache/02_eup_aiot_uuid_communication_protocol.md` §3（UUID）、§5（packet）、§6–§7（command／status）、§8–§11（TLV）
+- 參考實作：`eup_gateway/src/service/eup_ota_metadata_service.c`（被更新端，4 個指令，無驗證）
+
+| 項目 | 內容 |
+|---|---|
+| Service | `E9E00000-4F4C-4F47-4943-455550000001`；RX `E9E00001`（Write／Write Without Response）；TX `E9E00002`（Notify） |
+| Request | `E9 55 01 cmd seq len payload checksum`（checksum＝前面所有 byte 加總 & 0xFF） |
+| Response | `E9 55 01 cmd\|0x80 seq status part total len payload checksum`；超過一包時分 part，**不拆 TLV** |
+| 指令 | `0x01 GET_FW_INFO`、`0x05 GET_DEVICE_ID`、`0x07 GET_CAPABILITIES`、`0x7F PING`；其他回 `0x01 UNKNOWN_COMMAND`；格式錯回 `0x02 INVALID_PACKET` |
+| GET_FW_INFO TLV | 0x01 project、0x02 hardware、0x03 firmware、0x04 build_time、0x05 build_id、0x06 git_commit、0x07 git_branch、0x08 ble_name_normal、0x09 ble_name_ota、0x0A release_note、0x0B metadata_schema、**0x0C soc=`fr3068e_c`**、0x0D protocol_version；字串取自 App 內的 EUPFWV1 block |
+| GET_DEVICE_ID | 0x01 `mac_string`＝BLE identity address（與 GCHK identity 同源，例如 `C0:32:32:32:59:03`） |
+| GET_CAPABILITIES | 依 gateway：`FW_INFO`、`OTA_READY`、`DEVICE_ID` 等 bit，以及 max payload／preferred MTU（數值照 FR3068 實際） |
+
+## 2. 檔案範圍
+
+| 檔案 | 內容 |
+|---|---|
+| `fw/src/eup_meta_protocol.c／.h`（新） | 與 transport 無關的 packet 解析、checksum、TLV 組裝、分 part（host 可測） |
+| `fw/src/eup_meta_service.c／.h`（新） | BLE GATT service（RX write → 處理 → TX notify），沿用 v0.8.6 的 notify 完成計數作法 |
+| `fw/src/evb_serial_ble.c` | 一律註冊 service；連線事件轉給 service |
+| `fw/src/serial_gchk.c` | `BLEGW$GFWINFO;<tok>` → `AT$PD=BLEGW$GFWINFO;1;<project>;<hardware>;<firmware>;<soc>;<tok>` |
+| `fw/targets/evb_serial.mk` | 新檔案；版本 0.8.7-dev |
+| `fw/tests/` | 協定 host test：回應交給 `src/eup_aiot_metadata.c` 解析；checksum／錯誤 packet／未知指令／分 part；GFWINFO |
+| `fw/docs/02_protocol/05_device_metadata.md`（新） | 給 App 團隊與 HTML 的對照（BLE 與 RS232 兩種查法） |
+| `fw/docs/04_testing/15_evb_device_metadata.md`（新） | 測試報告（精簡） |
+
+**不做**：GATT window auth（0x10／0x11）、CONFIG_SET、GET_BLE_MODE 等其他指令、App 修改、SDK 修改。
+
+## 3. 驗收（精簡）
+
+1. Host：四個指令的回應都能被 FR3068 既有 client parser 解出正確欄位；壞 checksum／未知指令回對應 status。
+2. EVB：UART `GFWINFO` 回 `EUP_ET100;ET100_EVB_DEV1.4;0.8.7-dev;fr3068e_c`。
+3. EVB：BLE 上看得到 EUP AIoT Communication Service（例如手機 nRF Connect 掃描服務清單，或 SWD 確認註冊成功）；PING 有回應（選做，需手機時請 Stanley 協助）。
+4. SMP 更新流程（v0.8.6）不受影響；B 資訊段不變。
+
+## 4. 交付
+
+> **實作結果（2026-10-22）**：M-META PASS，見 [15 報告](docs/04_testing/15_evb_device_metadata.md)。
+
+M-META 停下，請 Codex review。Step 7 同步 06 §6.1（App 端待辦更新為「韌體端已提供」）、platform plan、status MD、REVIEW_REPORT；commit 等 Stanley 說「git commit」。
+
+---
+
+# 歷史施工單 — v0.8.6 BLE SMP（BLE 更新入口）
 
 > **備用規則：Claude 實作**（comm.md「備用規則」）。Step 5 review 由 Codex 恢復後補做（連同 v0.8.5）。
 

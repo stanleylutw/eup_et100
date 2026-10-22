@@ -147,7 +147,7 @@ FR3068：SMP server → OTA manager → download journal → NOR Candidate → i
 | Upload 對應 journal | SMP 分包大小不固定，RAM 湊滿 4 KB 才 `write_chunk`。回給 App 的 `off` 是**本次接收位置**（可能含未 commit 的 RAM 資料）；重新連線時第一包（同 `len`／`sha`）回**可恢復位置**＝連續已 commit 的 byte 數，App 從那裡續傳；第一包的 `len`／`sha` 對應 journal manifest（session 身分見 v0.8.2 M1）。2026-10-22 依 Codex review 更正 |
 | 狀態對應 | upload 完成＝journal VERIFIED；`test`＝內建 state INSTALL_PENDING；`reset`＝進 installer；新版開機自檢通過後＝CONFIRMED（`confirm` 由 App 或韌體自身發出，規則於 installer 施工單定義） |
 | Image 格式 | FR3068 App binary 以 `imgtool sign` 包成 MCUboot image（header＋TLV）；installer 驗 header magic、image hash TLV 與簽章 TLV，再安裝到 App slot；EUPFWV1 metadata 放在 image 內供 App 掃描 |
-| 裝置資訊 | FR3068 以「被更新裝置」身分回應 `GET_FW_INFO`／`GET_DEVICE_ID`（目前 FR3068 只有讀取 sensor 的 client 端，`src/eup_aiot_metadata.c`） |
+| 裝置資訊 | ✅ v0.8.7：EUP AIoT Communication Service 回應 `GET_FW_INFO`／`GET_DEVICE_ID`／`GET_CAPABILITIES`／`PING`（與 eup_gateway 相同、無驗證、所有 build 皆有）；RS232 另有 `BLEGW$GFWINFO`。見 `02_protocol/05_device_metadata.md` |
 | 相容性 | `manifest.json` 的 board／soc 與 EUPFWV1 `hardware_version` 要能讓 App 擋下「nRF 韌體刷進 FR3068」及反向錯誤 |
 
 **同時適用 RS232／LTE**：三個入口共用同一個 MCUboot image 格式與 installer 驗證，transport 只負責把位元組送進 journal；RS232／LTE 不必使用 SMP。
@@ -228,7 +228,8 @@ Logs 從 0x460000 起，EVB 只能使用其 16 MB 實體範圍內的部分；不
 | — | v0.8.5 | OTA manager 進產品 App（journal＋NOR 後端在 App 內；v0.8.5 由 serial task 執行，BLE 時改 worker task） | 共用 | ✅ |
 | — | v0.8.5 | RS232：SMP over serial＋`OTABAUD`（[協定](../02_protocol/04_smp_serial_ota.md)）＋`smp_serial_ota.py` | RS232 | ✅（EVB：9600 續傳、115200 約 53 秒、SMP-only 更新 2 次） |
 | — | v0.8.6 | BLE SMP（GATT transport＋OTA worker task、單一 owner、bootloader info）；以 nRF Connect Device Manager 驗證 | BLE | ✅（EVB：手機完整 Test and Confirm；`ET100_SMP_BLE_OPEN` 開發版限定） |
-| 5 | — | App 端修改（§6.1） | BLE | 排在 FR3068 韌體端完成後，App 團隊 |
+| — | v0.8.7 | 裝置端 `GET_FW_INFO`／`GET_DEVICE_ID`＋RS232 `GFWINFO`（[05 協定](../02_protocol/05_device_metadata.md)） | BLE／RS232 | ✅ |
+| 5 | — | App 端修改（§6.1） | BLE | **韌體端已備齊，可交給 App 團隊** |
 | 6 | — | EG800Q modem 驅動＋FTP 分塊下載 | LTE | 需 ET-100 實板或 EG800Q 開發板 |
 | 7 | — | 簽章驗證（installer 驗 MCUboot 簽章 TLV、打包帶 key） | 量產 gate | Q42 |
 | 8 | — | ET-100 移植：SPIMX2_1 NOR 後端、4-byte 定址、XM25QH256D、實機斷電（T8）、E-C ROM 行為 | 量產 gate | ET-100 實板 |

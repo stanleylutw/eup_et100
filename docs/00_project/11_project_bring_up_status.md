@@ -117,6 +117,8 @@
 
 **v0.8.6 BLE 入口（2026-10-22，Claude 實作，待 Codex review）**：手機 nRF Connect Device Manager 直接更新 EVB（上傳 296 KB 約 50 秒 → Test → Reset → 安裝 → 確認），UART 同時嘗試更新被 EBUSY 擋下。實機抓到「需回應 bootloader info」才會走 Test and Confirm，已補上。BLE SMP 只在開發版開放、無認證；量產前須簽章＋BLE 認證。**RS232 與 BLE 兩個入口在 EVB 上都已能端到端更新。** 下一步：v0.8.7 `GET_FW_INFO`／`GET_DEVICE_ID`。
 
+**v0.8.7 裝置資訊（2026-10-22，Claude 實作，待 Codex review）**：ET-100 以 gateway 相同的 EUP AIoT Communication Service 回答 `GET_FW_INFO`／`GET_DEVICE_ID`，RS232 也可用 `GFWINFO` 查詢；回應已由 FR3068 既有、與真實 nRF sensor 互通的 client parser 驗證。**App 相容性檢查所需的韌體端介面已齊備，可交給 App 團隊**（規格：`fw/docs/02_protocol/04`、`05`、06 §6.1）。
+
 **最新 App GATT build（0.7.0-dev）**：新增手機可連的 Gateway manager status／list／select／selected-data，名稱依 Stanley 選擇為 **EUP_AIoT_HUB_FR**，避免舊 App 將 FR 誤判為 AES sensor；不改 App／SDK。七組 host tests、ARM build 與 header／CRC／FlashEnv 通過。Burn 284,712 bytes，ELF text/data/bss=240,744/35,768/66,528 bytes，data+bss=102,296 bytes，取代下方歷史數據；runtime heap 餘量未量測。實機 App／sensor 並行仍待驗收，最新 flash 狀態見 [App GATT 紀錄](../../fw/docs/04_testing/07_evb_app_gatt_server.md)。SDK active patches 仍 8 組，新增 0。
 
 **最新 D4 LED build**：0.6.0-dev 新增 PA7／D4 Gateway LED、PA6／D3 固定低電位熄滅，待機／資料／sensor GATT link 使用不同亮滅規則，不改 K1-K3。Burn 283,400 bytes，ELF text/data/bss=239,912/35,288/66,304 bytes，取代下方早期 build 的同名數字；SDK active patches 仍 8 組，新增 0。LED task 另需 1.5 KiB stack 與 TCB，runtime heap 餘量未量測。實體驗收及最新燒錄結果見 [LED 紀錄](../../fw/docs/04_testing/06_evb_gateway_led.md)。

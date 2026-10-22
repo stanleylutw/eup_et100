@@ -6,6 +6,7 @@
 #include "gatt_api.h"
 #include "boot_health.h"
 #include "smp_ble.h"
+#include "eup_meta_service.h"
 
 static adv_handle advertising;
 static uint8_t manager_service;
@@ -37,6 +38,7 @@ static uint16_t gap_callback(struct gap_event *event)
     et100_scan_event(event);
     et100_gatt_gap(event);
     et100_app_server_gap(event);
+    et100_meta_gap(event);
 #if defined(ET100_SMP_BLE_OPEN) && ET100_SMP_BLE_OPEN
     smp_ble_gap(event);
 #endif
@@ -88,6 +90,8 @@ void app_ble_init(void)
     /* Register the App service first, before any PROFILE_ADDED starts advertising. */
     manager_service=et100_app_server_add();
     et100_gatt_add_profile();
+    /* Read-only EUP AIoT metadata service (App compatibility check), all builds. */
+    et100_meta_add_service();
     /* Vendor OTA can write ROM B-info; the relocated prototype has no OTA service. */
 #if defined(ET100_SMP_BLE_OPEN) && ET100_SMP_BLE_OPEN
     /* DEVELOPMENT ONLY: unauthenticated MCUmgr SMP service (06 §6.1 security gate). */

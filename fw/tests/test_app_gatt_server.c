@@ -41,6 +41,10 @@ unsigned et100_gatt_state(void) {return 0;}
 void et100_scan_event(struct gap_event *event) {(void)event;}
 void et100_scan_start(void) {scan_starts++;}
 void et100_boot_adv_started(void) {}
+/* v0.8.7 metadata service is covered by test_eup_meta.c; stub its GATT hooks here. */
+unsigned meta_added, meta_gap_events;
+uint8_t et100_meta_add_service(void) { meta_added++; return 3; }
+void et100_meta_gap(struct gap_event *event) { (void)event; meta_gap_events++; }
 adv_handle gap_adv_create(void) {return (void *)1;}
 ble_api_err_t gap_adv_set_param(adv_handle handle,struct gap_adv_param *p)
 {assert(handle==(void *)1 && p->adv_intv_min==160);return 0;}

@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct eup_fw_info;
+
 #define ET100_SERIAL_LINE_MAX 128
 #define ET100_GTIME_DEFAULT 15
 #define ET100_GTIME_MAX 1800
@@ -30,6 +32,8 @@ struct et100_serial_parser {
      * response is transmitted (0 = none). Only 9600 and 115200 are accepted. */
     uint32_t baud_request;
     unsigned char baud_supported;
+    /* GFWINFO source (App EUPFWV1 block); NULL answers ";0;". */
+    const struct eup_fw_info *fw_info;
 };
 
 void et100_serial_init(struct et100_serial_parser *, const char *,

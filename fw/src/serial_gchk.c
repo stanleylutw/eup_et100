@@ -1,5 +1,6 @@
 #include "serial_gchk.h"
 #include "../include/eup_fw_info.h"
+#include "eup_meta_protocol.h"
 #include <stdio.h>
 #include <string.h>
 #ifndef ET100_SERIAL_HOST_TEST
@@ -13,6 +14,14 @@ static unsigned current_gatt_state(void)
 #else
     return 0;
 #endif
+}
+
+/* EUPFWV1 fields are fixed-size and may be unterminated when full. */
+static int field_len(const char *field, size_t size)
+{
+    size_t n = 0;
+    while (n < size && field[n]) n++;
+    return (int)n;
 }
 
 static int ascii_alnum(unsigned char c)
@@ -156,6 +165,19 @@ static void handle_line(struct et100_serial_parser *p)
         length = snprintf(response, sizeof(response),
                           "AT$PD=BLEGW$SGTIME;%u;%s;%s\r\n",
                           valid, params, token);
+    } else if (strcmp(command, "GFWINFO") == 0 && token == end + 1) {
+        const struct eup_fw_info *i = p->fw_info;
+        if (i) {
+            length = snprintf(response, sizeof(response),
+                "AT$PD=BLEGW$GFWINFO;1;%.*s;%.*s;%.*s;%s;%s\r\n",
+                field_len(i->project_name, sizeof i->project_name), i->project_name,
+                field_len(i->hardware_version, sizeof i->hardware_version), i->hardware_version,
+                field_len(i->firmware_version, sizeof i->firmware_version), i->firmware_version,
+                EUP_META_SOC, token);
+        } else {
+            length = snprintf(response, sizeof(response),
+                              "AT$PD=BLEGW$GFWINFO;0;;;;;%s\r\n", token);
+        }
     } else if (strcmp(command, "OTABAUD") == 0) {
         char *params = end + 1;
         unsigned long baud = 0;
@@ -242,6 +264,8 @@ void et100_serial_feed(struct et100_serial_parser *p, uint8_t byte)
 #include "smp_serial.h"
 #include "smp_server.h"
 #include "ota_worker.h"
+#include "eup_meta_service.h"
+extern const struct eup_fw_info et100_fw_info;
 #include "semphr.h"
 #include "smp_ble.h"
 
@@ -393,6 +417,7 @@ static void serial_task(void *argument)
              address[5], address[4], address[3], address[2], address[1], address[0]);
     et100_serial_init(&serial_parser, identity, serial_send, serial_uart);
     serial_parser.baud_supported = 1;
+    serial_parser.fw_info = &et100_fw_info;
     smp_serial_init(&smp_rx);
     et100_serial_set_storage(&serial_parser, storage_initialized,
         storage_initialized ? load_gtime() : ET100_GTIME_DEFAULT,
@@ -447,6 +472,7 @@ static void serial_task(void *argument)
         }
         et100_gatt_poll(serial_send, serial_uart);
         et100_app_server_poll();
+        et100_meta_poll();
         TickType_t now = xTaskGetTickCount();
         int smp_active = smp_seen && (TickType_t)(now - smp_last) < pdMS_TO_TICKS(SMP_IDLE_MS);
         /* Pause unsolicited Type-1 reports while any SMP client (UART or BLE) is active. */

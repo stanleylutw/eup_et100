@@ -1,4 +1,5 @@
 #include "serial_gchk.h"
+#include "../include/eup_fw_info.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -126,6 +127,19 @@ int main(void)
     expect(&p, "BLEGW$OTABAUD;B004\r\n", "AT$PD=BLEGW$OTABAUD;0;;B004\r\n");
     assert(p.baud_request == 0);
     puts("PASS: OTABAUD 9600/115200 accepted only when supported; other rates rejected");
+    expect(&p, "BLEGW$GFWINFO;F000\r\n", "AT$PD=BLEGW$GFWINFO;0;;;;;F000\r\n");
+    static const struct eup_fw_info fw = { .project_name = "EUP_ET100",
+        .hardware_version = "ET100_EVB_DEV1.4", .firmware_version = "0.8.7-dev" };
+    p.fw_info = &fw;
+    expect(&p, "BLEGW$GFWINFO;F001\r\n",
+           "AT$PD=BLEGW$GFWINFO;1;EUP_ET100;ET100_EVB_DEV1.4;0.8.7-dev;fr3068e_c;F001\r\n");
+    static struct eup_fw_info wide;
+    memset(wide.project_name, 'P', sizeof wide.project_name);   /* unterminated */
+    p.fw_info = &wide;
+    expect(&p, "BLEGW$GFWINFO;F002\r\n",
+           "AT$PD=BLEGW$GFWINFO;1;PPPPPPPPPPPPPPPPPPPPPPPP;;;fr3068e_c;F002\r\n");
+    p.fw_info = NULL;
+    puts("PASS: GFWINFO from EUPFWV1, missing source, unterminated fields");
     save_fails = 0;
     et100_serial_set_cid_storage(&p, durable_cids, save_cids);
     expect(&p, "BLEGW$GCID;C001\r\n", "AT$PD=BLEGW$GCID;1;0639;;;;C001\r\n");

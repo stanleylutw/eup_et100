@@ -20,6 +20,9 @@ cc "${cc_flags[@]}" -DET100_SERIAL_HOST_TEST -Ifw/src \
     fw/src/ble_reporter.c fw/src/app_manager.c fw/tests/test_app_manager.c -o /tmp/et100_app_manager_test
 cc "${cc_flags[@]}" -DET100_SERIAL_HOST_TEST "${includes[@]}" -I"$sdk/examples/common/ota" \
     fw/tests/test_app_gatt_server.c fw/src/app_manager.c fw/src/ble_reporter.c -o /tmp/et100_app_gatt_server_test
+cc "${cc_flags[@]}" "${includes[@]}" -Ifw/include \
+    fw/tests/test_eup_meta.c fw/src/eup_meta_protocol.c fw/src/eup_aiot_uuid_client.c \
+    fw/src/eup_aiot_metadata.c -o /tmp/et100_eup_meta_test
 /tmp/et100_serial_test
 /tmp/et100_ble_reporter_test
 /tmp/et100_scan_lifecycle_test
@@ -27,3 +30,4 @@ cc "${cc_flags[@]}" -DET100_SERIAL_HOST_TEST "${includes[@]}" -I"$sdk/examples/c
 /tmp/et100_status_led_test
 /tmp/et100_app_manager_test
 /tmp/et100_app_gatt_server_test
+/tmp/et100_eup_meta_test
