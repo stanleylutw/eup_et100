@@ -24,6 +24,18 @@
 - **架構觀察（供 v0.8.6 參考）**：
   - v0.8.5 將 OTA manager 置於 serial task 內處理對於嚴格一問一答的 SMP serial 是合理的取捨；在 v0.8.6 引入 BLE SMP 時，因 GATT callback 不可阻塞，已正確規劃並實作獨立 `ota_worker` task。
 
+## 2026-10-22 Codex Step 5 review — v0.8.5（Step 6 由 Claude 修正）
+
+Codex 獨立 review 提出 3 項 P2，全部確認並修正（在 `v0.8.6_ble_smp` 上，因 v0.8.6 已包含 v0.8.5）：
+
+| # | 問題 | 修正 |
+|---|---|---|
+| 1 | 半包 SMP 後，第一筆 GCHK 被 decoder 吃掉 | `smp_serial_expire()`：行內閒置 200 ms 回 IDLE、未完成的多行封包 2 s 丟棄；serial task 每個 byte 前呼叫。Host test：半行＋靜默後 GCHK 17 bytes 全部回到 GCHK parser |
+| 2 | `version[24]` 放不下最大版本 `255.255.65535.4294967295`（24 字元＋NUL），結尾 NUL 蓋到 hash | 改為 32 bytes；host test 以最大版本 image 驗證 state 回應的版本字串與 hash 完整 |
+| 3 | 規格把 `off` 寫成「已 commit」，實際是本次接收位置 | 程式行為不變（與 Zephyr 相同，改成只回 committed 會讓 client 無法前進）；04 協定、06 §6.1、施工單改為區分「本次接收位置」與「可恢復位置」 |
+
+關於「沒有獨立 task」：Codex 指出「SMP 一問一答」不足以證明 NOR／驗證阻塞期間 GCHK 仍能及時處理。**v0.8.6 已將 SMP 處理移到 OTA worker task**，serial task 不再被阻塞；v0.8.5 單獨的版本確實有此限制，記錄於此。
+
 ## 2026-10-22 v0.8.6 自我檢查（Claude 實作，**未經獨立 review**，待 Codex 補 Step 5）
 
 - 範圍：`smp_ble`（GATT service、reassembly、分段 notify）、`ota_worker`（單一 owner task、兩個靜態請求槽，不用 heap queue）、`ota_manager` 跨 transport owner／EBUSY／takeover、OS bootloader info、UART TX mutex；`ET100_SMP_BLE_OPEN` build flag（release build 經檢查不含 SMP UUID）。SDK 未修改。

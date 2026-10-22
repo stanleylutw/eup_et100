@@ -17,7 +17,7 @@ enum smp_err { SMP_EOK = 0, SMP_EUNKNOWN = 1, SMP_ENOMEM = 2, SMP_EINVAL = 3,
 struct smp_image_slot {
     bool present;
     uint32_t slot;
-    char version[24];
+    char version[32];             /* "255.255.65535.4294967295" = 24 chars + NUL */
     uint8_t hash[32];          /* MCUboot image hash (SHA-256 TLV) */
     bool bootable, pending, confirmed, active, permanent;
 };

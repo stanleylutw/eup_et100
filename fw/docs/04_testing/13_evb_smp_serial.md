@@ -67,6 +67,10 @@ fw/.venv/bin/python fw/tests/test_smp_interop.py /tmp/et100_smp_echo
 - `smpmgr` 需要 Python ≥ 3.10，改用其底層的 `smpclient` 寫 `fw/tools/evb/smp_serial_ota.py`；`smpclient` 的 BLE 依賴（bleak／pyobjc）無法在本機編譯，以 `--no-deps` 安裝 serial 所需套件（`fw/tools/requirements-smp.txt`）。
 - `installer/load_image.py`（v0.8.3 工具）仍期望安裝後為 `kind=2`，v0.8.4 起為 TRIAL（`kind=4`）；本次部署第一版 0.8.5 時腳本誤判失敗，實際安裝成功。該工具之後由 SMP 取代，未修改。
 
+## Codex review 後修正（2026-10-22）
+
+Codex 獨立 review 提出 3 項：半包後 GCHK 被吃掉、最大版本字串溢位、`off` 規格用詞錯誤，均已修正，詳見 REVIEW_REPORT。另「OTA manager 在 serial task 內執行時，NOR／驗證期間 GCHK 會延遲」屬實，已在 v0.8.6 改為 worker task。
+
 ## 限制
 
 - 未驗證簽章（Q42），仍為原型。

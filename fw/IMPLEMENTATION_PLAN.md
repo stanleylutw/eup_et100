@@ -115,7 +115,7 @@ UART3 ISR（1 byte IT，既有）→ ring buffer → serial task 分流
 
 - **OTA manager**（新 task）：持有 journal／NOR，唯一寫入者；SMP 請求以 queue 交給它，回應再送回 transport。
 - **NOR 在 App 內**：重用 `nor_qspi1.c`；等待 WIP 期間改用 `vTaskDelay(1)` 讓出 CPU（保留既有 timeout／非 DWT 上限）。STIG 關中斷區段很短，但需確認 UART3 9600／115200 不掉 byte（ring buffer 足夠大，ISR 只搬資料）。
-- **4 KB 組包**：SMP upload 每包大小不固定；RAM 湊滿 4 KB 才 `write_chunk`。回給 client 的 `off` = 連續已 commit 的 byte 數，斷線重連從那裡續傳。
+- **4 KB 組包**：SMP upload 每包大小不固定；RAM 湊滿 4 KB 才 `write_chunk`。回給 client 的 `off` = 本次接收位置；重新連線時回可恢復位置（連續已 commit 的 byte 數），從那裡續傳。（2026-10-22 依 Codex review 更正：原寫「off = 已 commit」不正確）
 - **第一包**：`len`＋`sha`（整份 image SHA-256）→ journal `begin`／`resume`（session_id 由 sha 前 8 bytes 導出）。
 - 上傳完成 → journal `finish` → VERIFIED。`image state` 的 `test`（帶 hash）→ boot state PENDING。`os reset` → 重開 → installer 安裝（v0.8.3／v0.8.4 流程）。
 

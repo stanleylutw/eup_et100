@@ -57,6 +57,23 @@ void smp_serial_init(struct smp_serial *s)
     memset(s, 0, sizeof *s);
 }
 
+void smp_serial_expire(struct smp_serial *s, uint32_t now_ms)
+{
+    uint32_t idle = now_ms - s->last_ms;
+    s->now_ms = now_ms;
+    if (s->state != SMP_IDLE && idle > SMP_SERIAL_LINE_TIMEOUT_MS) {
+        s->state = SMP_IDLE;
+        s->line_len = 0;
+        s->in_packet = false;
+        s->raw_len = 0;
+        s->timeouts++;
+    } else if (s->in_packet && idle > SMP_SERIAL_PACKET_TIMEOUT_MS) {
+        s->in_packet = false;
+        s->raw_len = 0;
+        s->timeouts++;
+    }
+}
+
 bool smp_serial_busy(const struct smp_serial *s)
 {
     return s->state != SMP_IDLE;
@@ -112,6 +129,7 @@ static int finish_line(struct smp_serial *s, const uint8_t **packet, size_t *len
 
 int smp_serial_feed(struct smp_serial *s, uint8_t byte, const uint8_t **packet, size_t *length)
 {
+    if (s->state != SMP_IDLE || byte == 0x06 || byte == 0x04) s->last_ms = s->now_ms;
     switch (s->state) {
     case SMP_IDLE:
         if (byte == 0x06 || byte == 0x04) {

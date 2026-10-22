@@ -144,7 +144,7 @@ FR3068：SMP server → OTA manager → download journal → NOR Candidate → i
 |---|---|
 | SMP transport | SMP GATT service／characteristic 與 Nordic 定義相同（service `8D53DC1D-1DB7-4CD3-868B-8A527460AA84`）；CBOR 編碼；只實作需要的子集 |
 | SMP 指令子集 | img group：upload、state read／test／confirm；os group：reset。其他指令回 not supported |
-| Upload 對應 journal | SMP 分包大小不固定，RAM 湊滿 4 KB 才 `write_chunk`；回給 App 的 `off` = **連續已 commit 的 byte 數**，App 重連後從該處續傳；第一包的 `len`／`sha` 對應 journal manifest（session 身分見 v0.8.2 M1） |
+| Upload 對應 journal | SMP 分包大小不固定，RAM 湊滿 4 KB 才 `write_chunk`。回給 App 的 `off` 是**本次接收位置**（可能含未 commit 的 RAM 資料）；重新連線時第一包（同 `len`／`sha`）回**可恢復位置**＝連續已 commit 的 byte 數，App 從那裡續傳；第一包的 `len`／`sha` 對應 journal manifest（session 身分見 v0.8.2 M1）。2026-10-22 依 Codex review 更正 |
 | 狀態對應 | upload 完成＝journal VERIFIED；`test`＝內建 state INSTALL_PENDING；`reset`＝進 installer；新版開機自檢通過後＝CONFIRMED（`confirm` 由 App 或韌體自身發出，規則於 installer 施工單定義） |
 | Image 格式 | FR3068 App binary 以 `imgtool sign` 包成 MCUboot image（header＋TLV）；installer 驗 header magic、image hash TLV 與簽章 TLV，再安裝到 App slot；EUPFWV1 metadata 放在 image 內供 App 掃描 |
 | 裝置資訊 | FR3068 以「被更新裝置」身分回應 `GET_FW_INFO`／`GET_DEVICE_ID`（目前 FR3068 只有讀取 sensor 的 client 端，`src/eup_aiot_metadata.c`） |

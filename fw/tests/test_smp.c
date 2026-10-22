@@ -106,6 +106,15 @@ static void test_framing(void)
     int ok = 0;
     for (size_t i = 0; i < lines_len; i++) { const uint8_t *o; size_t n; ok += smp_serial_feed(&s, lines[i], &o, &n) == 2; }
     assert(ok == 1 && s.frames == 1);
+    /* review fix: a half line followed by silence must not swallow the next GCHK */
+    smp_serial_init(&s);
+    smp_serial_expire(&s, 1000);
+    const char half[] = "\x06\x09" "AAAA";
+    for (size_t i = 0; i < sizeof half - 1; i++) { const uint8_t *o; size_t n; assert(smp_serial_feed(&s, (uint8_t)half[i], &o, &n) == 1); }
+    smp_serial_expire(&s, 1000 + SMP_SERIAL_LINE_TIMEOUT_MS + 1);
+    const char gchk[] = "BLEGW$GCHK;J082\r\n";
+    for (size_t i = 0; i < sizeof gchk - 1; i++) { const uint8_t *o; size_t n; assert(smp_serial_feed(&s, (uint8_t)gchk[i], &o, &n) == 0); }
+    assert(s.timeouts == 1 && !smp_serial_busy(&s));
     assert(smp_crc16_xmodem((const uint8_t *)"123456789", 9) == 0x31c3);
     puts("PASS framing");
 }
@@ -324,6 +333,29 @@ static void test_manager(const char *path)
     m = call(SMP_OP_READ, SMP_GROUP_IMG, 0, empty, 1, NULL);
     assert(!cbor_map_find(m, rsp_len - 8, "images", &v) && v.type == CBOR_ARRAY && v.u == 1);
     assert(prepares == 1);
+
+    /* review fix: maximum MCUboot version must not overrun into the hash */
+    {
+        uint8_t *maxv = malloc(image_len);
+        assert(maxv);
+        memcpy(maxv, running, image_len);
+        memset(maxv + 20, 0xff, 8);             /* 255.255.65535.4294967295 */
+        rehash(maxv);
+        uint8_t maxv_hash[32];
+        tlv_hash(maxv, maxv_hash);
+        env.app_slot = maxv;
+        m = call(SMP_OP_READ, SMP_GROUP_IMG, 0, empty, 1, NULL);
+        const char want[] = "\x78\x18" "255.255.65535.4294967295";   /* text(24) */
+        size_t hits = 0;
+        for (size_t i = 0; i + sizeof want - 1 <= rsp_len - 8; i++) hits += !memcmp(m + i, want, sizeof want - 1);
+        assert(hits == 1);
+        const uint8_t hash_key[] = { 0x64, 'h','a','s','h', 0x58, 0x20 };
+        size_t at = 0;
+        for (size_t i = 0; i + sizeof hash_key <= rsp_len - 8; i++) if (!memcmp(m + i, hash_key, sizeof hash_key)) at = i;
+        assert(at && !memcmp(m + at + sizeof hash_key, maxv_hash, 32));
+        env.app_slot = running;
+        free(maxv);
+    }
 
     /* full upload with one simulated reboot, resume from committed offset */
     unsigned packets = upload(candidate, 300);

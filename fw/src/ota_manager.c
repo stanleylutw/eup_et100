@@ -190,7 +190,7 @@ static int verify_candidate(struct ota_manager *m)
     return m->verified_rc;
 }
 
-static void version_text(const uint8_t header[32], char out[24])
+static void version_text(const uint8_t header[32], char out[32])
 {
     unsigned major = header[20], minor = header[21];
     unsigned revision = (unsigned)header[22] | (unsigned)header[23] << 8;

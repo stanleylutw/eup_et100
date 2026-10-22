@@ -47,9 +47,9 @@ SMP header 8 bytes（big-endian）：`op/ver(1) | flags(1) | len(2) | group(2) |
 ### 3.1 Upload
 
 - 第一包（`off=0`）必須帶：`image=0`、`len`（整個檔案大小，560 B–1.75 MB）、**`sha`（整個檔案的 SHA-256，32 bytes，必填）**、`data`。
-- 之後每包：`off`、`data`。裝置回 `off` = 下一個期望的位移；client 一律照回傳的 `off` 繼續送。
+- 之後每包：`off`、`data`。裝置回 `off` = **本次連線已接收**的下一個位移（可能含最多 4 KB 仍在 RAM、尚未寫入 NOR 的資料）；client 一律照回傳的 `off` 繼續送。
 - `off` 不等於期望值時，裝置不收資料、直接回期望值（client 會自動重送）。
-- **續傳**：裝置以 4 KB 為單位寫進 NOR，斷線或重開後，client 重新送第一包（同 `len`／`sha`），裝置回「已確認寫入的連續位元組數」（4 KB 的倍數），從那裡續傳。
+- **續傳**：兩種位置要分清楚——`off` 是「本次接收位置」；「可恢復位置」是已寫入 NOR 並 commit 的連續 4 KB 倍數。斷線、client 重開或裝置重開後，client 重新送第一包（同 `len`／`sha`），裝置回**可恢復位置**，client 從那裡續傳（RAM 裡未 commit 的部分會重送）。
 - 同一份檔案若已完整收到，第一包直接回 `off=len`。
 - `upgrade=true`（不經試運行直接永久安裝）不支援，回 ENOTSUP。
 - 需求：目前 boot state 為已確認（有 PENDING 或 TRIAL 時回 EBADSTATE）。

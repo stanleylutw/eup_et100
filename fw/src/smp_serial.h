@@ -20,7 +20,8 @@ struct smp_serial {
     size_t line_len, raw_len;
     char line[SMP_SERIAL_MAX_LINE];
     uint8_t raw[SMP_SERIAL_MAX_PACKET + 4];
-    uint32_t frames, crc_errors, overflows;
+    uint32_t frames, crc_errors, overflows, timeouts;
+    uint32_t now_ms, last_ms;
 };
 void smp_serial_init(struct smp_serial *s);
 /* Feed one byte. Returns:
@@ -28,6 +29,13 @@ void smp_serial_init(struct smp_serial *s);
  *  1 = consumed, no packet yet, 2 = consumed and a complete packet is ready
  *  (pointer and length returned through packet/length, valid until the next feed). */
 int smp_serial_feed(struct smp_serial *s, uint8_t byte, const uint8_t **packet, size_t *length);
+/* Call with the current time before feeding bytes (and periodically). A line
+ * idle for SMP_SERIAL_LINE_TIMEOUT_MS returns the decoder to IDLE so ASCII
+ * commands are not swallowed by a dead client's half line; an unfinished
+ * multi-line packet is dropped after SMP_SERIAL_PACKET_TIMEOUT_MS. */
+#define SMP_SERIAL_LINE_TIMEOUT_MS 200u
+#define SMP_SERIAL_PACKET_TIMEOUT_MS 2000u
+void smp_serial_expire(struct smp_serial *s, uint32_t now_ms);
 /* True while inside an SMP line (caller should not route bytes elsewhere). */
 bool smp_serial_busy(const struct smp_serial *s);
 

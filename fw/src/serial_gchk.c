@@ -420,6 +420,7 @@ static void serial_task(void *argument)
             if (value < 0) break;
             const uint8_t *packet;
             size_t packet_length;
+            smp_serial_expire(&smp_rx, (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
             int smp = smp_serial_feed(&smp_rx, (uint8_t)value, &packet, &packet_length);
             if (smp) {
                 smp_last = xTaskGetTickCount();
