@@ -18,8 +18,11 @@ struct ota_env {
     const uint8_t *app_slot;              /* memory-mapped App slot (0x08020000) */
     void (*lock)(void);                   /* serialize internal-flash writes */
     void (*unlock)(void);
-    uint32_t source;                      /* enum ota_source of this transport */
+    uint32_t source;                      /* default enum ota_source */
+    uint32_t (*now_ms)(void);             /* for cross-transport ownership; may be NULL */
 };
+/* A transport that changed state holds the session for this long; others get EBUSY. */
+#define OTA_OWNER_HOLD_MS 30000u
 struct ota_manager {
     const struct ota_env *env;
     struct ota_journal journal;
@@ -30,9 +33,12 @@ struct ota_manager {
     size_t buffer_len;
     uint8_t sha256[32];
     struct image_info candidate;
+    uint32_t active_source, owner, owner_ms;
     uint8_t buffer[OTA_JOURNAL_CHUNK_SIZE];
 };
 void ota_manager_init(struct ota_manager *m, const struct ota_env *env);
+/* Transport of the request about to be processed (enum ota_source). */
+void ota_manager_set_source(struct ota_manager *m, uint32_t source);
 /* Fill smp_ops with this manager (context = m). */
 void ota_manager_smp_ops(struct ota_manager *m, struct smp_ops *ops);
 #endif

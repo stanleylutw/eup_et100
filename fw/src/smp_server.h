@@ -1,7 +1,8 @@
 #ifndef ET100_SMP_SERVER_H
 #define ET100_SMP_SERVER_H
 /* Transport-independent SMP (MCUmgr) server subset shared by serial (v0.8.5) and BLE
- * (v0.8.6). Groups: OS(0) echo(0)/reset(5)/mcumgr-params(6), IMG(1) state(0)/upload(1). */
+ * (v0.8.6). Groups: OS(0) echo(0)/reset(5)/mcumgr-params(6)/bootloader-info(8),
+ * IMG(1) state(0)/upload(1). */
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

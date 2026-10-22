@@ -182,6 +182,25 @@ size_t smp_server_process(const struct smp_ops *ops, const uint8_t *request, siz
         cbor_put_uint(&w, ops->buf_size);
         cbor_put_text(&w, "buf_count");
         cbor_put_uint(&w, 1);
+    } else if (h.group == SMP_GROUP_OS && h.id == 8 && !write) {   /* bootloader info */
+        /* nRF Connect Device Manager picks its upgrade flow from this. Mode 3
+         * ("swap without scratch") = test/confirm with revert, which matches
+         * installer backup + trial + rollback (06 §5). */
+        struct cbor_value q;
+        int has_query = cbor_map_find(m, n, "query", &q);
+        if (has_query == 1) {
+            cbor_put_map(&w, 1);
+            cbor_put_text(&w, "bootloader");
+            cbor_put_text(&w, "MCUboot");
+        } else if (q.type == CBOR_TEXT && q.len == 4 && !memcmp(q.ptr, "mode", 4)) {
+            cbor_put_map(&w, 2);
+            cbor_put_text(&w, "mode");
+            cbor_put_uint(&w, 3);
+            cbor_put_text(&w, "no-downgrade");
+            cbor_put_bool(&w, false);
+        } else {
+            put_rc(&w, SMP_ENOTSUP);
+        }
     } else if (h.group == SMP_GROUP_IMG && h.id == 0) {            /* image state */
         if (write) handle_state_write(ops, m, n, &w);
         else put_states(&w, ops);

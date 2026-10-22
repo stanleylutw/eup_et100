@@ -1,4 +1,4 @@
-# 04 — RS232 更新協定：SMP over serial（v0.8.5）
+# 04 — 更新協定：SMP over serial（v0.8.5）與 BLE（v0.8.6）
 
 日期：2026-10-22；分支 `v0.8.5_ota_manager_smp_serial`；實作：Claude Code（comm.md 備用規則）。
 適用：ET-100 RS232 更新入口；EVB 開發用 **UART3**（DAPLink VCOM），與 GCHK ASCII 協定共用同一條 UART。
@@ -36,6 +36,7 @@ SMP header 8 bytes（big-endian）：`op/ver(1) | flags(1) | len(2) | group(2) |
 | OS 0 | 0 | 寫 | echo | `{"d": text}` | `{"r": text}` |
 | OS 0 | 5 | 寫 | reset | `{}` | `{}`，送完後裝置重開 |
 | OS 0 | 6 | 讀 | mcumgr params | `{}` | `{"buf_size":1024,"buf_count":1}` |
+| OS 0 | 8 | 讀 | bootloader info（v0.8.6） | `{}`／`{"query":"mode"}` | `{"bootloader":"MCUboot"}`／`{"mode":3,"no-downgrade":false}` |
 | IMG 1 | 0 | 讀 | image state | `{}` | `{"images":[…],"splitStatus":0}` |
 | IMG 1 | 0 | 寫 | test／confirm | `{"hash": bytes32, "confirm": bool}` | 同 state read |
 | IMG 1 | 1 | 寫 | upload | 見 §3.1 | `{"rc":0,"off":N}` |
@@ -103,7 +104,23 @@ ET100 → AT$PD=BLEGW$OTABAUD;1;115200;<token4>\r\n     （回應送完才切換
 
 EVB 實測：293 KB，115200 約 53 秒、9600 約 8 分鐘（見 [13 測試報告](../04_testing/13_evb_smp_serial.md)）。
 
-## 6. 參考工具
+## 6. BLE transport（v0.8.6）
+
+同一套 SMP 指令（§3）也可經 BLE 使用，nRF Connect Device Manager 可直接更新。
+
+| 項目 | 值 |
+|---|---|
+| Service | `8D53DC1D-1DB7-4CD3-868B-8A527460AA84`（Nordic MCUmgr SMP） |
+| Characteristic | `DA2E7828-FBCE-4E01-AE9E-261174997C48`：write without response／write＋notify |
+| 封包 | SMP 封包直接寫入（**無** base64／CRC framing）；一個封包可拆成多次 write，依 SMP header 長度重組（上限 1024 B，2 秒未收齊丟棄） |
+| 回應 | notify，每段 ≤ MTU−3（裝置請求 MTU 247） |
+| 開放條件 | **只在開發版**（`ET100_SMP_BLE_OPEN`）註冊；無認證，見 06 §6.1 安全聲明 |
+
+- **bootloader info（OS 8）必須回應**：nRF Connect Device Manager 依 `mode` 決定流程。回 `mode=3`（swap with revert）時走「Test → Reset → Confirm」；不回應時 App 會停在「Reset into Firmware Loader required」。
+- **單一更新 owner**：UART 與 BLE 同時只能一方更新。一方最後一次 upload／test／confirm 後 30 秒內，另一方的這些指令回 `EBUSY`（rc 10）；state read 不受限。超過 30 秒後另一方可接手，同一份 image 從已寫入的位置續傳。
+- EVB 實測：296 KB 約 47–51 秒（5.8–6.3 kB/s）。
+
+## 7. 參考工具
 
 - `fw/tools/evb/smp_serial_ota.py`（以 `smpclient` 實作）：`state`、`echo`、`upload <zip|bin> [--test] [--reset]`、`test <hash>`、`confirm`、`reset`、`--baud 115200`。
 - 安裝：`fw/tools/requirements-smp.txt`（`--no-deps`）。

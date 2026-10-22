@@ -241,8 +241,9 @@ void et100_serial_feed(struct et100_serial_parser *p, uint8_t byte)
 #include "boot_health.h"
 #include "smp_serial.h"
 #include "smp_server.h"
-#include "ota_manager.h"
-#include "nor_qspi1.h"
+#include "ota_worker.h"
+#include "semphr.h"
+#include "smp_ble.h"
 
 /* Reserved user key; distinct from SDK random seed and BT keys. */
 #define ET100_FDB_GTIME_KEY 0x00030002U
@@ -332,64 +333,33 @@ static uint8_t rx_ring[RX_RING_SIZE];
 static UART_HandleTypeDef *serial_uart;
 static struct et100_serial_parser serial_parser;
 
+static SemaphoreHandle_t tx_lock;   /* serial task and OTA worker both transmit */
+
 static void serial_send(const char *data, size_t length, void *context)
 {
     UART_HandleTypeDef *uart = context;
+    if (tx_lock) xSemaphoreTake(tx_lock, portMAX_DELAY);
     uart_transmit(uart, (void *)data, length);
     while (!uart->UARTx->USR.TFE) {}
+    if (tx_lock) xSemaphoreGive(tx_lock);
 }
 
-/* ---- SMP over serial (v0.8.5): shares UART3 with the ASCII GCHK protocol ---- */
+/* ---- SMP over serial: framing here, processing in the OTA worker (v0.8.6) ---- */
 static struct smp_serial smp_rx;
-static struct ota_manager ota;
-static struct smp_ops smp_ops;
-static uint8_t smp_response[SMP_SERIAL_MAX_PACKET];
 static TickType_t smp_last;
 static int smp_seen;
 static uint32_t uart_baud = 9600;
 static TickType_t baud_since;
-
-void nor_qspi1_yield(void) { taskYIELD(); }
-
-static int app_nor_prepare(void)
-{
-    struct nor_port *nor = nor_qspi1_port();
-    int rc = nor->init();
-    return rc ? rc : nor_qspi1_authorize_writes();
-}
-static void ota_lock(void) { taskENTER_CRITICAL(); }
-static void ota_unlock(void) { taskEXIT_CRITICAL(); }
-static struct ota_env ota_env;
-
-static void smp_setup(void)
-{
-    ota_env.nor = nor_qspi1_port();
-    ota_env.nor_prepare = app_nor_prepare;
-    ota_env.internal = et100_boot_port();
-    ota_env.app_slot = (const uint8_t *)ET100_APP_SLOT;
-    ota_env.lock = ota_lock;
-    ota_env.unlock = ota_unlock;
-    ota_env.source = OTA_RS232;
-    ota_manager_init(&ota, &ota_env);
-    ota_manager_smp_ops(&ota, &smp_ops);
-    smp_serial_init(&smp_rx);
-}
 
 static void smp_line_out(const char *data, size_t length, void *context)
 {
     serial_send(data, length, context);
 }
 
-static void smp_handle(const uint8_t *packet, size_t length)
+/* Worker -> UART3: encode one response packet into SMP serial lines. */
+static void smp_serial_respond(const uint8_t *packet, size_t length)
 {
-    bool reset = false;
-    size_t n = smp_server_process(&smp_ops, packet, length, smp_response,
-                                  sizeof smp_response, &reset);
-    if (n) smp_serial_encode(smp_response, n, smp_line_out, serial_uart);
-    if (reset) {
-        vTaskDelay(pdMS_TO_TICKS(50));   /* let the last byte leave the shift register */
-        NVIC_SystemReset();
-    }
+    smp_serial_encode(packet, length, smp_line_out, serial_uart);
 }
 
 static void set_baud(uint32_t baud)
@@ -418,7 +388,7 @@ static void serial_task(void *argument)
              address[5], address[4], address[3], address[2], address[1], address[0]);
     et100_serial_init(&serial_parser, identity, serial_send, serial_uart);
     serial_parser.baud_supported = 1;
-    smp_setup();
+    smp_serial_init(&smp_rx);
     et100_serial_set_storage(&serial_parser, storage_initialized,
         storage_initialized ? load_gtime() : ET100_GTIME_DEFAULT,
         save_gtime, NULL);
@@ -454,7 +424,7 @@ static void serial_task(void *argument)
             if (smp) {
                 smp_last = xTaskGetTickCount();
                 smp_seen = 1;
-                if (smp == 2) smp_handle(packet, packet_length);
+                if (smp == 2) (void)ota_worker_submit(OTA_TRANSPORT_SERIAL, packet, packet_length);
                 continue;
             }
             et100_serial_feed(&serial_parser, (uint8_t)value);
@@ -473,8 +443,8 @@ static void serial_task(void *argument)
         et100_app_server_poll();
         TickType_t now = xTaskGetTickCount();
         int smp_active = smp_seen && (TickType_t)(now - smp_last) < pdMS_TO_TICKS(SMP_IDLE_MS);
-        /* Pause unsolicited Type-1 reports while an SMP client is talking. */
-        if (!smp_active) et100_scan_poll(serial_send, serial_uart);
+        /* Pause unsolicited Type-1 reports while any SMP client (UART or BLE) is active. */
+        if (!smp_active && !ota_worker_active()) et100_scan_poll(serial_send, serial_uart);
         /* OTABAUD fallback: return to 9600 after 30 s without SMP traffic. */
         if (uart_baud != 9600 && !smp_active &&
             (TickType_t)(now - baud_since) >= pdMS_TO_TICKS(SMP_IDLE_MS))
@@ -499,6 +469,15 @@ void app_at_rx_done(struct __UART_HandleTypeDef *handle)
 void app_at_init(struct __UART_HandleTypeDef *handle)
 {
     serial_uart = handle;
+    tx_lock = xSemaphoreCreateMutex();
+    configASSERT(tx_lock);
+    const ota_worker_send_fn senders[OTA_TRANSPORT_COUNT] = {
+        [OTA_TRANSPORT_SERIAL] = smp_serial_respond,
+#if defined(ET100_SMP_BLE_OPEN) && ET100_SMP_BLE_OPEN
+        [OTA_TRANSPORT_BLE] = smp_ble_respond,
+#endif
+    };
+    ota_worker_start(senders);
     et100_gatt_init(storage_initialized);
     BaseType_t result = xTaskCreate(serial_task, "serial", 1024, NULL, 1, NULL);
     configASSERT(result == pdPASS);

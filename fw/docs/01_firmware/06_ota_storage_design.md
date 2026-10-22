@@ -168,6 +168,8 @@ FR3068：SMP server → OTA manager → download journal → NOR Candidate → i
 
 **App 端待辦**（App 團隊，**排在 FR3068 韌體端完成之後**，Stanley 2026-10-22）：允許清單加入 FR3068 的 board／soc／hardware_version；依上表實作平台規則與三方一致檢查；確認 SMP MTU／reassembly 設定可用於 FR3068 的 BLE stack。在那之前以 nRF Connect Device Manager 驗證 FR3068 端。
 
+**安全（Stanley 2026-10-22）**：EVB 開發版的 BLE SMP **不需認證**，以 build flag `ET100_SMP_BLE_OPEN` 控制，只有開發版打開；未定義時不註冊 SMP GATT service。目前 image 只驗 hash、不驗簽章，任何人都能以 SMP 寫入格式正確的韌體，因此 **量產前一定要有簽章驗證（Q42）與 BLE 認證**，兩者皆完成前不得對外出貨啟用 BLE／RS232 更新。
+
 **仍待定**：簽章演算法與金鑰管理（Q42）、MCUboot header size／對齊與 App slot 0x08020000 的配合、`confirm` 由誰發出。
 
 ## 7. EVB 與產品差異
@@ -225,7 +227,7 @@ Logs 從 0x460000 起，EVB 只能使用其 16 MB 實體範圍內的部分；不
 | — | v0.8.4 | Trial／confirm／rollback＋watchdog | 共用 | ✅（EVB：正常更新、備份中 reset、NO_CONFIRM 與 HANG 回滾） |
 | — | v0.8.5 | OTA manager 進產品 App（journal＋NOR 後端在 App 內；v0.8.5 由 serial task 執行，BLE 時改 worker task） | 共用 | ✅ |
 | — | v0.8.5 | RS232：SMP over serial＋`OTABAUD`（[協定](../02_protocol/04_smp_serial_ota.md)）＋`smp_serial_ota.py` | RS232 | ✅（EVB：9600 續傳、115200 約 53 秒、SMP-only 更新 2 次） |
-| 4 | v0.8.6 | BLE SMP server＋`GET_FW_INFO`／`GET_DEVICE_ID`，先以 nRF Connect Device Manager 驗證 | BLE | 無 |
+| — | v0.8.6 | BLE SMP（GATT transport＋OTA worker task、單一 owner、bootloader info）；以 nRF Connect Device Manager 驗證 | BLE | ✅（EVB：手機完整 Test and Confirm；`ET100_SMP_BLE_OPEN` 開發版限定） |
 | 5 | — | App 端修改（§6.1） | BLE | 排在 FR3068 韌體端完成後，App 團隊 |
 | 6 | — | EG800Q modem 驅動＋FTP 分塊下載 | LTE | 需 ET-100 實板或 EG800Q 開發板 |
 | 7 | — | 簽章驗證（installer 驗 MCUboot 簽章 TLV、打包帶 key） | 量產 gate | Q42 |

@@ -5,6 +5,7 @@
 #include "gap_api.h"
 #include "gatt_api.h"
 #include "boot_health.h"
+#include "smp_ble.h"
 
 static adv_handle advertising;
 static uint8_t manager_service;
@@ -36,6 +37,9 @@ static uint16_t gap_callback(struct gap_event *event)
     et100_scan_event(event);
     et100_gatt_gap(event);
     et100_app_server_gap(event);
+#if defined(ET100_SMP_BLE_OPEN) && ET100_SMP_BLE_OPEN
+    smp_ble_gap(event);
+#endif
     switch(event->type) {
     case GATT_EVT_PROFILE_ADDED:
         if(!event->param.profile_added_status && !advertising_created) {
@@ -85,4 +89,8 @@ void app_ble_init(void)
     manager_service=et100_app_server_add();
     et100_gatt_add_profile();
     /* Vendor OTA can write ROM B-info; the relocated prototype has no OTA service. */
+#if defined(ET100_SMP_BLE_OPEN) && ET100_SMP_BLE_OPEN
+    /* DEVELOPMENT ONLY: unauthenticated MCUmgr SMP service (06 §6.1 security gate). */
+    smp_ble_add_service();
+#endif
 }

@@ -23,6 +23,25 @@ void ota_manager_init(struct ota_manager *m, const struct ota_env *env)
 {
     memset(m, 0, sizeof *m);
     m->env = env;
+    m->active_source = env->source;
+}
+
+void ota_manager_set_source(struct ota_manager *m, uint32_t source)
+{
+    m->active_source = source;
+}
+
+/* Single update owner across transports: a mutating request from another
+ * transport within OTA_OWNER_HOLD_MS of the owner's last change is refused. */
+static int claim(struct ota_manager *m)
+{
+    uint32_t now = m->env->now_ms ? m->env->now_ms() : 0;
+    if (m->owner && m->owner != m->active_source &&
+        (uint32_t)(now - m->owner_ms) < OTA_OWNER_HOLD_MS)
+        return SMP_EBUSY;
+    m->owner = m->active_source;
+    m->owner_ms = now;
+    return 0;
 }
 
 static int ensure_ready(struct ota_manager *m)
@@ -81,7 +100,7 @@ static int begin(struct ota_manager *m, const struct smp_upload *r)
     for (unsigned i = 0; i < 8; i++) mf.session_id |= (uint64_t)r->sha[i] << (8 * i);
     if (!mf.session_id) mf.session_id = 1;
     mf.target = OTA_ET100;
-    mf.source = m->env->source;
+    mf.source = m->active_source;
     mf.length = r->len;
     memcpy(mf.sha256, r->sha, 32);
     struct ota_progress *p = &m->journal.progress;
@@ -115,7 +134,8 @@ static int upload(void *context, const struct smp_upload *r, uint32_t *next)
 {
     struct ota_manager *m = context;
     struct boot_record state;
-    int rc = ensure_ready(m);
+    int rc = claim(m);
+    if (!rc) rc = ensure_ready(m);
     if (!rc) rc = boot_state(m, &state);
     if (rc) return rc;
     if (state.kind != BOOT_CONFIRMED) return SMP_EBADSTATE;  /* trial/pending in progress */
@@ -227,7 +247,8 @@ static int image_test(void *context, const uint8_t hash[32])
 {
     struct ota_manager *m = context;
     struct boot_record state;
-    int rc = verify_candidate(m);
+    int rc = claim(m);
+    if (!rc) rc = verify_candidate(m);
     if (rc) return rc;
     if (memcmp(hash, m->candidate.sha256, 32)) return SMP_ENOENT;
     if ((rc = boot_state(m, &state))) return rc;
@@ -249,7 +270,8 @@ static int image_confirm(void *context, const uint8_t *hash)
     struct ota_manager *m = context;
     struct boot_record state;
     struct image_info running;
-    int rc = running_image(m, &running);
+    int rc = claim(m);
+    if (!rc) rc = running_image(m, &running);
     if (!rc) rc = boot_state(m, &state);
     if (rc) return rc;
     if (hash && memcmp(hash, running.sha256, 32)) return SMP_ENOTSUP;  /* no permanent install */

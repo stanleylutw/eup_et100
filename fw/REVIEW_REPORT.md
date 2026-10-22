@@ -1,6 +1,39 @@
 # REVIEW_REPORT — Phase 1a: Validate GCC Build Chain
 
-## 2026-10-22 v0.8.5 自我檢查（Claude 實作，**未經獨立 review**，待 Codex 補 Step 5）
+## 2026-10-22 Codex Step 5 獨立 review — v0.8.5 M-SMP（RS232 入口）
+
+**結論：PASS，無 Critical／Major issue。**
+
+- 依 comm.md 備用規則，Codex 補行 Step 5 獨立代碼審查與 host 測試驗證（commit `62ec148`）。
+- **四項重點審查結果**：
+  1. `ota_manager.c`：
+     - `same_manifest()` 續傳判定要求 length、sha256、target 完全吻合；不同 image 自動以 `ota_journal_cancel()` 清理舊 session 後重啟，邏輯正確。
+     - `upload()` line 141 嚴格檢查 `state.kind == BOOT_CONFIRMED`，未確認的 trial boot 或 pending 期間一律拒絕（回 `SMP_EBADSTATE`），防止映像損壞。
+  2. `smp_serial.c`：
+     - 長度與溢位防護完整：`s->line` 滿 128 bytes 即設 `line_bad` 標記丟棄；`b64_decode()` 以剩餘緩衝區空間為界；`raw[0..1]` 長度界限嚴格限制在 `[10, SMP_SERIAL_MAX_PACKET + 2]`；CRC 驗證失敗安全丟棄。
+     - 遇到 `0x06`/`0x04` 封包標頭時能立即拋棄前次中斷之殘留半行，實機中斷復原測試通過。
+  3. `serial_gchk.c` `set_baud()`：
+     - 切換波特率前加入 `vTaskDelay(5ms)` 確保 ACK 完整移出 FIFO；以 `taskENTER_CRITICAL()` 保護重置流程與 re-arm `uart_receive_IT`；30 秒閒置無 SMP 流量自動安全 fallback 回 9600 bps。
+  4. Boot state 寫入與並行保護：
+     - `ota_manager.c` 的 `image_test()` / `image_confirm()` 均透過 `lock()`/`unlock()` 調用 `taskENTER_CRITICAL()` 寫入 boot state，與 v0.8.4 作法一致。
+     - `serial_task` 於 SMP 傳輸期間暫停 Type-1 BLE sensor 自主上報，避免 UART3 封包競爭。
+- **測試驗證**：
+  - ASan/UBSan host 測試（CBOR 子集、framing、SMP server、OTA manager 斷點續傳／狀態機）全部 PASS。
+  - `test_smp_interop.py` 與官方 `smp` 套件 11 種封包長度編解碼互通測試 PASS（0 CRC error, 0 overflow）。
+  - EVB 實機驗收報告（[13 報告](docs/04_testing/13_evb_smp_serial.md)）結果確實吻合設計需求。
+- **架構觀察（供 v0.8.6 參考）**：
+  - v0.8.5 將 OTA manager 置於 serial task 內處理對於嚴格一問一答的 SMP serial 是合理的取捨；在 v0.8.6 引入 BLE SMP 時，因 GATT callback 不可阻塞，已正確規劃並實作獨立 `ota_worker` task。
+
+## 2026-10-22 v0.8.6 自我檢查（Claude 實作，**未經獨立 review**，待 Codex 補 Step 5）
+
+- 範圍：`smp_ble`（GATT service、reassembly、分段 notify）、`ota_worker`（單一 owner task、兩個靜態請求槽，不用 heap queue）、`ota_manager` 跨 transport owner／EBUSY／takeover、OS bootloader info、UART TX mutex；`ET100_SMP_BLE_OPEN` build flag（release build 經檢查不含 SMP UUID）。SDK 未修改。
+- 驗收 M-BLE PASS（[14 報告](docs/04_testing/14_evb_ble_smp.md)）：手機完整 Test and Confirm、BLE 上傳中 UART 回 EBUSY、B-info 不變。
+- 實機修正：nRF Connect Device Manager 需要 OS bootloader info，否則停在「Reset into Firmware Loader」。
+- **請 Codex review 時特別看**：`smp_ble.c` callback（BLE task）與 worker 之間的共享狀態（`in_flight`、`generation`、reassembly 緩衝）；`ota_worker_submit` 的槽位 full 旗標與 `__DMB`；`serial_send` mutex 與 `set_baud()` 在 worker 傳送時的互動；worker 4 KB stack 是否足夠（未量測 high-water）。
+- 已知限制：未量測 FreeRTOS 剩餘 heap 與 stack 水位；BLE 更新期間未停止 sensor GATT client 自動連線（僅暫停 Type-1 回報）。
+
+## 2026-10-22 v0.8.5 自我檢查（Claude 實作，Codex 補審通過，已併入上節）
+
 
 依 comm.md 備用規則，本 branch 由 Claude 實作與測試，以下為自我檢查，不等同獨立 review。
 

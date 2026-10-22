@@ -5,6 +5,7 @@
 #include "smp_server.h"
 #include "ota_manager.h"
 #include "fake_nor.h"
+#include "smp_ble.h"
 #include "mbedtls/sha256.h"
 #include <assert.h>
 #include <stdio.h>
@@ -133,6 +134,8 @@ static int in_program(uint32_t off, const void *data, size_t n)
 static const struct internal_port in_port = { in_read, in_erase, in_program };
 static struct fake_nor nor;
 static int prepares;
+static uint32_t clock_ms;
+static uint32_t fake_now(void) { return clock_ms; }
 static int prepare(void) { prepares++; return 0; }
 
 static uint8_t *running, *candidate;
@@ -289,6 +292,7 @@ static void test_manager(const char *path)
     env.internal = &in_port;
     env.app_slot = running;
     env.source = OTA_RS232;
+    env.now_ms = fake_now;
     reboot();
     write_state(BOOT_CONFIRMED, running);
 
@@ -305,6 +309,11 @@ static void test_manager(const char *path)
     assert(reset);
     m = call(SMP_OP_WRITE, SMP_GROUP_OS, 1, empty, 1, &reset);
     assert(!reset && field(m, "rc") == SMP_ENOTSUP);
+    m = call(SMP_OP_READ, SMP_GROUP_OS, 8, empty, 1, NULL);
+    assert(!cbor_map_find(m, rsp_len - 8, "bootloader", &v) && v.len == 7 && !memcmp(v.ptr, "MCUboot", 7));
+    const uint8_t mode_q[] = { 0xa1, 0x65, 'q','u','e','r','y', 0x64, 'm','o','d','e' };
+    m = call(SMP_OP_READ, SMP_GROUP_OS, 8, mode_q, sizeof mode_q, NULL);
+    assert(field(m, "mode") == 3);
     m = call(SMP_OP_READ, 9, 0, empty, 1, NULL);
     assert(field(m, "rc") == SMP_ENOTSUP);
 
@@ -368,6 +377,24 @@ static void test_manager(const char *path)
     assert(!cbor_map_find(m, rsp_len - 8, "images", &v) && v.u == 1);
     free(bad);
 
+    /* single owner across transports: BLE is refused while UART holds the session */
+    reboot();
+    clock_ms = 1000;
+    ota_manager_set_source(&mgr, OTA_RS232);
+    assert(upload_packet(candidate, 0, 300, true) == 300);
+    ota_manager_set_source(&mgr, OTA_BLE);
+    assert((upload_packet(candidate, 0, 300, true) & 0x7fffffffu) == SMP_EBUSY);
+    state_write(cand_hash, 0, SMP_EBUSY);
+    m = call(SMP_OP_READ, SMP_GROUP_IMG, 0, empty, 1, NULL);  /* reads still served */
+    assert(field(m, "rc") == UINT64_MAX);
+    clock_ms += OTA_OWNER_HOLD_MS;                            /* UART went quiet: BLE takes over */
+    uint32_t resumed = upload_packet(candidate, 0, 300, true);
+    assert(!(resumed & 0x80000000u) && resumed == 300);       /* same image: resume, not restart */
+    assert(mgr.journal.progress.manifest.source == OTA_BLE);  /* explicit takeover recorded */
+    ota_manager_set_source(&mgr, OTA_RS232);
+    assert((upload_packet(candidate, 300, 100, false) & 0x7fffffffu) == SMP_EBUSY);
+    ota_manager_set_source(&mgr, OTA_BLE);
+
     /* a fresh good upload replaces the failed session */
     reboot();
     upload(candidate, 0);
@@ -377,11 +404,42 @@ static void test_manager(const char *path)
     free(running); free(candidate); free(internal);
 }
 
+static void test_reassembly(void)
+{
+    static struct smp_reassembly r;
+    uint8_t packet[600];
+    for (size_t i = 0; i < sizeof packet; i++) packet[i] = (uint8_t)i;
+    packet[2] = (uint8_t)((sizeof packet - 8) >> 8);
+    packet[3] = (uint8_t)(sizeof packet - 8);
+    smp_reassembly_reset(&r);
+    size_t off = 0;
+    int done = 0;
+    while (off < sizeof packet) {                   /* 244-byte writes (MTU 247) */
+        size_t n = sizeof packet - off < 244 ? sizeof packet - off : 244;
+        done = smp_reassembly_add(&r, packet + off, n, 10);
+        assert(done == (off + n == sizeof packet));
+        off += n;
+    }
+    assert(done == 1 && r.length == sizeof packet && !memcmp(r.data, packet, sizeof packet));
+    smp_reassembly_reset(&r);
+    assert(smp_reassembly_add(&r, packet, 5, 0) == -1);              /* short header */
+    assert(smp_reassembly_add(&r, packet, 244, 0) == 0);
+    assert(smp_reassembly_add(&r, packet + 244, 400, 100) == -1);    /* overruns header length */
+    assert(smp_reassembly_add(&r, packet, 244, 0) == 0);
+    assert(smp_reassembly_add(&r, packet, 244, 5000) == 0);          /* stale part dropped, restart */
+    assert(r.length == 244);
+    uint8_t big[8] = { 0, 0, 0x04, 0x00 };                         /* 8 + 1024 > 1024 */
+    smp_reassembly_reset(&r);
+    assert(smp_reassembly_add(&r, big, 8, 0) == -1);
+    puts("PASS ble reassembly");
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2);
     test_cbor();
     test_framing();
+    test_reassembly();
     test_manager(argv[1]);
     puts("ALL PASS");
     return 0;

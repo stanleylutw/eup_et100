@@ -1,4 +1,80 @@
-# IMPLEMENTATION_PLAN — v0.8.5 OTA manager 進 App＋SMP serial（RS232 入口）
+# IMPLEMENTATION_PLAN — v0.8.6 BLE SMP（BLE 更新入口）
+
+> **備用規則：Claude 實作**（comm.md「備用規則」）。Step 5 review 由 Codex 恢復後補做（連同 v0.8.5）。
+
+## Branch
+
+Before starting implementation, create and switch to the new branch:
+
+git checkout -b v0.8.6_ble_smp
+
+Base branch: v0.8.5_ota_manager_smp_serial（62ec148）
+
+## 0. 工作模式與決策
+
+採用 comm.md「Hardware bring-up loop」，**測試不做太細**。Stanley 2026-10-22 決定：
+
+| 決策 | 內容 |
+|---|---|
+| D1 | Claude 實作（備用規則） |
+| D2 安全 | **A：EVB 先開放**，以 build flag `ET100_SMP_BLE_OPEN` 控制，只有開發版打開；未定義時 BLE SMP service 不註冊。06 寫明「**量產前一定要有簽章（Q42）與 BLE 認證**」 |
+| D3 | `GET_FW_INFO`／`GET_DEVICE_ID`（被更新端）移到 v0.8.7 |
+| D4 測試 | BLE 實機測試由 Stanley 用手機 **nRF Connect Device Manager** 操作；Claude 同時以 UART／SWD 確認裝置狀態 |
+
+| Milestone | 內容 | 之後 |
+|---|---|---|
+| M-BLE | 手機以 nRF Connect Device Manager 完成「上傳 → Test → Reset → 安裝 → 自動確認」 | 停下，等 Codex review |
+
+授權：燒錄本 branch 的 App、寫入 U11 scratch；0x08001000 sector 規則不變。
+
+## 1. 架構
+
+```text
+BLE write（SMP characteristic）─┐                         ┌─ notify（BLE，依 MTU 分段）
+                                ├─→ queue → OTA worker task → smp_server → ota_manager
+UART3 SMP frame ────────────────┘   （單一 owner）          └─ UART3 framing
+```
+
+- **OTA worker task**（新）：唯一呼叫 `smp_server_process`／`ota_manager` 的 task。serial 與 BLE 都把完整 SMP 封包放進 queue，回應依來源 transport 送回。同時只能有一個更新 session；另一個 transport 的 upload／test 回 `EBUSY`（state read 仍可回應）。
+- **SMP GATT service**：service `8D53DC1D-1DB7-4CD3-868B-8A527460AA84`，characteristic `DA2E7828-FBCE-4E01-AE9E-261174997C48`（write without response＋notify），與 App manager service 並存於同一條連線。
+- **Reassembly**：依 SMP header 的長度把多次 write 拼成完整封包（上限 1024 B，超過或逾時 2 秒丟棄）；回應超過 MTU−3 時分多個 notify 送出，等每個 notify 完成再送下一個。
+- **與既有功能共存**：BLE SMP 進行中（最後一個封包 30 秒內）不主動連 sensor、不送 Type-1 回報；App manager service 照常。
+- `boot_health` 的自檢、watchdog 清除不受 worker 阻塞影響（worker 優先序不高於 serial task；長時間 hash 期間仍讓出 CPU）。
+
+## 2. 檔案範圍
+
+| 檔案 | 內容 |
+|---|---|
+| `fw/src/smp_ble.c／.h`（新） | GATT service、reassembly、分段 notify |
+| `fw/src/ota_worker.c／.h`（新） | queue、單一 owner、transport 回呼 |
+| `fw/src/serial_gchk.c` | SMP 封包改丟給 worker（GCHK／OTABAUD 不變） |
+| `fw/src/evb_serial_ble.c` | 在 `ET100_SMP_BLE_OPEN` 下註冊 SMP service；連線／MTU 事件轉給 `smp_ble` |
+| `fw/src/ota_manager.c` | 記錄 session 的 transport（`source`），跨 transport 回 `EBUSY` |
+| `fw/targets/evb_serial.mk` | 新檔案；開發版預設定義 `ET100_SMP_BLE_OPEN` |
+| `fw/tests/` | reassembly／分段、跨 transport busy 的 host tests |
+| `fw/docs/02_protocol/04_smp_serial_ota.md` | 增加 BLE transport 一節（UUID、MTU、reassembly） |
+| `fw/docs/04_testing/14_evb_ble_smp.md`（新） | 測試報告（精簡） |
+| `fw/docs/01_firmware/06_ota_storage_design.md` | §6.1 安全聲明、roadmap |
+
+**不做**：`GET_FW_INFO`／`GET_DEVICE_ID`（v0.8.7）、BLE 認證與簽章（量產 gate）、自家 App 修改、SDK 修改。
+
+## 3. 驗收（精簡）
+
+1. 手機 nRF Connect Device Manager 連上 EVB，看得到 image 清單（slot 0 版本、hash）。
+2. 上傳新版 `dfu_application.zip` → Test → Reset → installer 安裝 → 新 App 自動確認；GCHK 版本變更。
+3. BLE 上傳中，UART 的 SMP upload 回 `EBUSY`（或反之），state read 正常。
+4. 原有 App manager service 與 GCHK 照常；B 資訊段不變。
+5. 不定義 `ET100_SMP_BLE_OPEN` 的 build 看不到 SMP service（host 或 build 檢查即可）。
+
+## 4. 交付
+
+> **實作結果（2026-10-22）**：M-BLE PASS，見 [14 報告](docs/04_testing/14_evb_ble_smp.md)。新增 OS bootloader info（實機發現 nRF Connect Device Manager 需要）；worker 改用兩個靜態請求槽（避免占用 50 KB heap 的 queue）。
+
+M-BLE 停下；Codex 恢復後 review v0.8.5＋v0.8.6。Step 7 同步 06、platform plan、status MD、REVIEW_REPORT（標明未經獨立 review）；commit 等 Stanley 說「git commit」。
+
+---
+
+# 歷史施工單 — v0.8.5 OTA manager 進 App＋SMP serial（RS232 入口）
 
 > **備用規則：Claude 實作**（comm.md「備用規則」，Codex 無 token）。Step 5 review 由 Codex 恢復後補做。
 
