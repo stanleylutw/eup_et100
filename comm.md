@@ -14,6 +14,7 @@
    77    Work flow（Step 1~9）
   116    流程分支說明
   137    Hardware bring-up loop（Step 4–6 的實機變體）
+  180    備用規則：Codex 無法使用時由 Claude Code 實作
   134    Release flow
   151    Step 2 — 確認規格 / Bug 確認（Claude Code 負責）
   180    Step 3 — Branch 建議規則
@@ -190,6 +191,20 @@ Step 7  plan MD 在此更新，不在 Step 2 —— 這時寫的是已完成並 
 **回報格式**：測試報告照常更新；對話另附 **3–5 行摘要**（改了什麼、結果、log 路徑、下一步建議）。完整原始輸出放 log 檔，不貼進對話（除非 Stanley 要求）。
 
 **Claude Code 的角色**：在 milestone 或停止條件時 review（等同 Step 5），不逐輪 review。Loop 結束後照常走 Step 7 → 8 → 9。
+
+### 備用規則：Codex 無法使用時由 Claude Code 實作
+
+> eup_et100 自訂（2026-10-22，Stanley 決定）。**標準規則仍是 Codex 實作**；本節只在 Codex 沒有 token 或暫時無法使用時啟用。
+
+| 項目 | 標準規則 | 備用規則 |
+|---|---|---|
+| Step 3 施工單 | Claude | Claude（施工單開頭註明「備用規則：Claude 實作」） |
+| Step 4 實作／測試 | Codex | **Claude** |
+| Step 5 review | Claude | **Codex**（恢復可用後補做；只 review、不改程式）。Codex 仍不可用時，Claude 自我檢查並在 REVIEW_REPORT 標明「未經獨立 review」 |
+| Step 6 修正 | Codex | Claude |
+| Step 7／8／9 | Claude | Claude（Step 8 commit 需 Stanley 說「git commit」） |
+
+Codex 恢復可用後，下一個任務回到標準規則。
 
 ### Release flow
 
