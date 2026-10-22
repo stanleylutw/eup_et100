@@ -131,15 +131,13 @@ static int flush(struct ota_manager *m)
     return 0;
 }
 
-/* MCUboot ih_ver (header bytes 20..27) compared like Zephyr img_mgmt_vercmp:
- * major, minor, revision, then build number. */
+/* MCUboot ih_ver (header bytes 20..22) compared like Zephyr img_mgmt_vercmp with
+ * its default config: major, minor, revision; the build number is ignored. */
 static int version_compare(const uint8_t *a, const uint8_t *b)
 {
-    uint32_t va[4] = { a[20], a[21], (uint32_t)a[22] | (uint32_t)a[23] << 8,
-                       (uint32_t)a[24] | (uint32_t)a[25] << 8 | (uint32_t)a[26] << 16 | (uint32_t)a[27] << 24 };
-    uint32_t vb[4] = { b[20], b[21], (uint32_t)b[22] | (uint32_t)b[23] << 8,
-                       (uint32_t)b[24] | (uint32_t)b[25] << 8 | (uint32_t)b[26] << 16 | (uint32_t)b[27] << 24 };
-    for (unsigned i = 0; i < 4; i++)
+    uint32_t va[3] = { a[20], a[21], (uint32_t)a[22] | (uint32_t)a[23] << 8 };
+    uint32_t vb[3] = { b[20], b[21], (uint32_t)b[22] | (uint32_t)b[23] << 8 };
+    for (unsigned i = 0; i < 3; i++)
         if (va[i] != vb[i]) return va[i] < vb[i] ? -1 : 1;
     return 0;
 }

@@ -375,6 +375,13 @@ static void test_manager(const char *path)
         assert((upload_packet(candidate, 0, 300, true) & 0x7fffffffu) == SMP_EBADSTATE);  /* equal */
         assert((upload_packet(older, 0, 300, true) & 0x7fffffffu) == SMP_EBADSTATE);
         assert(upload_packet(newer, 0, 300, true) == 300);
+        uint8_t *build = malloc(image_len);     /* build number alone is not "newer" */
+        assert(build);
+        memcpy(build, candidate, image_len);
+        build[24]++;
+        rehash(build);
+        assert((upload_packet(build, 0, 300, true) & 0x7fffffffu) == SMP_EBADSTATE);
+        free(build);
         upload_upgrade = 2;
         assert((upload_packet(newer, 0, 300, true) & 0x7fffffffu) == SMP_EINVAL);
         upload_upgrade = 0;

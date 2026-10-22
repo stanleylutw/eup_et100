@@ -51,7 +51,7 @@ SMP header 8 bytes（big-endian）：`op/ver(1) | flags(1) | len(2) | group(2) |
 - `off` 不等於期望值時，裝置不收資料、直接回期望值（client 會自動重送）。
 - **續傳**：兩種位置要分清楚——`off` 是「本次接收位置」；「可恢復位置」是已寫入 NOR 並 commit 的連續 4 KB 倍數。斷線、client 重開或裝置重開後，client 重新送第一包（同 `len`／`sha`），裝置回**可恢復位置**，client 從那裡續傳（RAM 裡未 commit 的部分會重送）。
 - 同一份檔案若已完整收到，第一包直接回 `off=len`。
-- `upgrade=true`（MCUmgr：只允許升級）：第一包（off 0）的 MCUboot 版本（major.minor.revision.build）必須**大於**執行中版本，否則回 EBADSTATE（同 Zephyr `CURRENT_VERSION_IS_NEWER` 的 legacy rc）；非 bool 回 EINVAL。未帶或 false 不檢查版本。（v0.8.5–v0.8.7 初版誤解為「永久安裝」而回 ENOTSUP，v0.8.7 已依規格修正。）
+- `upgrade=true`（MCUmgr：只允許升級）：第一包（off 0）的 MCUboot 版本（major.minor.revision，同 Zephyr 預設不比 build number）必須**大於**執行中版本，否則回 EBADSTATE（同 Zephyr `CURRENT_VERSION_IS_NEWER` 的 legacy rc）；非 bool 回 EINVAL。未帶或 false 不檢查版本。（v0.8.5–v0.8.7 初版誤解為「永久安裝」而回 ENOTSUP，v0.8.7 已依規格修正。）
 - 需求：目前 boot state 為已確認（有 PENDING 或 TRIAL 時回 EBADSTATE）。
 - **最後一包與第一次 state read 可能需要數秒**（裝置要驗整份檔案 hash、MCUboot TLV、EUPFWV1 metadata）：client timeout 建議 ≥ 30 秒。
 

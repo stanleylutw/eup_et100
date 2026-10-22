@@ -38,12 +38,16 @@ Codex 審查 `8d94fd8`，提出 2 項 P2（並附 host 重現程式），全部�
 
 **Codex 複審：PASS**，未發現新的阻擋問題。另驗證 notify 失敗重試、MTU 23 分包、既有 serial host 回歸，ASan／UBSan 無錯誤。修正版已部署 EVB 並自動 confirm（見 15 報告）。
 
-## 2026-10-22 v0.8.7 App 實測修正：Confirm only 模式（Claude，待 Codex review）
+## 2026-10-22 v0.8.7 App 實測修正：Confirm only 模式（Claude 實作＋自審，Stanley 指示不送 Codex）
 
 - 問題：自家 iOS App（nRF 函式庫預設「Confirm only」）上傳後送 confirm(新 image hash)，韌體回 ENOTSUP。
 - 修正：`image_confirm()` 對 candidate hash 改走與 test 相同的 `mark_pending()`，回報 permanent；不做永久安裝，備份／TRIAL／自檢確認／rollback 不變；非 CONFIRMED 狀態回 EBADSTATE。另依 MCUmgr 規格實作 upload `upgrade` 旗標（只接受較新版本，否則 EBADSTATE）。
 - 驗證：`test_smp` ALL PASS；App 實機 0.8.7 → 0.8.71 成功並自動確認（15 報告）。
-- **請 Codex review 時特別看**：`pending_confirm` 只存在 RAM（重開機即清除，與 MCUboot 語意差異可接受？）；`upgrade` 版本比較含 build number（同 Zephyr 預設）。
+- **自審（`cbeab33`）結論：PASS，1 項 P3 已修。**
+  - 不會永久安裝：confirm(candidate) 與 test 共用 `mark_pending()`，只寫 PENDING；之後的 installer 備份、TRIAL、自檢確認、rollback 路徑完全未改。TRIAL 中新 image 即 running，hash 相同走原本的 confirm 分支；非 CONFIRMED 一律 EBADSTATE。
+  - `pending_confirm`：`ota_manager_init` memset 清零；只在 PENDING 時影響回報；PENDING 期間 upload 被拒、無取消指令，只能經重開機離開，RAM 清除與狀態一致。語意差異（回報 permanent 但仍可 rollback）較 MCUboot 更保守，已記於 04。
+  - `upgrade`：在 `begin()` 前檢查，被拒時不動既有 session；續傳重送 off 0 會重查但結果相同。被拒仍會 `claim()` 30 s owner，與其他拒絕路徑一致，可接受。
+  - P3（已修）：版本比較原含 build number，與註解宣稱的 Zephyr 預設（`VERSION_CMP_USE_BUILD_NUMBER=n`，只比 major.minor.revision）不符；改為三欄，`test_smp` 新增「只差 build number 不算較新」案例。我們的 image build number 恆為 0，實機行為不變。
 
 ## 2026-10-22 v0.8.7 自我檢查（Claude 實作，待 Codex Step 5）
 
