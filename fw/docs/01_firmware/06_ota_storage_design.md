@@ -24,7 +24,8 @@ Version: v0.2 REVIEW DRAFT（2026-10-22：BLE 更新採 SMP＋MCUboot image 格�
 
 | 區域 | CPU 起始地址 | 結束地址 | Bytes | 容量 |
 |---|---|---|---:|---:|
-| FR509x ROM image header 區 | 0x08000000 | 0x08001FFF | 8192 | 8 KB |
+| ROM A 資訊段（header） | 0x08000000 | 0x08000FFF | 4096 | 4 KB |
+| ROM B 資訊段（**不得寫入**，目前全 00） | 0x08001000 | 0x08001FFF | 4096 | 4 KB |
 | 自有 installer | 0x08002000 | 0x0801FFFF | 122880 | 120 KB |
 | ET100 App slot | 0x08020000 | 0x081DFFFF | 1835008 | 1792 KB |
 | Settings／KV | 0x081E0000 | 0x081FBFFF | 114688 | 112 KB |
@@ -36,6 +37,13 @@ Version: v0.2 REVIEW DRAFT（2026-10-22：BLE 更新採 SMP＋MCUboot image 格�
 現有成功燒錄格式使用 FR509x header 與 exec_offset=0x2000；未因此證實 ROM 完整校驗策略。候選設計讓 header 的 code_length／CRC **只涵蓋 installer 載入映像**（含它所需 RAM-code／data load image），不涵蓋後方 App。一般更新只寫 App slot，永不改 ROM header／installer。**前提：ROM 不驗 header 指定範圍外內容，且允許第二階段 installer 自行跳 App；須由 Q43-5 或獲准實測確認。** 不能直接把現有整個 App 的 Project_burn.bin 當 installer factory image。
 
 App slot 1792 KB 是包含所需 App image header／驗證結構與程式資料的總上限，不等於可用 C code bytes。實際 executable budget 要扣封裝／alignment，不能用 2 MB Candidate 容量放寬 App 上限。標準 OTA 不更新 installer／header／Settings；installer 自更新另立安全需求與授權。
+
+### ROM A／B 資訊段（2026-10-22，依原廠 `examples/common/ota/FR30xx OTA机制.pdf`＋`ota.h`）
+
+前 8 KB 不是單一 header，而是 ROM 的兩個 4 KB 資訊段：A（0x08000000，目前 image 資訊）與 B（0x08001000，ROM OTA 用）。開機時 ROM 檢查 B 資訊段的 `image_valid`／`info_crc`／`ota_magic`，有效才把**內建 Flash** 的 B 代碼段以 `copy_unit` 搬到 A 代碼段（有 copy flag 可斷電續搬），否則直接跳 0x08002000。流程圖中正常開機不驗 A 代碼段 CRC（v0.8.3 M-E0 實測確認）。
+
+- **ROM OTA 不能從 NOR 安裝**，且原廠 A／B 需在內建 Flash 放兩份 App（上限約 960 KB），故維持自有 installer＋NOR staging。
+- **硬規則：0x08001000 sector 永遠不擦、不寫，維持原內容。** 目前內容是全 0x00（`post_process.py` 以 `seek(0x2000)` 留下檔案空洞；原廠 baseline 與所有 burn image 皆如此，EVB 一直以此正常開機）。全 00 與全 FF 對 ROM 都是「無 OTA」，但不主動改成 FF。Installer、App、工具都不得寫入；燒錄工具須跳過此 sector；SDK vendor OTA service（`examples/common/ota`）會寫 B 資訊段，產品 App 不得啟用。
 
 ### 現行 FlashEnv 風險與遷移
 
@@ -144,7 +152,19 @@ FR3068：SMP server → OTA manager → download journal → NOR Candidate → i
 
 **開發驗證**：App 修改完成前，先用 Nordic 官方 **nRF Connect Device Manager**（通用 SMP client）驗證 FR3068 SMP server。
 
-**App 端待辦**（App 團隊）：允許清單加入 FR3068 的 board／soc／hardware_version；確認 SMP MTU／reassembly 設定可用於 FR3068 的 BLE stack。
+**EUPFWV1 `metadata_crc32_le` 定義（2026-10-22）**：IEEE CRC-32（同 Python `zlib.crc32`），涵蓋 `struct eup_fw_info` 前 282 bytes（CRC 欄位之前全部），little-endian 儲存；寫法沿用 `eup_gateway/tools/sensor_ota_package.py:146`。既有 nRF 韌體此欄位皆為 0（`eup_gateway_fw_info.c:24`、`eup_aiot/src/main.c:94`）。
+
+**平台規則（裝置端與 App 端共用原則）**：
+
+| 平台 | `metadata_crc32_le` | 簽章 |
+|---|---|---|
+| nRF（既有，App-side） | 0 = 未提供，不驗；非 0 則必須正確 | 依現行 MCUboot 設定 |
+| FR3068 | **必須非 0 且正確；0 一律拒絕**；新打包工具會回填 CRC | Q42 定案後必驗 |
+
+- **FR3068 installer**：Candidate 的 EUPFWV1 必須是 FR3068 project／hardware，且 CRC 必須非 0 並符合前 282 bytes 的 IEEE CRC-32；0 或不符一律拒絕。Host tests 使用相同嚴格規則（Stanley 2026-10-22 review 再確認）。「0 = 未提供」只適用 nRF 的 App-side 相容規則，不適用 FR3068 installer。
+- **App 選規則的依據**：以**連上的裝置**（`GET_FW_INFO`／`GET_DEVICE_ID` 回報的 SoC／hardware_version）決定平台，再要求 `manifest.json`（soc／board）與 image 內 EUPFWV1（project／hardware_version）**三者屬於同一平台**，不一致直接擋下；不可只依 package 自己的 metadata 決定用寬鬆或嚴格規則。
+
+**App 端待辦**（App 團隊，**排在 FR3068 韌體端完成之後**，Stanley 2026-10-22）：允許清單加入 FR3068 的 board／soc／hardware_version；依上表實作平台規則與三方一致檢查；確認 SMP MTU／reassembly 設定可用於 FR3068 的 BLE stack。在那之前以 nRF Connect Device Manager 驗證 FR3068 端。
 
 **仍待定**：簽章演算法與金鑰管理（Q42）、MCUboot header size／對齊與 App slot 0x08020000 的配合、`confirm` 由誰發出。
 

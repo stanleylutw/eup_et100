@@ -53,7 +53,7 @@ int main(void)
 {
     struct et100_serial_parser p;
     const char *expected = "AT$PD=BLEGW$GCHK;1;C00102030405;Freqchip;"
-        "DEV1.4_fr3068ep-c;0.7.0-dev;0;A1b2\r\n";
+        "DEV1.4_fr3068ep-c;0.8.3-dev;0;A1b2\r\n";
     et100_serial_init(&p, "C00102030405", capture, NULL);
     feed(&p, "BLEGW$GC");
     assert(used == 0);

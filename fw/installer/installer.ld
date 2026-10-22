@@ -1,0 +1,7 @@
+MEMORY
+{
+    FLASH (rx) : ORIGIN = 0x08002000, LENGTH = 120K
+    PRAM (xrw) : ORIGIN = 0x1ffe0000, LENGTH = 128K
+    SRAM (rw) : ORIGIN = 0x20000000, LENGTH = 512K
+}
+INCLUDE sections.ld

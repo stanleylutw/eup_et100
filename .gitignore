@@ -62,6 +62,7 @@ JLinkLog.txt
 JLinkSettings.ini
 
 # --- Python caches ---
+fw/.venv/
 __pycache__/
 *.pyc
 *.pyo

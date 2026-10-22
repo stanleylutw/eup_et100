@@ -1,7 +1,15 @@
 # Run from the SDK example's GCC directory; SDK files remain unchanged.
 ET100_FW := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
+override DIR_OBJS = $(filter-out %/ota.o %/service_ota.o,$(DIR_OBJS_S))
 include Makefile
+LD := $(ET100_FW)/ld/evb_app.ld
+LDFLAGS += -L$(ET100_FW)/installer
+INC_PATH := -I"$(ET100_FW)/include" $(INC_PATH)
 INC_PATH += -I"$(ET100_FW)/third_party/tinycrypt/include"
+CFLAGS += $(ET100_VERSION_FLAGS)
+$(BASE_ElF): $(OBJECT_DIR)/app_fw_info.o
+$(OBJECT_DIR)/app_fw_info.o: $(ET100_FW)/installer/app_fw_info.c
+	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
 
 $(TOP_DIR)/examples/application/ble_simple_periphreal/Src/main.o: $(ET100_FW)/src/evb_serial_main.c
 	$(CC) $(CFLAGS) $(INC_PATH) -c -o $(OBJECT_DIR)/main.o $<

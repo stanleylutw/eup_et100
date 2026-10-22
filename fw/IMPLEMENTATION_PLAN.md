@@ -1,4 +1,133 @@
-# IMPLEMENTATION_PLAN — v0.8.2 Download journal（NOR 下載進度與斷電恢復）
+# IMPLEMENTATION_PLAN — v0.8.3 Installer 與 App 搬家（從 NOR 安裝到內建 Flash）
+
+## Branch
+
+Before starting implementation, create and switch to the new branch:
+
+git checkout -b v0.8.3_installer
+
+Base branch: v0.8.2_download_journal（a72a97e）
+
+## 0. 工作模式、決策與授權
+
+**採用 [comm.md](../comm.md) 的「Hardware bring-up loop」**。Stanley 2026-10-22 核准 D1–D4：
+
+| 決策 | 內容 |
+|---|---|
+| D1 範圍 | v0.8.3 = ① E0 App 搬家實驗 ② installer 從 NOR 安裝。trial／confirm／rollback 在 v0.8.4，RS232 在 v0.8.5，BLE SMP 在 v0.8.6 |
+| D2 FlashEnv | 直接搬到 0x081E0000，不做資料遷移（尚無出貨裝置）；EVB 的 GTIME／CID／auto-GATT 恢復預設值 |
+| D3 驗證 | 原型只驗 MCUboot TLV 的 SHA-256，**不驗簽章**；報告標明「不安全，原型專用」 |
+| D4 格式 | App slot 0x08020000 開頭放 0x200 MCUboot header，vector table 在 **0x08020200** |
+
+| Milestone | 內容 | 之後 |
+|---|---|---|
+| M-E0 | Boot stub @0x08002000 ＋ 搬到 0x08020200 的 App：BLE／UART／FreeRTOS／PRAM ram_code 正常 | 停下 review |
+| M-INST | Installer 從 NOR 安裝新版 App 並開機；安裝中 MCU reset 後能重做到完成 | 停下 review → Step 7／8 |
+
+**本施工單核准即授權**：在 EVB 上燒錄本 branch 的 installer／stub／搬家後 App（內建 Flash 0x08000000–0x081FFFFF，**0x08001000 sector 除外**）、寫入 U11 scratch。其餘依 comm.md 停止條件。
+
+## 1. 背景：ROM 的 A／B 資訊段（原廠 `examples/common/ota/FR30xx OTA机制.pdf`＋`ota.h`）
+
+```text
+0x08000000  A 資訊段 4 KB   目前 image 資訊（post_process.py 的 header）
+0x08001000  B 資訊段 4 KB   ROM OTA 用；image_valid＋info_crc＋ota_magic 有效時，ROM 會把內建 B 代碼段搬到 A
+0x08002000  A 代碼段         ROM 跳到這裡（exec_offset 0x2000）
+```
+
+**硬規則（2026-10-22 修訂）**：0x08001000 sector **永遠不擦、不寫，維持原內容**（目前全 00，來自 post_process.py 的檔案空洞）。Installer 開機時若既非全 00 也非全 FF，只記錄警告、不動它；燒錄工具跳過整個 sector，且 image 該段須與板上內容相同才燒；驗收以測試前後該 sector SHA-256 不變為準。
+
+## 2. 目標布局（06 §2）
+
+| 區域 | 位址 | 內容 |
+|---|---|---|
+| A 資訊段 | 0x08000000 | post_process.py header，`code_length`／CRC **只涵蓋 installer** |
+| B 資訊段 | 0x08001000 | 保持 0xFF |
+| Installer | 0x08002000–0x0801FFFF（120 KB） | 本 branch 新增 |
+| App slot | 0x08020000–0x081DFFFF（1792 KB） | MCUboot header 0x200 ＋ App（vectors @0x08020200） |
+| Settings | 0x081E0000–0x081FBFFF（112 KB） | FlashEnv 新位址 |
+| Boot state | 0x081FC000–0x081FFFFF（16 KB） | 本 branch 最小版（§4.3） |
+
+## 3. 第一步：M-E0 App 搬家實驗（不碰 NOR）
+
+1. **Boot stub**（之後長成 installer）：獨立 target，連結在 0x08002000，不含 BLE／FreeRTOS。檢查 0x08020000 的 MCUboot magic → 驗 SHA-256 → 關 IRQ／SysTick、清 NVIC pending → `SCB->VTOR = 0x08020200` → 設 MSP → 跳 Reset_Handler。驗證失敗就停在 UART 印錯誤（不跳）。
+2. **App 搬家**（evb_serial target，版本改 0.8.3-dev）：
+   - 專案自己的 linker script（在 mk 覆寫 `LD`，**不改 SDK 的 ldscript**），FLASH ORIGIN 0x08020200、LENGTH 1792 KB − 0x200
+   - FlashEnv 改到 0x081E0000：專案自己的 `fal_cfg.h` 覆蓋 SDK example 的版本（include 順序），不改 SDK
+   - **移除 vendor OTA service**（`evb_serial_ble.c:86` 的 `ota_gatt_add_service()`），因為它會寫 B 資訊段觸發 ROM OTA，會蓋掉 installer
+   - Build 後用 `imgtool sign --header-size 0x200 --pad-header`（不帶 key，只產生 SHA-256 TLV）產生 App image；800 KB guard 改成「≤ App slot 大小」
+3. **燒錄工具**：`fr3068_flash.py` 增加 raw 模式（燒 App image 到 0x08020000，不檢查 FR509x header），並**拒絕任何會寫到 0x08001000 sector 的請求**。
+4. **驗收 M-E0**：ROM → stub → App 開機；UART 9600 GCHK 回 0.8.3-dev；BLE 廣播與手機連線正常（Stanley 驗）；FlashEnv 在新位址可寫入、重開機後保留；確認 ROM 沒有因為 App 不在 header 範圍內而拒絕開機。
+
+## 4. 第二步：M-INST Installer
+
+### 4.1 流程
+
+```text
+開機 → 檢查 B 資訊段 → 讀 boot state
+  無 pending：驗 App（magic＋SHA-256）→ 跳 App；App 無效 → 停在 installer、UART 印錯誤
+  有 pending：init NOR（v0.8.1 nor_qspi1）→ 驗 Candidate（magic、長度 ≤ slot、SHA-256 TLV、與 state 記錄的 hash 一致）
+             → erase App slot（只到 image 長度對齊的 sectors）→ program → 全部讀回驗 SHA-256
+             → boot state 寫 INSTALLED → 跳新 App
+```
+
+- 安裝途中 MCU reset：state 仍是 pending，Candidate 沒動 → **從頭重做**即可（冪等），不需要 copy flag。
+- Installer 自帶：nor_qspi1、SDK `flash_erase／flash_write`（QSPI0，`__RAM_CODE`；installer 沒有 RTOS，關中斷可接受）、mbedTLS SHA-256、MCUboot header／TLV parser。
+- Installer 大小 ≤ 120 KB，build 時檢查。
+
+### 4.2 讓 Candidate 進 NOR（開發用，非正式 RS232 協定）
+
+Installer 的 **dev-only loader**：開機 2 秒內從 UART3（115200）收到指定字串才進入。簡單 framing（chunk index＋4 KB＋CRC32，逐包 ACK），經 v0.8.2 journal 寫進 Candidate，`finish` VERIFIED 後寫 boot state pending 並重開。正式 RS232 協定在 v0.8.5 另外設計，本 loader 屆時移除或改為正式版。
+
+### 4.3 最小 Boot state（v0.8.4 會擴充 trial／rollback）
+
+16 KB 區域，兩份 record 輪流寫（seq＋CRC＋commit marker，規則比照 journal）：`NONE／PENDING(hash,len)／INSTALLED(hash)`。只有 installer 和 loader 會寫。
+
+### 4.4 驗收 M-INST
+
+1. 用 loader 把「版本號不同的 App image」送進 NOR → 重開 → installer 安裝 → 新 App 開機，GCHK 版本變更。
+2. 安裝中觸發 MCU reset **3 次**（erase 中、program 中、驗證中各一次）→ 每次都能重做到完成。
+3. 故意送 hash 錯誤的 image → installer 拒絕安裝，舊 App 照常開機。
+4. 全程 0x08001000 sector 的 SHA-256 不變（每次測試前後 SWD 讀回確認）。
+
+## 5. 檔案範圍（Codex）
+
+| 檔案 | 內容 |
+|---|---|
+| `fw/installer/`（新） | installer main、boot_state、mcuboot_image parser、jump、dev loader |
+| `fw/targets/evb_installer.mk`、`fw/tools/build_evb_installer.sh` | Installer build（post_process.py header、120 KB guard） |
+| `fw/ld/evb_app.ld`（新） | App 專案 linker script |
+| `fw/include/fal_cfg.h`（新）或等效覆蓋 | FlashEnv @0x081E0000 |
+| `fw/targets/evb_serial.mk`、`fw/tools/build_evb_serial.sh` | 用新 linker、imgtool sign、新 guard、版本 0.8.3-dev |
+| `fw/src/evb_serial_ble.c` | 移除 vendor OTA service |
+| `fw/tools/evb/fr3068_flash.py` | raw App 模式、B 資訊段保護 |
+| `fw/tests/` | MCUboot parser、boot state（含斷電注入）、loader framing 的 host tests |
+| `fw/docs/04_testing/11_evb_installer.md` | 測試報告 |
+
+**不做**：簽章驗證、trial／confirm／rollback、Rollback 區備份、正式 RS232／BLE／LTE、SDK 修改、FlashEnv 資料遷移、installer 自我更新。
+
+## 6. 風險與停止點
+
+- **開不了機**：ROM 仍會跳 0x08002000，`rescue_and_flash.py` 可救；第 2 次需要 rescue 即停（comm.md）。
+- **App 依賴 0x08002000**：若搬家後 BLE／sleep／PRAM 異常，停在 M-E0 回報，不往下做 installer。
+- `freertos_sleep.c` 會保存／還原 VTOR；EVB 目前關閉 sleep（Patch #8），M-E0 只記錄，不宣稱 sleep 下 relocation 已驗證。
+
+## 7. 交付
+
+M-E0、M-INST 各停一次 review；Step 7 同步 06（B 資訊段規則、布局已實作的部分）、status MD、EVB README（新燒錄方式，需先問 Stanley 其未 commit 修改）、REVIEW_REPORT；`git diff --check`、`check_plan_vs_code.py` PASS；不 commit／push。
+
+## 8. DFU 打包（2026-10-22 M-E0 review 後加入，與 M-INST 一起做）
+
+目標：產生與 NCS 相同格式的 `dfu_application.zip`，讓 App 團隊可以開始解析／相容性檢查（06 §6.1）。
+
+1. **EUPFWV1 metadata**：新增 `fw/include/eup_fw_info.h`，`struct eup_fw_info` 欄位、順序、大小與 `eup_gateway/include/eup_fw_info.h` **逐 byte 相同**（以 GCC `__attribute__((packed))` 取代 Zephyr `__packed`，並用 `_Static_assert` 鎖定總大小與各 offset）。App 內放一個 `const` block（`__attribute__((used))`）：project_name `EUP_ET100`、hardware_version `ET100_EVB_DEV1.4`（EVB build）、firmware_version 與 GCHK 同一來源（順便把 `serial_gchk.c` 的版本字串改成引用同一個定義，避免兩處不一致）。`metadata_crc32_le` 的計算方式照 gateway 的 `tools/sensor_ota_package.py`／`eup_aiot/tools/eup_fw_info_scan.py`，在 build 後由腳本回填。
+2. **`fw/tools/make_dfu_package.py`**：Project.bin → 回填 EUPFWV1 CRC → `imgtool sign --header-size 0x200 --pad-header --slot-size 0x1C0000 --version <ver>`（不帶 key，原型）→ `et100.signed.bin` → `manifest.json`（欄位與 NCS 相同：`format-version`、`time`、`files[]`：`type=application`、`board=dev14_fr3068ep_c`、`soc=fr3068e_c`、`load_address=0x08020200`（十進位）、`image_index="0"`、`slot_index_primary="1"`、`slot_index_secondary="2"`、`version_MCUBOOT`、`size`、`file`、`modtime`；`name`）→ `dfu_application.zip`。`build_evb_serial.sh` 結尾自動呼叫。
+3. **Host test**：用 `eup_aiot/tools/eup_fw_info_scan.py`（唯讀呼叫，不修改該 repo）掃描產出的 `.signed.bin`，必須找到 EUPFWV1 且 CRC 正確；zip 結構與 manifest key 集合與 `eup_gateway/build_ms88sf2_app_ota/dfu_application.zip` 相同。
+4. **Installer**：安裝前在 Candidate 內找 EUPFWV1，`project_name`／`hardware_version` 前綴不符就拒絕（防止 nRF 韌體寫入 FR3068）。M-INST 驗收新增：送 eup_gateway 的 nRF `.signed.bin` → 必須被拒絕、舊 App 照常開機。
+5. 報告附上產出的 `manifest.json` 全文與 zip 路徑，交給 App 團隊。
+
+---
+
+# 歷史施工單 — v0.8.2 Download journal（NOR 下載進度與斷電恢復）
 
 ## Branch
 

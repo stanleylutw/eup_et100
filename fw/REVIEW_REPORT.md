@@ -1,5 +1,16 @@
 # REVIEW_REPORT — Phase 1a: Validate GCC Build Chain
 
+## 2026-10-22 Claude Code Step 5 review — v0.8.3 M-E0／M-INST／§8
+
+**結論：PASS。** 一個 Major 已在 Step 6 修正。
+
+- M-E0：ROM 接受 A 資訊段 code_length／CRC 只涵蓋 stub，App 在 0x08020200 獨立開機；`jump.c` 清 IRQ／SysTick／NVIC（依 ICTR）／PendSV、設 VTOR／MSP，naked 跳轉；vendor OTA 在 link（mk filter）與註冊兩層移除；燒錄工具整段跳過 B 資訊段並比對 hash。Stanley 手機確認 BLE。
+- M-INST：host 3,441 次注入 PASS；EVB 新版安裝、三階段 reset 重做、壞 SHA／nRF image／CRC=0 拒絕，App／boot state／B-info 逐 byte 不變。Installer 寫入白名單僅 App slot 與 boot state。
+- §8：EUPFWV1 與 gateway struct 逐 byte 相同（286 B）；`dfu_application.zip` manifest schema 與 NCS 相同，`load_address`=0x08020200，產出 image CRC 0x745E889D 正確。
+- Major（已修）：installer 原本對 FR3068 接受 CRC=0，且 06 §6.1 FR3068 列被改回寬鬆規則；已改為 0 一律拒絕並重測。
+- Minor：`evb_serial_ble.c:7` 殘留 `#include "service_ota.h"`（未使用）。
+- 仍未做：簽章（Q42）、trial／confirm／rollback（v0.8.4）、正式 RS232（v0.8.5）、BLE SMP（v0.8.6）、E-C 晶片上的 ROM 行為確認。
+
 ## 2026-10-22 Claude Code Step 5 review — v0.8.2 M-HOST／M-EVB
 
 **結論：PASS，無 Critical／Major。** M1（session 身分）已修：`write_chunk／finish／cancel` 帶 session_id，不符回 `OTA_ESESSION` 且不存取 NOR；`resume(manifest)` 需 session_id／length／sha256／target 完全一致，換 source 寫 takeover snapshot。

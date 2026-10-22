@@ -4,7 +4,6 @@
 #include "app_gatt_server.h"
 #include "gap_api.h"
 #include "gatt_api.h"
-#include "service_ota.h"
 
 static adv_handle advertising;
 static uint8_t manager_service;
@@ -83,5 +82,5 @@ void app_ble_init(void)
     /* Register the App service first, before any PROFILE_ADDED starts advertising. */
     manager_service=et100_app_server_add();
     et100_gatt_add_profile();
-    ota_gatt_add_service();
+    /* Vendor OTA can write ROM B-info; the relocated prototype has no OTA service. */
 }

@@ -1,4 +1,5 @@
 #include "serial_gchk.h"
+#include "../include/eup_fw_info.h"
 #include <stdio.h>
 #include <string.h>
 #ifndef ET100_SERIAL_HOST_TEST
@@ -133,7 +134,7 @@ static void handle_line(struct et100_serial_parser *p)
     *end = '\0';
     if (strcmp(command, "GCHK") == 0 && token == end + 1) {
         length = snprintf(response, sizeof(response),
-            "AT$PD=BLEGW$GCHK;1;%s;Freqchip;DEV1.4_fr3068ep-c;0.7.0-dev;%u;%s\r\n",
+            "AT$PD=BLEGW$GCHK;1;%s;Freqchip;DEV1.4_fr3068ep-c;" EUP_FIRMWARE_VERSION ";%u;%s\r\n",
             p->identity, current_gatt_state(), token);
     } else if (strcmp(command, "GGTIME") == 0 && token == end + 1) {
         length = snprintf(response, sizeof(response),
