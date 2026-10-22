@@ -99,11 +99,11 @@ make: python.exe: No such file or directory
 
 **修改**：`python.exe` → `python3`
 
-**影響**：Makefile call 得到 interpreter；但 post_process.py 本身仍有 Windows backslash + 錯誤 chip type 問題，見 Patch #5。
+**影響**：Makefile call 得到 interpreter；但 post_process.py 本身仍有 Windows backslash 問題，見 Patch #5。
 
 ---
 
-## Patch #5 — post_process.py：跨平台路徑 + chip type (由 Codex review 2026-10-02 發現)
+## Patch #5 — post_process.py：跨平台路徑與錯誤傳遞
 
 **檔案**：`fr30xxc_sdk__202411/components/tools/post_process.py`
 
@@ -112,21 +112,34 @@ Makefile 跑 `python3 post_process.py Project output` 後印：
 ```
 INVALID INPUT PARAMTER for python script
 ```
-**實際後果**：`output/Project_burn.bin` 從未產生 → 第一代 patch (#4) 當時以為「只是 cosmetic 失敗，.bin 已夠用」 → **錯**。
-`Project.bin` 是 raw image，沒有 post-process 加入的 header／CRC；板上 bootloader 是否要求該格式、直接燒錄後的行為尚未驗證，不能斷言必然 CRC fail 或不會 boot。
+**實際後果**：`output/Project_burn.bin` 從未產生；第一代 patch (#4) 當時把錯誤當成非必要步驟，這個判斷錯誤。`Project.bin` 是 raw image，沒有 post-process 加入的 header／CRC。
 
 **原因**：
 1. 腳本第 89 行 `"%s\\%s.bin" % (sys.argv[2], sys.argv[1])` 用 Windows 反斜線組成路徑；macOS 下 `output\Project.bin` 內含字面反斜線，`os.path.exists()` 回 False。
-2. 原 patch 將 `CHIP_TYPE_FR509x` 改為 `CHIP_TYPE_FR303x`，兩者 header layout／TLV 欄位不同。這是目前採用的配置，不是已驗證的料號對應；v0.4.9 沒有 boot header 規範，需原廠確認 board-matched selector，並核對 SDK OTA 結構是否一致。
+2. 2026-10-02 的原 patch 在沒有 ROM header 規格或原廠產物證據下，另把 vendor default `CHIP_TYPE_FR509x` 改為 `CHIP_TYPE_FR303x`。這項推論後來由 EVB 實測證明錯誤，詳見下方撤回紀錄。
 
 **修改**：
 1. `"%s\\%s.bin"` → `os.path.join(sys.argv[2], "%s.bin" % sys.argv[1])`（跨平台）
-2. `CHIP_TYPE = CHIP_TYPE_FR509x` → `CHIP_TYPE_FR303x`
-3. Error path 加上 `sys.exit(1)` 讓 Makefile 看到真實失敗（原 patch #4 的 `-` 已拿掉）
-4. Error message 印出 looked-for path，便於 debug
+2. Error path 加上 `sys.exit(1)` 讓 Makefile 看到真實失敗（原 patch #4 的 `-` 已拿掉）
+3. Error message 印出 looked-for path，便於 debug
 
-**驗證**：rebuild 後 `output/Project_burn.bin` 存在，268,544 bytes（= Project.bin 260,352 + 8,192 header padding）。
-Header 用 `python3 -c "import struct; ..."` 解析確認：
+### 2026-10-21 撤回錯誤的 CHIP_TYPE 修改
+
+`CHIP_TYPE_FR509x → CHIP_TYPE_FR303x` **已撤回**，目前恢復 vendor default：
+
+```python
+CHIP_TYPE = CHIP_TYPE_FR509x
+```
+
+撤回原因與證據：
+
+1. FR303x layout 少了 `tlv_length` word，後續 `options` 欄位向前錯位。把這種 image 燒到 FR3068EP-C EVB 後，ROM 以錯誤 options 存取 flash，造成 AP WAIT ACK、BLE 不啟動且一般 SWD attach 失敗。
+2. SDK 內原廠 Keil 產物 `examples/evb_demo/lvgl_demo/MDK-ARM/output/Project_burn.bin` 使用 FR509x layout：word 8 是 `tlv_length = 0`，word 9 才是 options。
+3. 恢復 FR509x layout 後，本次映像 word 7 = `0x51525251`、word 8 = `0x00000000`、word 11 = `0x51525251`；經 SDK `FR30xx.FLM` 燒到 `0x08000000` 後可啟動並完成 BLE 實機連線。
+
+這裡的 `FR509x` 是 post-process 腳本的 **header layout selector**，不能依名稱直接推論 MCU 是 FR509x 系列。boot/header 類設定必須以原廠產物、ROM 規格或實機結果為依據。
+
+**Host 驗證（2026-10-02）**：rebuild 後 `output/Project_burn.bin` 存在，header／payload／CRC 自洽。Phase 1a 當時的解析紀錄：
 ```
 magic (0x51525251 QRRQ): 0x51525251 ✓
 image_crc (CRC32):       0xe87afbd9
@@ -135,9 +148,11 @@ store_offset:            0x00000000 (first slot)
 code_length:             260352 (= Project.bin size)
 ```
 
-**影響**：`Project_burn.bin` 已產出為含 header／CRC 的候選映像；兩種 BIN 的 programming／boot 相容性皆未在實機驗證，不能保證封裝映像可啟動或 raw BIN 必然失敗。
+**EVB 驗證（2026-10-21）**：FR509x layout 的 `Project_burn.bin` 透過板載 DAPLink + SDK `FR30xx.FLM` 寫入 `0x08000000`，readback 逐 byte 相同；reset 後 app 啟動，手機可連上 `30xx_Ble_Periphreal` 並看到預期 GATT service/characteristics。
 
-**限制**：header 欄位與 payload 可在 host 端檢查，但腳本內部一致性不證明 ROM／bootloader 相容性；FR303x selector 與 SDK OTA header 的差異仍須原廠文件／EVB 驗證。
+**影響**：跨平台 post-process 可可靠產生含 header／CRC 的 `Project_burn.bin`，失敗時 build 會收到非零狀態。FR509x layout 已在 FR3068EP-C DEV1.4 EVB 驗證可啟動；`Project.bin` raw image 仍未做直接燒錄測試，不能推論其 boot 行為。
+
+**限制**：已驗證的是目前 EVB、目前 SDK 產物與目前 FLM 的組合，不等於取得完整 ROM header 規格，也不自動證明 ET-100 量產燒錄、OTA 或 rollback 流程。
 
 ---
 
@@ -183,9 +198,47 @@ code_length:             260352 (= Project.bin size)
 
 **驗證**：clean build PASS；`/tmp/et100_clock_guard_test.py` 擷取實際函式，以 register stub 測試 CORE_HSCLK／SPLL、不同 divider、96 MHz、156 MHz 邊界及 >156 MHz，共 9 組 PASS。超規時零 register writes；ARM disassembly 的 compare／branch 位於 write 前，trap 為 BKPT + loop，不受 `NDEBUG` 影響。Host stub 不是硬體驗證；硬體行為待 EVB。
 
+---
+
+## Patch #8 — BLE 範例 main.c：EVB 開發版停用 sleep
+
+**檔案**：`fr30xxc_sdk__202411/examples/application/ble_simple_periphreal/Src/main.c`，scheduler 啟動前的 sleep enable 路徑。
+
+**症狀／原因**：FR3068EP-C DEV1.4 板載 DAPLink 沒有連接 MCU nRESET；原範例清除 `SYSTEM_PREVENT_SLEEP_TYPE_DISABLE` 後可進入低功耗，SWD 可能無法穩定 attach，而 pyOCD `under-reset` 也無法使用。
+
+**修改**：以 `[eup-patch 2026-10-21 patch #8]` 標記，註解掉：
+
+```c
+system_prevent_sleep_clear(SYSTEM_PREVENT_SLEEP_TYPE_DISABLE);
+```
+
+其餘 clock、BLE、FreeRTOS 與 application 邏輯不變。
+
+**影響**：僅供 EVB bring-up 的 development build 使用。系統維持 sleep prevention，方便 SWD attach，但待機功耗與低功耗行為不具產品代表性；ET-100 production firmware 不得直接沿用此設定。
+
+**驗證**：patched example build 後，以 FR509x header 的 `Project_burn.bin` 寫入 EVB；reset 後 app 正常啟動，SWD 可再次 attach，手機可連線 BLE 並看到 FFF0／FFF3 與 128-bit characteristic。尚未驗證長時間 BLE 穩定性或低功耗流程。
+
+---
+
+## Patch #9（暫時診斷，已撤回）— BLE 範例 main.c：DEV1.4 PMU 按鍵 mapping
+
+**檔案**：`fr30xxc_sdk__202411/examples/application/ble_simple_periphreal/Src/main.c`
+
+**症狀／原因**：FR3068EP-C DEV1.4 EVB 的 K1-K3 不會觸發現有 BLE example 行為，repo 也沒有此板 revision 的原理圖。唯讀 SWD 輪詢 GPIOA-E input registers 時沒有觀察到按鍵變化；SDK 其他 board profile 暗示按鍵可能位於 PMU `PPx` domain，但不能直接當成 DEV1.4 mapping。
+
+**暫時修改**：依 Stanley 2026-10-21 明確授權，曾新增低優先序 `key_scan_task`：每 20 ms 被動讀取 `ool_read16(PMU_REG_PIN_DATA)`，啟動時印一次 baseline，之後僅在值改變時輸出 tick、old/new value 與 changed mask。程式以 `[eup-patch 2026-10-21 patch #9]` 標記。
+
+**診斷結果**：diagnostic image clean build、FR509x header/payload 檢查、program 與 readback 均 PASS。K1、K2、K3 依序長按的 497 行 UART capture 中，PMU bit 0、2、3 都曾改變，但 bit 0／3 在按住期間仍以約 20-40 ms 反覆跳動，bit 2 也沒有形成可重複的穩定電位。因此只能保留 `0x0008`、`0x0001`、`0x0004` 為三顆按鍵的候選 changed mask，**不能確認 K1-K3 對應關係、active level 或 debounce 行為**。被動讀取時沒有設定 PMU direction／pull／mux；輸入浮動或 pin ownership 衝突是可能原因，但尚未證實。
+
+**影響**：診斷期間增加一個 128-word FreeRTOS task stack、週期性 PMU read 與狀態改變時的 UART output；沒有設定 PMU direction、pull、mux、XOR、wakeup 或 interrupt registers，也沒有驅動 D3/D4。依 plan 在結果無法定論後停止，未自行增加 PMU configuration patch。
+
+**Rollback（已完成）**：已移除 `key_scan_task` 與 `main()` 中對應的 `xTaskCreate`，clean rebuild 並燒回 Phase 1b baseline。baseline `Project_burn.bin` 為 268,560 bytes，SHA-256 `0710a7e79de7ac2dd6c1f930119f1b82c4400a64a1d1ea76086da9e08be76fc2`；program/readback PASS。Patch #9 不在目前 SDK source，也不計入 active patch 數。
+
+**Logs**：diagnostic build `/tmp/et100_gpio_diag_build.log`；受控按鍵 capture `/tmp/et100_gpio_diag_uart.log`；rollback build `/tmp/et100_gpio_diag_rollback_build.log`。
+
 ### Phase 1a-ext 驗證（2026-10-02）
 
-此階段新增 #6、#7a、#7b；合計 7 組 patch（#7 有 a／b 兩個子項，登錄共 8 個 entry）。SDK 手動修改限兩個 GCC linker 與兩個 .c；Makefile、post_process.py／CHIP_TYPE、其他晶片 linker 均保留原樣。
+此階段新增 #6、#7a、#7b；當時合計 7 組 patch（#7 有 a／b 兩個子項，登錄共 8 個 entry）。SDK 手動修改限兩個 GCC linker 與兩個 .c；Makefile、post_process.py／CHIP_TYPE、其他晶片 linker 均維持 Phase 1a 當時狀態。CHIP_TYPE 的錯誤於 2026-10-21 撤回，見 Patch #5。
 
 ```text
 make exit code: 0
@@ -226,7 +279,9 @@ make
 # 期望：Build: Project make done. + Objects/Project.elf 存在
 ```
 
-## Build Metrics（all-5-patches build，2026-10-02）
+## Build Metrics（歷史：all-5-patches build，2026-10-02）
+
+> 本節保留 Phase 1a 當時數據與判斷；`Project_burn.bin` 的「候選／待 EVB」結論已由上方 Patch #5 的 2026-10-21 FR509x layout 實機驗證取代。
 
 ```
    text    data     bss     dec     hex filename
@@ -241,7 +296,7 @@ make
 
 Section mapping 與本次 SDK linker 配置一致（Flash 0x08002000、PRAM 0x1FFE0000、SRAM 0x20000000）。v0.4.9 p.7 的晶片總容量為 2 MB Flash／512 KB SRAM，但未提供 bank 位址及保留區；不能因此宣稱完整 silicon memory map 已驗證或直接擴大 linker。
 
-## Products（after Patch #5）
+## Products（歷史：after Patch #5，2026-10-02）
 
 | File | Size | Purpose |
 |---|:-:|---|

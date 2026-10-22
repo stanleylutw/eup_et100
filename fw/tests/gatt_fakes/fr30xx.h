@@ -1,0 +1,1 @@
+/* No peripheral registers are accessed by the GATT session module. */

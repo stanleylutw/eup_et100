@@ -51,7 +51,7 @@
 
 - **AVDD_1V2**（pin 1, 2）：MCU 核心電源 1.2V 由 MCU 內部 LDO 從 3V3 下來，外部只需 decoupling（22µF+100nF）
 - **ANT**（pin 3）：BT 天線輸出，透過 R0101 50Ω → Sheet 13
-- **1V8 域 IO**（PB12-PB15 / PC0-PC7，pin 21-32）：外接 NFC I2C（I2C3）、JLINK（SWCLK/SWDIO）、UART4 debug（115200）
+- **1V8 域 IO**（PB12-PB15 / PC0-PC7，pin 21-32）：外接 NFC I2C（I2C3）、UART4 debug（115200）等；SWD 不在 PC1/PC2，見下方 2026-10-21 更正
 - **3V3 域 IO**（其餘 pin）：所有其他周邊
 - **BT crystal / clock**：BT_SFB / BT_BSW / BT_JUDO / BT_VCC（pin 72-75）配 TCXO、L0101 2.2µH filter、C0113 2.2µF
 - **GNSS_DATA_IN_EINT**（pin 68）：GNSS 子板中斷進 MCU
@@ -133,7 +133,7 @@
 
 ### B.1 舊 SCH 80-pin 讀圖紀錄（未依新版逐腳驗證）
 
-> 保留此表作為待核對紀錄，不作為原廠 pinout。例：舊表 PB4/PB5 = pin 14/15，新版為 15/16；舊表 PC1/PC2 = pin 27/28，新版為 26/29；舊表 PD15 = pin 50，新版為 52。不得直接搬移 net、SWD 或 board config。
+> 保留此表作為待核對紀錄，不作為原廠 pinout。例：舊表 PB4/PB5 = pin 14/15，新版為 15/16；舊表 PC1/PC2 = pin 27/28，新版為 26/29；舊表 PD15 = pin 50，新版為 52。不得直接搬移 net 或 board config。**2026-10-21 已依 EVB 與 ET-100 原圖確認 SWD net 為 PB10/PB11；先前 PC1/PC2 記載錯誤。**
 
 **MC1 (CM33) 域** — 3.3V IO：
 
@@ -158,8 +158,8 @@
 | 17 | PB7 | MCU_CAN_TXD | → Sheet 5 SIT1042 |
 | 18 | PB8 | MCU_RS232_TXD1 | → Sheet 5 U0501 |
 | 19 | PB9 | MCU_RS232_RXD1 | ← Sheet 5 U0501 |
-| 20 | PB10/BT_PA14 | — | BT RF |
-| 21 | PB11 | — | 1V8 域起點 |
+| 20 | PB10/BT_PA14 | SWCLK | JLINK clock；實際 package pin number 仍以原圖／datasheet 為準 |
+| 21 | PB11 | SWDIO | JLINK data；實際 package pin number 仍以原圖／datasheet 為準 |
 
 **1V8 域** — PB12-PB15, PC0-PC7（Pin 21-32）:
 
@@ -170,8 +170,8 @@
 | 24 | PB14 / BT_PA17 | — | BT RF |
 | 25 | PB15 | EXP_RST | → Sheet 11 AW9523 RSTN |
 | 26 | PC0 | VDD0 | 1V8 domain IO rail (NFC_1V8 經 pin 36?)|
-| 27 | PC1 | SWCLK | JLINK |
-| 28 | PC2 | SWDIO | JLINK |
+| 27 | PC1 | — | 非 SWCLK；先前分析誤標，功能待原圖／datasheet 核對 |
+| 28 | PC2 | — | 非 SWDIO；先前分析誤標，功能待原圖／datasheet 核對 |
 | 29 | PC3 | NFC_CLK_REQ | ← Sheet 10 PN7160 CLK_REQ |
 | 30 | PC4 | NFC_VEN | → Sheet 10 PN7160 VEN |
 | 31 | PC5 | NFC_IRQ | ← Sheet 10 |

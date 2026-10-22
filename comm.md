@@ -13,6 +13,8 @@
    67    Codex 職責
    77    Work flow（Step 1~9）
   116    流程分支說明
+  137    Hardware bring-up loop（Step 4–6 的實機變體）
+  180    備用規則：Codex 無法使用時由 Claude Code 實作
   134    Release flow
   151    Step 2 — 確認規格 / Bug 確認（Claude Code 負責）
   180    Step 3 — Branch 建議規則
@@ -151,6 +153,58 @@ Step 7  plan MD 在此更新，不在 Step 2 —— 這時寫的是已完成並 
          → Step 8（建議 Codex git commit）
          → Step 9（詢問並建議 merge to main）
 ```
+
+### Hardware bring-up loop（Step 4–6 的實機變體）
+
+> 本節為 eup_et100 自訂（2026-10-22，Stanley 決定），不在 eup_aiot 原始 comm.md。
+> 起因：v0.8.1 U11 NOR bring-up 一個 G1 跑了 5 輪，每輪都卡在等核准，修改本身只要幾分鐘。
+
+**適用**：施工單已核准、需要在 EVB／ET-100 實機上反覆「假設 → 修改 → 燒錄 → 量測」的 bring-up 任務。施工單要明寫「採用 Hardware bring-up loop」與該任務的 milestone。
+
+**Loop（Codex 自主執行，不需每輪詢問）**：
+
+```text
+1. Analyze   讀 log／暫存器／原理圖，提出假設與證據
+2. Modify    假設成立才改；只改施工單檔案範圍內的 code／test
+3. Flash+Test build + host test → 燒錄測試韌體 → 執行測試
+4. Report    更新測試報告（04_testing/）與 REVIEW_REPORT，回對話摘要
+→ 回到 1，直到 milestone 或觸發停止條件
+```
+
+**授權範圍**：
+
+| 可自主進行 | 必須先問 Stanley |
+|---|---|
+| 唯讀硬體操作（ID／status／SFDP 等讀取指令、SWD 唯讀 dump） | 任何**寫入**類測試（外部 NOR arm／erase／program、切電、內建 Flash 測試 sector 寫入） |
+| 施工單範圍內的 code／test 修改 | SDK、linker、FAL／FlashEnv 修改；範圍外檔案 |
+| 燒錄**本 branch build 的測試韌體**：header／CRC／800 KB guard PASS 且 readback 驗證 PASS | 改變方向（換控制器、換測試方法、改 milestone） |
+| 測完燒回上一個已知良好的 image | commit／push／merge |
+| 更新測試報告、REVIEW_REPORT | 對外文件（Quectel 問題清單等） |
+
+**停止條件**（立刻停下回報，不再自主往下）：
+
+1. 同一問題 **3 輪**無進展
+2. **第 2 次** HardFault，或需要 rescue／SWD 連不上
+3. 讀到不預期的 ID、或結果違反安全假設（例：位址偏移會影響寫入）
+4. 達到 milestone
+
+**回報格式**：測試報告照常更新；對話另附 **3–5 行摘要**（改了什麼、結果、log 路徑、下一步建議）。完整原始輸出放 log 檔，不貼進對話（除非 Stanley 要求）。
+
+**Claude Code 的角色**：在 milestone 或停止條件時 review（等同 Step 5），不逐輪 review。Loop 結束後照常走 Step 7 → 8 → 9。
+
+### 備用規則：Codex 無法使用時由 Claude Code 實作
+
+> eup_et100 自訂（2026-10-22，Stanley 決定）。**標準規則仍是 Codex 實作**；本節只在 Codex 沒有 token 或暫時無法使用時啟用。
+
+| 項目 | 標準規則 | 備用規則 |
+|---|---|---|
+| Step 3 施工單 | Claude | Claude（施工單開頭註明「備用規則：Claude 實作」） |
+| Step 4 實作／測試 | Codex | **Claude** |
+| Step 5 review | Claude | **Codex**（恢復可用後補做；只 review、不改程式）。Codex 仍不可用時，Claude 自我檢查並在 REVIEW_REPORT 標明「未經獨立 review」 |
+| Step 6 修正 | Codex | Claude |
+| Step 7／8／9 | Claude | Claude（Step 8 commit 需 Stanley 說「git commit」） |
+
+Codex 恢復可用後，下一個任務回到標準規則。
 
 ### Release flow
 
