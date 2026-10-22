@@ -35,6 +35,28 @@ static void test_cbor(void)
     assert(!cbor_map_find(buf, w.len, "neg", &v) && v.type == CBOR_NINT && v.u == 299);
     assert(!cbor_map_find(buf, w.len, "ok", &v) && v.type == CBOR_BOOL && v.u == 1);
     assert(!cbor_map_find(buf, w.len, "arr", &v) && v.type == CBOR_ARRAY && v.u == 2);
+    {   /* v0.8.9: array items as encoded spans, searchable when they are maps */
+        uint8_t list[64];
+        struct cbor_writer lw;
+        struct cbor_value l, item;
+        const uint8_t *p;
+        size_t n;
+        cbor_writer_init(&lw, list, sizeof list);
+        cbor_put_map(&lw, 1); cbor_put_text(&lw, "images"); cbor_put_array(&lw, 2);
+        cbor_put_map(&lw, 1); cbor_put_text(&lw, "slot"); cbor_put_uint(&lw, 0);
+        cbor_put_map(&lw, 1); cbor_put_text(&lw, "slot"); cbor_put_uint(&lw, 1);
+        assert(!lw.error && !cbor_map_find(list, lw.len, "images", &l) && l.type == CBOR_ARRAY &&
+               l.ptr == list + 8 && l.len == lw.len - 8);
+        for (size_t i = 0; i < 2; i++)
+            assert(!cbor_array_item(&l, i, &p, &n) && n == 7 && !cbor_map_find(p, n, "slot", &item) && item.u == i);
+        assert(cbor_array_item(&l, 2, &p, &n) == 1 && cbor_array_item(&v, 2, &p, &n) == 1);
+        const uint8_t indef_list[] = { 0xa1, 0x61, 'l', 0x9f, 0xa1, 0x61, 's', 0x05, 0xff };
+        assert(!cbor_map_find(indef_list, sizeof indef_list, "l", &l) && l.len == 6);
+        assert(!cbor_array_item(&l, 0, &p, &n) && n == 4 && !cbor_map_find(p, n, "s", &item) && item.u == 5);
+        assert(cbor_array_item(&l, 1, &p, &n) == 1);
+        struct cbor_value text = { CBOR_TEXT, 0, list, 1 };
+        assert(cbor_array_item(&text, 0, &p, &n) == -1);
+    }
     assert(!cbor_map_find(buf, w.len, "big", &v) && v.u == 0x123456789ull);
     assert(cbor_map_find(buf, w.len, "nope", &v) == 1);
     for (size_t cut = 0; cut < w.len; cut++) assert(cbor_map_find(buf, cut, "off", &v) == -1);
@@ -735,6 +757,23 @@ static void test_sensor(const char *path)
     ota_manager_sensor_status(&mgr, &st);
     assert(st.state == SENSOR_STORE_VALID && st.generation == 1);
 
+    /* v0.8.9 relay: package locked (uploads of either image, delete, test -> EBUSY); reads in bounds */
+    ota_manager_set_relay(&mgr, true);
+    uint8_t got[300];
+    assert(ota_manager_sensor_read(&mgr, 0, got, sizeof got) == 0 && !memcmp(got, pkg, sizeof got));
+    assert(ota_manager_sensor_read(&mgr, (uint32_t)len - 10, got, 10) == 0 && !memcmp(got, pkg + len - 10, 10));
+    assert(ota_manager_sensor_read(&mgr, (uint32_t)len - 10, got, 11) == SMP_EINVAL);
+    assert(pkg_packet(pkg, len, 1, 0, 300, true) == (0x80000000u | SMP_EBUSY));
+    assert(ota_manager_sensor_delete(&mgr) == SMP_EBUSY);
+    assert(upload_packet(candidate, 0, 300, true) == (0x80000000u | SMP_EBUSY));
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_VALID && st.generation == 1);
+    ota_manager_set_relay(&mgr, false);
+    assert(ota_manager_sensor_delete(&mgr) == 0);
+    ota_manager_sensor_status(&mgr, &st);
+    assert(ota_manager_sensor_read(&mgr, 0, got, 1) == SMP_EINVAL);       /* EMPTY */
+    assert(pkg_upload(pkg, len, 0) == 0);
+
     /* no store (KVDB unavailable): image 1 unsupported */
     env.sensor = NULL;
     reboot();
@@ -747,7 +786,8 @@ static void test_sensor(const char *path)
     pkg_record[20] ^= 1;
     sensor_reboot();
     assert(store.status.state == SENSOR_STORE_INVALID);
-    puts("PASS sensor package (image 1: VALID/INVALID/TLV/limits/resume/persist/delete/busy, ET-100 unaffected)");
+    puts("PASS sensor package (image 1: VALID/INVALID/TLV/limits/resume/persist/delete/busy, ET-100 unaffected,");
+    puts("     v0.8.9 relay lock and package read)");
     fake_nor_destroy(&nor);
     free(running); free(candidate); free(internal); free(pkg); free(bad);
 }

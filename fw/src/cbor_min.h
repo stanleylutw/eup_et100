@@ -26,7 +26,7 @@ enum cbor_type { CBOR_NONE, CBOR_UINT, CBOR_NINT, CBOR_BYTES, CBOR_TEXT,
 struct cbor_value {
     enum cbor_type type;
     uint64_t u;          /* UINT; NINT stores -1-n; BOOL 0/1 */
-    const uint8_t *ptr;  /* BYTES/TEXT */
+    const uint8_t *ptr;  /* BYTES/TEXT: content; ARRAY/MAP: whole encoded item */
     size_t len;
 };
 /* Look up a text key in the top-level map of buf. Returns 0 if found,
@@ -34,4 +34,7 @@ struct cbor_value {
 int cbor_map_find(const uint8_t *buf, size_t length, const char *key, struct cbor_value *out);
 /* Validate that buf is exactly one well-formed top-level map (depth <= 4). */
 bool cbor_map_valid(const uint8_t *buf, size_t length);
+/* Item index of an ARRAY value (from cbor_map_find): its encoded bytes, so a map
+ * item can be searched with cbor_map_find. Returns 0, 1 past the end, -1 malformed. */
+int cbor_array_item(const struct cbor_value *array, size_t index, const uint8_t **ptr, size_t *len);
 #endif

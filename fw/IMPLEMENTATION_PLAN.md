@@ -1,4 +1,128 @@
-# IMPLEMENTATION_PLAN — v0.8.8 Sensor package 存到 NOR（SMP image 1）
+# IMPLEMENTATION_PLAN — v0.8.9 Sensor OTA relay（NOR → GATT SMP 推給 sensor）
+
+> Claude Code 2026-10-23 實作；Stanley 於本對話要求 Codex 接手未完成事項。Codex 完成 host 複驗、ARM build、DFU 打包與 review 修正，硬體驗收由 Stanley 自行執行；尚未 commit。
+
+## 2026-10-23 接手紀錄
+
+- 使用既有 worktree／branch，不搬動主工作區未提交的 HTML／硬體文件，不修改 SDK。
+- Stanley 明確表示實機由自己測試；Codex 不燒錄、不操作 UART／SWD、不寫 Sensor 或 U11。
+- M-R1／M-R2 均為待驗收，不因 host PASS 而打勾。協定與驗收步驟見 [06 relay 協定](docs/02_protocol/06_sensor_ota_relay.md)及 [17 報告](docs/04_testing/17_evb_sensor_ota_relay.md)。
+- Codex review 修正：image-state 格式錯誤不得視為 active hash 不符而啟動擦除；新增 malformed-state 不擦除／不上傳／不 reset 測試。
+- 使用主工作區既有 imgtool venv 打包 worktree 的 Project.bin，無安裝、無變動 shared venv 或 SDK；指令見 17 報告。
+- Stanley 後續授權完成 D9 HTML 接線：保留主工作區 UI 修改並同步到本 worktree；只對 0.8.9 以上啟用 Sensor relay，離線測試完成，硬體由 Stanley 驗收。
+
+## Branch
+
+Before starting implementation, create and switch to the new branch:
+
+git checkout -b v0.8.9_sensor_ota_relay
+
+Base branch: v0.8.8_sensor_package_nor（cc78df0）
+
+v0.8.8 的獨立 review 尚未完成；若 review 產生修正 commit，本分支先 rebase 到修正後的 v0.8.8 再繼續。
+
+## 0. 目標與決策
+
+**目標**：ET-100 把 NOR 內已 VALID 的 sensor package，透過 BLE（ET-100 當 central）以 MCUmgr SMP 推給指定 MAC 的 sensor，sensor 重開機後確認版本與 active hash 正確。行為與 RS232 介面**照 eup_gateway v0.5.28+ 的 production Sensor OTA job 移植**（`eup_gateway/src/ota/sensor_ota_job.c`、`sensor_smp_client.c`、`sensor_ota_compat.c`；協定 `eup_gateway/docs/02_protocol/03_rs232_protocol.md` §9.9）。
+
+| 決策 | 內容（提議） |
+|---|---|
+| D1 範圍 | 只做 production relay job（`SENSOROTA` 系列）。不做 gateway 的診斷用 `SOTAPROBE`、`SOTASTAGE`、throughput 調校指令 |
+| D2 指令 | RS232 `BLEGW$SENSOROTA;<mac>`、`GSENSOROTA`、`CSENSOROTA`、`GSENSOROTAFLOW`、`GSENSOROTAMETA`；**wire format、state／step／error 名稱與數值和 gateway §9.9 完全相同**，Type 8 `OP` 事件 `SOTA;STEP…`、`SOTA;ERASE_DONE`、`SOTA;ALREADY_UP_TO_DATE;0`、`SOTA;SCAN_PAUSED;0/1`、`SOTA;<state>;<error>` 也相同。目的是讓現有 HTML 的 gateway Sensor OTA 介面可直接用 |
+| D3 GATT owner | **不新增第二個 central**。擴充 `gatt_client.c` 的單一 owner：新增「exclusive session」模式（對應 gateway `eup_aiot_gatt_client_start_exclusive`），沿用既有的等廣播 → 連線 → MTU → EUP UUID discovery → AES → metadata 讀取，之後把連線交給 relay job 的 `run()`，結束後走既有 DRAIN／release 流程 |
+| D4 NOR 存取 | NOR 仍只由 OTA worker 存取。relay 需要資料時向 worker 送讀取請求（建議一次 4 KB 進 RAM buffer，再切成 SMP chunk），不讓 gatt task 直接碰 NOR |
+| D5 流程與參數 | 15 步流程、chunk 192 B、等廣播 180 s（首次）／60 s（續傳）、重開機後 90 s、最多 3 個 session、重試間隔 1.2 s、SMP 指令 5 s、erase 15 s：**先照 gateway 數值**。差異只在 M-R1 量測後依實測調整，並寫進 16／17 報告 |
+| D6 相容性 | 照搬 gateway `sensor_ota_compat`：device ID＝目標 MAC、project／hardware／soc 對照固定表（`EUP_AIoT_P1+P1_HW_1.0.0+nrf52832→p1_nrf52832`、`EUP_AIoT_E9+E9_HW_1.0.0+nrf52832→e9_nrf52832`）、capabilities、schema=1、protocol、role。版本與 active hash 都已相同時直接 `ALREADY_UP_TO_DATE`→`SUCCESS` |
+| D7 狀態 | job 只存在 RAM（同 gateway）；ET-100 重開機後回 `IDLE`，不續傳 relay |
+| D8 互斥 | relay 進行中：拒絕 image 0／1 上傳、`DSOTAPKG`、手動 GATT session（`GSENSORINFO`／`GSENSORCMD`／`SSENSORCFG`）、auto 清單觸發的自動連線與第二個 relay，回 `BUSY`；`GSOTAPKG`、`GSENSOROTA*` 查詢不受限。上傳期間暫停 scan（`SOTA;SCAN_PAUSED;1`），結束恢復 |
+| D9 HTML | 韌體完成後由 Codex 讓 ET-100 模式啟用既有 gateway Sensor OTA 介面（HTML 已有 34 處 `SENSOROTA` 相關程式），只改模式判斷與板型 gate，不重寫 |
+
+| Milestone | 內容 | 之後 |
+|---|---|---|
+| M-R1 唯讀打底 | `SENSOROTAMETA` 等價流程：連線 p1 sensor → AES → metadata → 相容性 → SMP discovery → image state；**不寫 sensor**。量測 MTU、write-cmd 實際吞吐、連線參數 | 停下，回報量測，必要時改 D5 |
+| M-R2 完整 relay | erase → upload → image test → reset → 重開機後重連驗證 → `SUCCESS`；取消、斷線續傳、`ALREADY_UP_TO_DATE` | 停下，請另一方 review |
+
+硬體執行：由 Stanley 自行部署本 branch App 並測試指定 P1；本次接手不授權 Codex 操作硬體。
+
+## 1. 現有基礎
+
+- `gatt_client.c`（v0.6.0 起）：單一 GATT owner、等指定 MAC 廣播、`gap_conn_start`、MTU 交換（要求 247）、EUP UUID service discovery、CCCD、AES 驗證、metadata 讀取（cmd 1–8）、Type 8 事件、DRAIN 後才 release；寫入用 `gatt_cilent_write_cmd_with_handle`。
+- `eup_aiot_metadata.h` 的 `struct eup_gatt_metadata` 與 gateway **完全相同**（已 diff 確認），可直接套 compat 邏輯。
+- v0.8.8：`sensor_store`（VALID 記錄含 package／image 長度、upload SHA-256、product／board／soc／firmware／build id）、NOR `0x420000` 的已驗證 package、`sensor_package` header 解析（含 MCUboot image hash）、OTA worker、`ota_manager` 的 owner／互斥。
+- `cbor_min`：已有 CBOR writer／parser（SMP server 用），可用於 SMP client 編解碼。
+- HTML：已有 gateway Sensor OTA UI（`GSENSOROTA`／`FLOW`／`META`）。
+
+## 2. 流程（對應 gateway 15 步）
+
+```text
+SENSOROTA;<mac>   → 檢查：package VALID＋支援的 product/board/soc、MAC 合法、無其他 owner → 回 1;<mac>;<gen>;<image_len>
+PACKAGE_CHECK     → PASS
+WAIT_ADV          → 等 exact MAC 的 connectable 廣播（180 s；續傳 60 s）
+CONNECTING/CONNECTED/AUTHENTICATING → gatt_client 既有流程
+CHECKING_TARGET   → metadata＋compat（D6）
+PREPARING_LINK    → SMP discovery＋image state；版本與 active hash 已相同 → ALREADY_UP_TO_DATE → SUCCESS
+                    否則暫停 scan、（可行時）調整連線參數
+ERASING           → SMP image erase slot 1（15 s），只在本 job 第一次做
+UPLOADING         → 由 OTA worker 讀 NOR（header 之後的 image），192 B chunk，SMP upload（帶 len／sha），依回應 off 前進；斷線 → 回 WAIT_ADV 續傳
+TESTING_IMAGE     → image state 確認 slot 1 hash＝package MCUboot hash → image test（confirm=false）→ pending
+RESETTING_TARGET  → os reset（sensor 可能在回應前就斷線，視為成功）
+WAIT_REBOOT/RECONNECTING → 90 s 內重新等廣播並連線＋AES
+VERIFYING         → metadata firmware＝package firmware 且 active hash＝package MCUboot hash
+RESULT            → SUCCESS／FAILED／TIMEOUT／CANCELLED＋stable error（gateway 表 0–23）
+```
+
+## 3. 前提查證
+
+| 項目 | 狀態 |
+|---|---|
+| SDK 有 `gatt_cilent_write_cmd_with_handle`、`gatt_mtu_exchange_req`、`GATTC_MSG_CMP_EVT`（含 `GATT_OP_WRITE_CMD`）、notify 回呼 | ✅ 已讀 `gatt_api.h`；ET-100 現有 GATT client 已在用 |
+| metadata struct 與 gateway 相同 | ✅ diff 一致 |
+| HTML 已有 gateway Sensor OTA UI | ✅ `rs232_tester.html` 有 `GSENSOROTA`／`FLOW`／`META` |
+| **write-cmd 流量控制**：連續送 write cmd 時 SDK buffer 滿會回錯誤、還是每包都有 `CMP_EVT` 可等 | ❓ 未查證。M-R1 量測；決定是「每包等 CMP_EVT」還是「送到錯誤再退避」 |
+| sensor 接受的 MTU、FR3068 central 是否支援 DLE／連線參數更新 API | ❓ 未查證（server 端 v0.8.6 實測 MTU 247、約 6 kB/s，不代表 central 端） |
+| p1 sensor 的 SMP service／characteristic UUID | ❓ gateway 用 Zephyr 標準 `SMP_BT_SVC_UUID`（`8D53DC1D-1DB7-4CD3-868B-8A527460AA84`）／`SMP_BT_CHR_UUID`（`DA2E7828-FBCE-4E01-AE9E-261174997C48`）；M-R1 discovery 時實機確認 |
+| sensor 的可連線廣播時機（gateway 註解提到「短 OTA 廣播 burst」） | ❓ M-R1 觀察；決定 WAIT_ADV 是否需要更積極的 scan 參數 |
+| RAM：gatt task stack 1536 words＋SMP frame（gateway 1024 B）＋回應 512 B＋NOR 讀取 buffer 4 KB | ❓ 實作前估算；必要時 buffer 放靜態區、不放 stack |
+| 吞吐估算 | 167 KB image：若 ≥ 2 kB/s 約 90 s，單一 session（gateway 上傳 deadline 120 s）可完成；更慢要靠續傳 session，需在 M-R1 量到後確認 |
+
+## 4. 檔案範圍
+
+| 檔案 | 內容 |
+|---|---|
+| `fw/src/sensor_smp_client.c／.h`（新） | 移植 gateway `sensor_smp_client.c`：SMP service／char discovery、CCCD、frame 分段寫入（MTU-3）、notify 重組、upload（erase_first／續傳）、image state、image test、os reset；CBOR 用 `cbor_min`。傳輸層抽成 callback，host 可測 |
+| `fw/src/sensor_ota_job.c／.h`（新） | 15 步 job 狀態機、timeout／重試／續傳、stable state／error 名稱、Type 8 `SOTA;…` 事件；與 gatt_client 的 exclusive session 介接 |
+| `fw/src/sensor_ota_compat.c／.h`（新） | 移植 gateway compat 與 board 對照表 |
+| `fw/src/sensor_ota_workflow.h`（新） | 照搬 gateway（15 步、每步 3 bits） |
+| `fw/src/gatt_client.c／.h` | 新增 exclusive session：reserve／start／cancel／release、`run()` callback、暫停／恢復 scan；既有手動 session 行為不變 |
+| `fw/src/ota_worker.c／.h` | 新增「讀 sensor package 區」請求，供 relay 取資料；relay 進行中標記 owner |
+| `fw/src/ota_manager.c` | relay 進行中拒絕 image 0／1 與 `DSOTAPKG`（BUSY） |
+| `fw/src/serial_gchk.c／.h` | 5 個 RS232 指令（格式同 gateway §9.9） |
+| `fw/targets/evb_serial.mk` | 新檔案；版本 0.8.9-dev |
+| `fw/tests/` | SMP client 編解碼（對照 gateway 測試向量）；fake sensor（SMP server＋EUP UUID）跑完整 15 步；續傳、取消、ALREADY_UP_TO_DATE、hash／版本不符、各 timeout；指令格式；互斥 |
+| `fw/tools/test_evb_serial_host.sh` | 納入新測試 |
+| `fw/docs/02_protocol/`（新節） | ET-100 的 Sensor OTA relay 指令，引用 gateway §9.9，只列差異 |
+| `fw/docs/04_testing/17_evb_sensor_ota_relay.md`（新） | 測試報告（精簡） |
+
+**不做**：`SOTAPROBE`／`SOTASTAGE`、經 BLE（App）觸發 relay、多顆 sensor 排程、ET-100 重開機後續傳 relay、SDK 修改、sensor 端修改。
+
+## 5. 驗收（精簡）
+
+需要 Stanley 提供：一顆可重複刷寫的 p1 sensor（MAC），以及兩個不同版本的 p1 DFU zip（例如 v3.6.14 與另一版），用來做「真的更新」與「已是最新」。
+
+1. Host：§4 測試全部 PASS（ASan／UBSan）。
+2. M-R1：`GSENSOROTAMETA` 回正確 metadata、`match_mask` 全過；記錄 MTU、連線參數、實測吞吐。
+3. M-R2：NOR 放新版 package → `SENSOROTA` → `SUCCESS`；sensor 版本與 active hash 改變；記錄總時間。
+4. 同一 package 再跑一次 → `ALREADY_UP_TO_DATE` → `SUCCESS`，sensor 不重開。
+5. 上傳途中讓 sensor 斷線（拉遠或斷電）→ 續傳後 `SUCCESS`；`CSENSOROTA` → `CANCELLED`，sensor 原韌體可正常運作。
+6. relay 進行中 image 0／1 上傳與 `DSOTAPKG` 回 BUSY；結束後 scan 恢復、auto 清單不變、B-info 不變。
+
+## 6. 交付
+
+M-R1 停下回報量測；M-R2 完成後停下請另一方 review。Step 7 同步 06（roadmap §8.1 第 9 步標為完成）、02_protocol、REVIEW_REPORT；commit 等 Stanley 說「git commit」。之後交 Codex 做 HTML（D9）。
+
+---
+
+# 歷史施工單 — v0.8.8 Sensor package 存到 NOR（SMP image 1）
 
 > **Claude 實作**（Stanley 2026-10-22 指定）。Step 5 review 由 Codex 做；HTML 由 Codex 在韌體完成後另做（D8）。
 

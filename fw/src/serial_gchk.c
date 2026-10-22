@@ -6,6 +6,7 @@
 #include <string.h>
 #ifndef ET100_SERIAL_HOST_TEST
 #include "gatt_client.h"
+#include "sensor_ota_job.h"
 #endif
 
 static unsigned current_gatt_state(void)
@@ -270,6 +271,12 @@ static void handle_line(struct et100_serial_parser *p)
         char *params = end + 1;
         if (token != params) token[-1] = '\0';
         else params = "";
+        /* v0.8.9 Sensor OTA relay (gateway §9.9 formats). */
+        length = sensor_ota_job_uart(command, params, token, response, sizeof(response));
+        if (length > 0) {
+            p->send(response, (size_t)length, p->context);
+            return;
+        }
         if (et100_gatt_uart(command, params, token)) return;
 #endif
         length = snprintf(response, sizeof(response),
@@ -574,6 +581,7 @@ void app_at_init(struct __UART_HandleTypeDef *handle)
     };
     ota_worker_start(senders, storage_initialized);
     et100_gatt_init(storage_initialized);
+    sensor_ota_job_init();
     BaseType_t result = xTaskCreate(serial_task, "serial", 1024, NULL, 1, NULL);
     configASSERT(result == pdPASS);
 }

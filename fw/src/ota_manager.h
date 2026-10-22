@@ -37,6 +37,7 @@ struct ota_manager {
     uint8_t sha256[32];
     struct image_info candidate;
     uint32_t active_source, owner, owner_ms, session_source, session_target;
+    volatile bool relay;           /* v0.8.9 Sensor OTA relay owns the package */
     struct sensor_store_status sensor_status;   /* published copy for other tasks */
     uint8_t buffer[OTA_JOURNAL_CHUNK_SIZE];
 };
@@ -51,4 +52,9 @@ void ota_manager_smp_ops(struct ota_manager *m, struct smp_ops *ops);
 bool ota_manager_sensor_supported(const struct ota_manager *m);
 void ota_manager_sensor_status(struct ota_manager *m, struct sensor_store_status *out);
 int ota_manager_sensor_delete(struct ota_manager *m);
+/* v0.8.9 relay: while set, every mutating SMP request and the delete get SMP_EBUSY,
+ * so the package cannot change under a running relay. */
+void ota_manager_set_relay(struct ota_manager *m, bool active);
+/* Read bytes of the VALID package (offset 0 = header). Manager task only. */
+int ota_manager_sensor_read(struct ota_manager *m, uint32_t offset, void *data, size_t length);
 #endif

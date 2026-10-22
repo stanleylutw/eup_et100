@@ -234,6 +234,6 @@ Logs 從 0x460000 起，EVB 只能使用其 16 MB 實體範圍內的部分；不
 | 6 | — | EG800Q modem 驅動＋FTP 分塊下載 | LTE | 需 ET-100 實板或 EG800Q 開發板 |
 | 7 | — | 簽章驗證（installer 驗 MCUboot 簽章 TLV、打包帶 key） | 量產 gate | Q42 |
 | 8 | — | ET-100 移植：SPIMX2_1 NOR 後端、4-byte 定址、XM25QH256D、實機斷電（T8）、E-C ROM 行為 | 量產 gate | ET-100 實板 |
-| 9 | — | Sensor OTA relay（FR3068 當 central，把 NOR 內 package 以 SMP 推給 sensor；package 存放已於 v0.8.8 完成） | 第四種 target | 排程待定 |
+| 9 | v0.8.9 | Sensor OTA relay：單一 GATT owner、AES／metadata 相容性、NOR worker 讀取、BLE SMP 更新指定 MAC；[relay 協定](../02_protocol/06_sensor_ota_relay.md) | RS232 啟動／BLE central 傳輸 | Host／ARM／DFU PASS；M-R1／M-R2 待 Stanley，[17 報告](../04_testing/17_evb_sensor_ota_relay.md)，未標完成 |
 
 EVB 上完成第 1–4 步後，RS232 與 BLE 即可端到端更新；LTE 與量產 gate 需 ET-100 實板。此順序不代表 transport 可以繞過 boot gate 提前宣稱安全更新。簽章／公鑰／降版政策、驗證錯誤與不可用時的安全輸出須列正式產品 gate；本輪不宣稱 secure boot root-of-trust 已成立。

@@ -57,6 +57,7 @@ void ota_manager_set_source(struct ota_manager *m, uint32_t source)
 static int claim(struct ota_manager *m)
 {
     uint32_t now = m->env->now_ms ? m->env->now_ms() : 0;
+    if (m->relay) return SMP_EBUSY;
     if (m->owner && m->owner != m->active_source &&
         (uint32_t)(now - m->owner_ms) < OTA_OWNER_HOLD_MS)
         return SMP_EBUSY;
@@ -283,6 +284,24 @@ int ota_manager_sensor_delete(struct ota_manager *m)
     rc = sensor_store_remove(store);
     publish(m);
     return rc ? SMP_EUNKNOWN : 0;
+}
+
+void ota_manager_set_relay(struct ota_manager *m, bool active)
+{
+    m->relay = active;
+}
+
+int ota_manager_sensor_read(struct ota_manager *m, uint32_t offset, void *data, size_t length)
+{
+    struct sensor_store *store = m->env->sensor;
+    if (!store || store->status.state != SENSOR_STORE_VALID ||
+        offset > store->status.info.package_length ||
+        length > store->status.info.package_length - offset)
+        return SMP_EINVAL;
+    int rc = ensure_ready(m);
+    if (rc) return rc;
+    struct region r = { m->env->nor, SENSOR_STORE_NOR_BASE };
+    return region_read(&r, offset, data, length) ? SMP_EUNKNOWN : 0;
 }
 
 /* Finish the journal (if complete) and verify the Candidate image once; cached. */

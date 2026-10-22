@@ -108,6 +108,7 @@ static bool read_value(struct reader *r, struct cbor_value *out, unsigned depth)
     uint8_t major;
     uint64_t value;
     bool indefinite;
+    const uint8_t *start = r->p;
     if (depth > 4 || !read_head(r, &major, &value, &indefinite)) return false;
     if (out) memset(out, 0, sizeof *out);
     switch (major) {
@@ -123,18 +124,23 @@ static bool read_value(struct reader *r, struct cbor_value *out, unsigned depth)
         return true;
     case 4:
     case 5: {
-        if (out) { out->type = major == 4 ? CBOR_ARRAY : CBOR_MAP; out->u = value; }
         unsigned per = major == 5 ? 2 : 1;
         if (indefinite) {
             while (!is_break(r))
                 for (unsigned k = 0; k < per; k++)
                     if (!read_value(r, NULL, depth + 1)) return false;
             r->p++;
-            return true;
+        } else {
+            if (value > (uint64_t)(r->end - r->p)) return false; /* each item >= 1 byte */
+            for (uint64_t i = 0; i < value * per; i++)
+                if (!read_value(r, NULL, depth + 1)) return false;
         }
-        if (value > (uint64_t)(r->end - r->p)) return false; /* each item >= 1 byte */
-        for (uint64_t i = 0; i < value * per; i++)
-            if (!read_value(r, NULL, depth + 1)) return false;
+        if (out) {
+            out->type = major == 4 ? CBOR_ARRAY : CBOR_MAP;
+            out->u = value;
+            out->ptr = start;
+            out->len = (size_t)(r->p - start);
+        }
         return true;
     }
     case 7:
@@ -186,4 +192,24 @@ int cbor_map_find(const uint8_t *buf, size_t length, const char *key, struct cbo
 bool cbor_map_valid(const uint8_t *buf, size_t length)
 {
     return find(buf, length, NULL, NULL) >= 0;
+}
+
+int cbor_array_item(const struct cbor_value *array, size_t index, const uint8_t **ptr, size_t *len)
+{
+    if (array->type != CBOR_ARRAY || !array->ptr) return -1;
+    struct reader r = { array->ptr, array->ptr + array->len };
+    uint8_t major;
+    uint64_t items;
+    bool indefinite;
+    if (!read_head(&r, &major, &items, &indefinite) || major != 4) return -1;
+    for (size_t i = 0;; i++) {
+        if (indefinite ? is_break(&r) : i >= items) return 1;
+        const uint8_t *start = r.p;
+        if (!read_value(&r, NULL, 1)) return -1;
+        if (i == index) {
+            *ptr = start;
+            *len = (size_t)(r.p - start);
+            return 0;
+        }
+    }
 }

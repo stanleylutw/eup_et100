@@ -30,4 +30,11 @@ bool ota_worker_sensor_status(struct sensor_store_status *out);
 bool ota_worker_sensor_delete(void);
 /* -1 while nothing finished; else 0 / SMP error of the last queued delete (consumed). */
 int ota_worker_sensor_deleted(void);
+/* v0.8.9 Sensor OTA relay. begin: false if unsupported, an SMP client was active
+ * within 30 s, or a delete is queued; while held, uploads and deletes get EBUSY. */
+bool ota_worker_relay_begin(void);
+void ota_worker_relay_end(void);
+/* Package bytes (offset 0 = header), read by the worker task that owns the NOR.
+ * Blocks the caller; 0 or -1 (error / 2 s timeout). */
+int ota_worker_sensor_read(uint32_t offset, void *data, size_t length);
 #endif

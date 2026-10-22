@@ -1,5 +1,17 @@
 # REVIEW_REPORT — Phase 1a: Validate GCC Build Chain
 
+## 2026-10-23 Codex 接手 review — v0.8.9 Sensor OTA relay
+
+**結論：host／ARM／DFU 通過，待 M-R1／M-R2 實機驗收，不是硬體放行。** 審查範圍為本 worktree 相對 cc78df0 的 relay／GATT／manager／CBOR 修改，未取代 v0.8.8 的獨立 review gate。
+
+- 已修一項 Major：初始 image-state CBOR 錯誤與 active hash 不符共用 EBADMSG，可能在回應無效時進入 erase。`verify_target_firmware()` 將解碼錯誤轉成 EPROTO；fake malformed-state 驗證 0 erase／0 upload／0 reset，完整 host suite PASS。
+- 已檢查單一 GATT owner 的 reservation、sticky cancel、session cleanup；manager relay lock、NOR worker read 邊界；SMP seq／group／id／長度、分段與 offset 範圍；package target／device ID 與 active hash 比對。未發現另一項可確認的阻擋缺陷；RTOS race／SDK write-cmd 生命週期仍須實機驗證。
+- GATT task 6144 B stack，新增 SMP／cache buffer 使用 static；GCC frame 數字只供估算，未宣稱 runtime stack 高水位通過。
+- `GSENSOROTAMETA` 只查快照，沒有獨立 dry-run；M-R1 必須用相同版本且相同 active hash 的 package，否則 job 會更新 Sensor。
+- Stanley 決定自行實測；Codex 未燒錄、未開 UART／SWD、不寫 NOR 或 Sensor、未 commit／push。詳見 [17 報告](docs/04_testing/17_evb_sensor_ota_relay.md)及 [06 relay 協定](docs/02_protocol/06_sensor_ota_relay.md)。
+- D9 HTML：Stanley 授權同步完成，0.8.9 以上啟用既有 relay UI，NOR package 與 job 狀態查詢後才可開始；SOTAPROBE／ZVERO 不走 ET-100 路徑。三組離線 JS／mock browser 測試通過，不代表已完成 Sensor 實測。
+- 後續 review Minor 已修：`GSENSORINFO` 在 relay reserved 期間回 `0;BUSY`，包含 session 內與 session 之間；內部 metadata API 保留，釋放 reservation 後恢復快取查詢。Host 新增這三種情境；完整 GATT 流程的 MTU ≥35 限制亦寫入協定，不把 SMP MTU 23 單元測試當成認證端到端通過。
+
 ## 2026-10-22 Codex Step 5 獨立 review — v0.8.5 M-SMP（RS232 入口）
 
 **結論：PASS，無 Critical／Major issue。**

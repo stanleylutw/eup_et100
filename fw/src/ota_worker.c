@@ -31,6 +31,13 @@ static volatile bool seen;
 static struct sensor_store sensor;
 static volatile bool delete_queued;
 static volatile int delete_result = -1;
+static struct {
+    volatile bool pending;
+    volatile int rc;
+    uint32_t offset;
+    void *data;
+    size_t length;
+} read_request;
 
 static size_t pkg_load(uint8_t *record, size_t capacity)
 {
@@ -95,6 +102,41 @@ int ota_worker_sensor_deleted(void)
     return rc;
 }
 
+bool ota_worker_relay_begin(void)
+{
+    bool ok = false;
+    if (!worker || !ota_manager_sensor_supported(&ota)) return false;
+    taskENTER_CRITICAL();
+    if (!delete_queued && !ota_worker_active()) {
+        ota_manager_set_relay(&ota, true);
+        ok = true;
+    }
+    taskEXIT_CRITICAL();
+    return ok;
+}
+
+void ota_worker_relay_end(void)
+{
+    ota_manager_set_relay(&ota, false);
+}
+
+int ota_worker_sensor_read(uint32_t offset, void *data, size_t length)
+{
+    if (!worker || read_request.pending) return -1;
+    read_request.offset = offset;
+    read_request.data = data;
+    read_request.length = length;
+    read_request.rc = -1;
+    __DMB();
+    read_request.pending = true;
+    xTaskNotifyGive(worker);
+    for (unsigned waited = 0; read_request.pending; waited++) {
+        if (waited >= 2000) return -1;   /* the worker clears pending; buffer stays owned */
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return read_request.rc;
+}
+
 bool ota_worker_submit(enum ota_transport transport, const uint8_t *packet, size_t length, uint32_t tag)
 {
     if (transport >= OTA_TRANSPORT_COUNT || !worker || length > SMP_SERIAL_MAX_PACKET) return false;
@@ -136,6 +178,12 @@ static void worker_task(void *argument)
     stack_low = (const uint8_t *)(((uintptr_t)&top_marker & ~3u) - WORKER_STACK_WORDS * 4u + SCAN_MARGIN);
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (read_request.pending) {
+            read_request.rc = ota_manager_sensor_read(&ota, read_request.offset, read_request.data,
+                                                      read_request.length) ? -1 : 0;
+            __DMB();
+            read_request.pending = false;
+        }
         if (delete_queued) {
             ota_manager_set_source(&ota, OTA_RS232);
             int rc = ota_manager_sensor_delete(&ota);

@@ -5,6 +5,8 @@ Last updated: 2026-10-21 Codex
 
 ## Revision History
 
+2026-10-23 增補（本次接手範圍）：v0.8.9 新增 UART Sensor relay 指令及 GATT exclusive owner／OTA worker NOR 讀取，host／ARM／DFU 已通過、硬體待 Stanley 驗收。未新增 Kconfig／預設值；改變 firmware session／互斥行為與 OTA 對外指令，故補此平台紀錄。細節以 [06 relay 協定](../02_protocol/06_sensor_ota_relay.md)及 [17 報告](../04_testing/17_evb_sensor_ota_relay.md)為準；下方歷史 baseline／板況不是本次重新實測。
+
 | Version | Date Time | Summary | Who | FW Branch |
 |---|---|---|---|---|
 | v0.1 | 2026-10-02 10:00:00 | Initial skeleton — project kick-off，Phase 0 scaffold only | Stanley | main |

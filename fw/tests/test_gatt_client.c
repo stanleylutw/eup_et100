@@ -97,26 +97,52 @@ ble_api_err_t gatt_mtu_exchange_req(uint8_t id,uint8_t index,uint16_t size)
   e.param.mtu_ind.conidx=index;e.param.mtu_ind.mtu=247;et100_gatt_gap(&e);return 0; }
 static void complete(uint8_t operation)
 { struct gatt_msg m={.msg_evt=GATTC_MSG_CMP_EVT,.conn_idx=2};m.param.gatt_op_cmp.operation=operation;client_callback(&m); }
+static int smp_absent, smp_writes, cmd_writes[256];
+static uint8_t smp_got[64];
+static size_t smp_got_len;
 ble_api_err_t gatt_discovery_peer_svc(uint8_t id,uint8_t index,struct gatt_uuid *uuid)
-{ (void)id;(void)index;assert(uuid_is(uuid,0));gatt_svc_report_t svc={.start_hdl=1,.end_hdl=10,.uuid=*uuid};
+{ (void)id;(void)index;
+  if(uuid->size==16 && !memcmp(uuid->p_uuid,smp_service_uuid,16)) {
+    if(!smp_absent) { gatt_svc_report_t svc={.start_hdl=20,.end_hdl=30,.uuid=*uuid};
+      struct gatt_msg m={.msg_evt=GATTC_MSG_SVC_REPORT,.conn_idx=2};m.param.gatt_data.msg_len=sizeof(svc);
+      m.param.gatt_data.p_msg_data=(void *)&svc;client_callback(&m); }
+    complete(GATT_OP_PEER_SVC_DISC_END);return 0; }
+  assert(uuid_is(uuid,0));gatt_svc_report_t svc={.start_hdl=1,.end_hdl=10,.uuid=*uuid};
   struct gatt_msg m={.msg_evt=GATTC_MSG_SVC_REPORT,.conn_idx=2};m.param.gatt_data.msg_len=sizeof(svc);
   m.param.gatt_data.p_msg_data=(void *)&svc;client_callback(&m);complete(GATT_OP_PEER_SVC_DISC_END);return 0; }
 ble_api_err_t gatt_discovery_peer_char(uint8_t id,uint8_t index,uint16_t start,uint16_t end)
-{ (void)id;(void)index;assert(start==1 && end==10);
+{ (void)id;(void)index;
+  if(start==20) { assert(end==30);
+    gatt_char_report_t c[2]={{.char_hdl=21,.val_hdl=22,.prop=GATT_PROP_WRITE_CMD|GATT_PROP_NOTI,.uuid={16,{0}}},
+                             {.char_hdl=24,.val_hdl=25,.prop=GATT_PROP_NOTI,.uuid={2,{1,2}}}};
+    memcpy(c[0].uuid.p_uuid,smp_char_uuid,16);
+    for(unsigned i=0;i<2;i++) { struct gatt_msg m={.msg_evt=GATTC_MSG_CHAR_REPORT,.conn_idx=2};
+      m.param.gatt_data.msg_len=sizeof(c[i]);m.param.gatt_data.p_msg_data=(void *)&c[i];client_callback(&m); }
+    complete(GATT_OP_PEER_CHAR_DISC_END);return 0; }
+  assert(start==1 && end==10);
   for(unsigned i=1;i<=2;i++) { gatt_char_report_t c={.char_hdl=(uint16_t)(i*2),.val_hdl=(uint16_t)(i*2+1),
       .prop=i==1?GATT_PROP_WRITE_CMD:GATT_PROP_NOTI,.uuid=service_uuid};c.uuid.p_uuid[12]=(uint8_t)i;
     struct gatt_msg m={.msg_evt=GATTC_MSG_CHAR_REPORT,.conn_idx=2};m.param.gatt_data.msg_len=sizeof(c);
     m.param.gatt_data.p_msg_data=(void *)&c;client_callback(&m); }
   complete(GATT_OP_PEER_CHAR_DISC_END);return 0; }
 ble_api_err_t gatt_discovery_peer_desc(uint8_t id,uint8_t index,uint16_t start,uint16_t end)
-{ (void)id;(void)index;assert(start==6 && end==10);gatt_desc_report_t d={.desc_hdl=6,.uuid={2,{2,0x29}}};
+{ (void)id;(void)index;
+  if(start==23) { assert(end==23);gatt_desc_report_t d={.desc_hdl=23,.uuid={2,{2,0x29}}};
+    struct gatt_msg m={.msg_evt=GATTC_MSG_CHAR_DESC_REPORT,.conn_idx=2};m.param.gatt_data.msg_len=sizeof(d);
+    m.param.gatt_data.p_msg_data=(void *)&d;client_callback(&m);complete(GATT_OP_PEER_DESC_DISC_END);return 0; }
+  assert(start==6 && end==10);gatt_desc_report_t d={.desc_hdl=6,.uuid={2,{2,0x29}}};
   struct gatt_msg m={.msg_evt=GATTC_MSG_CHAR_DESC_REPORT,.conn_idx=2};m.param.gatt_data.msg_len=sizeof(d);
   m.param.gatt_data.p_msg_data=(void *)&d;client_callback(&m);complete(GATT_OP_PEER_DESC_DISC_END);return 0; }
 ble_api_err_t gatt_cilent_write_req_with_handle(struct gatt_client_write_param_handle *p)
-{ assert(p->handle==6 && p->data_len==2 && p->p_data[0]==1);complete(GATT_OP_WRITE_REQ);return 0; }
+{ assert((p->handle==6 || p->handle==23) && p->data_len==2 && p->p_data[0]==1);complete(GATT_OP_WRITE_REQ);return 0; }
 ble_api_err_t gatt_cilent_write_cmd_with_handle(struct gatt_client_write_param_handle *p)
 {
+    if(p->handle==22) {       /* SMP: echo the write back as one notification */
+        smp_writes++;struct gatt_msg m={.msg_evt=GATTC_MSG_NTF_REQ,.conn_idx=2,.handle=22};
+        m.param.gatt_data.p_msg_data=p->p_data;m.param.gatt_data.msg_len=p->data_len;client_callback(&m);return 0;
+    }
     assert(p->handle==3 && p->data_len>=7);
+    cmd_writes[p->p_data[3]]++;
     uint8_t cmd=p->p_data[3], answer[64]={0xe9,0x55,1,(uint8_t)(cmd|0x80),p->p_data[4],0,0,1,0};
     if(cmd==0x10) { answer[8]=18;answer[9]=1;answer[10]=16; }
     if(cmd==0x11) { auth_writes++;if(scenario==1)answer[5]=1; }
@@ -143,6 +169,98 @@ static void run_session(int mode)
     current_task=1;drain_output();assert(state==IDLE && !connected && !initiating);
     assert(strstr(captured,"G1;8;DC;AABBCCDDEEFF;"));
 }
+/* ---- v0.8.9 relay hooks ---- */
+static int stages[8], stage_count, run_calls, run_result, hook_calls, matched_calls;
+static void stage_fn(enum et100_gatt_stage s,int result,void *ctx)
+{ assert(ctx==&stage_count && stage_count<8);stages[stage_count++]=result?-1-(int)s:(int)s; }
+static void matched_fn(void *ctx) { (void)ctx;matched_calls++; }
+static void sink_fn(const uint8_t *d,size_t n) { assert(smp_got_len+n<=sizeof(smp_got));memcpy(smp_got+smp_got_len,d,n);smp_got_len+=n; }
+static int run_fn(void *ctx)
+{
+    (void)ctx;run_calls++;smp_got_len=0;
+    assert(state==READY && connected && exclusive);
+    struct eup_gatt_metadata m;
+    /* All eight metadata commands are read before run(); the cache answers for target only. */
+    for(unsigned c=1;c<=8;c++) assert(cmd_writes[c]==1);
+    assert(et100_gatt_metadata(target,&m)==0 && m.seen);
+    assert(et100_gatt_metadata((uint8_t[]){1,2,3,4,5,6},&m)==-ENODATA);
+    char info[]="AABBCCDDEEFF";assert(et100_gatt_uart("GSENSORINFO",info,"INFO"));
+    char p[]="AABBCCDDEEFF;7F";assert(et100_gatt_uart("GSENSORCMD",p,"BUSY"));   /* not during a relay */
+    int open=et100_gatt_smp_open(sink_fn);
+    if(smp_absent) { assert(open==-ENOENT && !smp_handle);return -ENOENT; }
+    assert(open==0 && smp_handle==22 && smp_ccc==23 && smp_char_end==23 && ccc_handle==6 && tx_handle==5);
+    uint8_t frame[10]={2,0,0,2,0,1,9,1,0xa0,0xa0};
+    assert(et100_gatt_smp_write(frame,sizeof(frame))==0 && smp_got_len==10 && !memcmp(smp_got,frame,10));
+    volatile unsigned never=0;
+    assert(et100_gatt_mtu()==247 && et100_gatt_wait(&never,30)==-ETIMEDOUT);
+    return run_result;
+}
+static int hook_fn(void) { return hook_calls++==0; }
+static int exclusive_run(const struct et100_gatt_exclusive_ops *ops)
+{
+    int result=-999;current_task=2;
+    if(!setjmp(worker_exit)) result=et100_gatt_exclusive((uint8_t[]){0xaa,0xbb,0xcc,0xdd,0xee,0xff},ops);
+    current_task=1;drain_output();return result;
+}
+static void exclusive_tests(void)
+{
+    struct et100_gatt_exclusive_ops ops={5000,matched_fn,stage_fn,run_fn,&stage_count};
+    /* Must hold the reservation; a second reservation is refused. */
+    reset_test(0);ready_step=3;
+    assert(exclusive_run(&ops)==-EBUSY && et100_gatt_reserve()==0 && et100_gatt_reserve()==-EBUSY);
+    stage_count=run_calls=matched_calls=0;smp_got_len=0;run_result=0;memset(cmd_writes,0,sizeof(cmd_writes));
+    assert(exclusive_run(&ops)==0 && run_calls==1 && matched_calls==1 && state==IDLE && !connected && !exclusive);
+    int order[]={ET100_GATT_CONNECTED,ET100_GATT_AUTHENTICATING,ET100_GATT_AUTHENTICATED,
+                 ET100_GATT_METADATA_READING,ET100_GATT_METADATA_READY};
+    assert(stage_count==5 && !memcmp(stages,order,sizeof(order)));
+    assert(strstr(captured,"G1;8;CS;") && strstr(captured,"G1;8;DC;AABBCCDDEEFF;") && !strstr(captured,"G1;8;MR;"));
+    assert(strstr(captured,"GSENSORCMD;0;no_session;BUSY") && !smp_handle && !smp_sink);
+    assert(strstr(captured,"AT$PD=BLEGW$GSENSORINFO;0;BUSY;INFO\r\n"));
+    /* run() result passes through; missing SMP service. */
+    stage_count=0;run_result=-EIO;memset(cmd_writes,0,sizeof(cmd_writes));assert(exclusive_run(&ops)==-EIO);
+    smp_absent=1;stage_count=0;run_result=0;memset(cmd_writes,0,sizeof(cmd_writes));assert(exclusive_run(&ops)==-ENOENT);smp_absent=0;
+    /* While reserved: no manual or auto session, no STYPESWITCH. */
+    captured_size=0;captured[0]=0;
+    char open[]="1;AABBCCDDEEFF";assert(et100_gatt_uart("STYPESWITCH",open,"OPEN"));
+    char stop[]="0";assert(et100_gatt_uart("STYPESWITCH",stop,"STOP"));drain_output();
+    assert(state==IDLE && strstr(captured,"STYPESWITCH;0;1;AABBCCDDEEFF;OPEN") && strstr(captured,"STYPESWITCH;0;0;STOP"));
+    char info[]="AABBCCDDEEFF";assert(et100_gatt_uart("GSENSORINFO",info,"WAIT"));drain_output();
+    assert(strstr(captured,"AT$PD=BLEGW$GSENSORINFO;0;BUSY;WAIT\r\n"));
+    memcpy(auto_macs[0],(uint8_t[]){0xaa,0xbb,0xcc,0xdd,0xee,0xff},6);
+    struct gap_evt_adv_report ad={0};ad.evt_type=GAP_SCAN_EVT_CONN_UNDIR;
+    for(unsigned i=0;i<6;i++)ad.addr.addr.addr[i]=auto_macs[0][5-i];
+    struct gap_event e={.type=GAP_EVT_ADV_REPORT};e.param.adv_rpt=&ad;et100_gatt_gap(&e);
+    assert(state==IDLE);
+    /* A cancel while idle between relay sessions stops the next session. */
+    et100_gatt_cancel();assert(!cancel_requested && reserved_cancel);
+    stage_count=run_calls=0;assert(exclusive_run(&ops)==-ECANCELED && !run_calls && !stage_count);
+    assert(exclusive_run(&ops)==-ECANCELED);
+    et100_gatt_unreserve();assert(!reserved && !reserved_cancel);
+    assert(et100_gatt_uart("GSENSORINFO",info,"FREE"));drain_output();
+    assert(strstr(captured,"AT$PD=BLEGW$GSENSORINFO;1;AABBCCDDEEFF;"));
+    ticks+=6000;et100_gatt_gap(&e);assert(state==WAIT_ADV);   /* after the 5 s cooldown */
+    state=IDLE;memset(auto_macs,0,sizeof(auto_macs));
+    /* Auth failure is reported to the owner and returned. */
+    reset_test(1);ready_step=3;assert(et100_gatt_reserve()==0);stage_count=run_calls=0;
+    assert(exclusive_run(&ops)==-EACCES && !run_calls && stage_count==3 && stages[2]==-1-(int)ET100_GATT_AUTHENTICATED);
+    et100_gatt_unreserve();
+    /* No advertisement within wait_ms. */
+    reset_test(2);assert(et100_gatt_reserve()==0);
+    assert(exclusive_run(&ops)==-ECANCELED);   /* scenario 2 cancels in WAIT_ADV */
+    et100_gatt_unreserve();
+    /* Idle hook runs before the scan restart; OP events are Type 8 with checksum. */
+    reset_test(0);et100_gatt_set_idle_hook(hook_fn);hook_calls=0;
+    current_task=2;if(!setjmp(worker_exit))worker(NULL);current_task=1;
+    assert(hook_calls==2);et100_gatt_set_idle_hook(NULL);
+    et100_gatt_op_event((uint8_t[]){0xaa,0xbb,0xcc,0xdd,0xee,0xff},"SOTA;STEP;WAIT_ADV;ACTIVE");drain_output();
+    const char *body="G1;8;OP;AABBCCDDEEFF;SOTA;STEP;WAIT_ADV;ACTIVE";uint8_t sum=0;
+    for(const char *q=body;*q;q++)sum^=(uint8_t)*q;
+    char expected[96];snprintf(expected,sizeof(expected),"AT$PD=%s*%02X\r\n",body,sum);
+    assert(strstr(captured,expected));
+    puts("PASS: relay exclusive session: reserve, stage order, metadata, SMP discovery/notify, run result,");
+    puts("      no manual/auto/STYPESWITCH while reserved, sticky cancel, auth failure, idle hook, OP event");
+}
+
 int main(void)
 {
     /* Public NIST AES-128 known-answer vector, unrelated to project credentials. */
@@ -204,6 +322,7 @@ int main(void)
     db_fail=1;char auto_off[]="AABBCCDDEEFF;0";
     assert(et100_gatt_uart("SAUTOGATT",auto_off,"FAIL"));
     assert(auto_enabled((uint8_t[]){0xaa,0xbb,0xcc,0xdd,0xee,0xff}));
+    exclusive_tests();
     puts("PASS: public AES vector, real SDK types, discovery/CCCD, auth pass/fail, read/config,");
     puts("      cancel/late-connect, zero-status drain, scan restore, auto-list reload/failure, ordered/stale output");
     return 0;

@@ -11,6 +11,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -50,6 +51,19 @@ static struct {
 
 static const struct gatt_uuid service_uuid = {16,
     {1,0,0,0x50,0x55,0x45,0x43,0x49,0x47,0x4f,0x4c,0x4f,0,0,0xe0,0xe9}};
+/* v0.8.9 relay: exclusive session owner, reservation and the Sensor SMP link.
+ * Zephyr SMP_BT_SVC_UUID 8D53DC1D-1DB7-4CD3-868B-8A527460AA84 and
+ * SMP_BT_CHR_UUID DA2E7828-FBCE-4E01-AE9E-261174997C48 (little-endian). */
+static const uint8_t smp_service_uuid[16] = {0x84,0xaa,0x60,0x74,0x52,0x8a,0x8b,0x86,
+    0xd3,0x4c,0xb7,0x1d,0x1d,0xdc,0x53,0x8d};
+static const uint8_t smp_char_uuid[16] = {0x48,0x7c,0x99,0x74,0x11,0x26,0x9e,0xae,
+    0x01,0x4e,0xce,0xfb,0x28,0x78,0x2e,0xda};
+static const struct et100_gatt_exclusive_ops *exclusive;
+static int exclusive_result;
+static volatile unsigned reserved, reserved_cancel, discovering_smp;
+static uint16_t smp_start, smp_end, smp_handle, smp_char_end, smp_ccc;
+static void (*volatile smp_sink)(const uint8_t *, size_t);
+static int (*idle_hook)(void);
 
 static uint32_t now_ms(void) { return (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS; }
 static void mac_text(const uint8_t mac[6], char out[13])
@@ -185,7 +199,11 @@ static uint16_t client_callback(struct gatt_msg *message)
             message->param.gatt_data.msg_len >= sizeof(gatt_svc_report_t)) {
             gatt_svc_report_t value;
             memcpy(&value, message->param.gatt_data.p_msg_data, sizeof(value));
-            if (uuid_is(&value.uuid, 0)) { service_start = value.start_hdl; service_end = value.end_hdl; }
+            if (discovering_smp) {
+                if (value.uuid.size == 16 && !memcmp(value.uuid.p_uuid, smp_service_uuid, 16)) {
+                    smp_start = value.start_hdl; smp_end = value.end_hdl;
+                }
+            } else if (uuid_is(&value.uuid, 0)) { service_start = value.start_hdl; service_end = value.end_hdl; }
         }
         break;
     case GATTC_MSG_CHAR_REPORT:
@@ -193,6 +211,14 @@ static uint16_t client_callback(struct gatt_msg *message)
             message->param.gatt_data.msg_len >= sizeof(gatt_char_report_t)) {
             gatt_char_report_t value;
             memcpy(&value, message->param.gatt_data.p_msg_data, sizeof(value));
+            if (discovering_smp) {
+                if (value.uuid.size == 16 && !memcmp(value.uuid.p_uuid, smp_char_uuid, 16) &&
+                    (value.prop & GATT_PROP_WRITE_CMD) && (value.prop & GATT_PROP_NOTI))
+                    smp_handle = value.val_hdl;
+                else if (smp_handle && value.char_hdl > smp_handle && value.char_hdl <= smp_char_end)
+                    smp_char_end = value.char_hdl - 1;
+                break;
+            }
             if (uuid_is(&value.uuid, 1) && (value.prop & GATT_PROP_WRITE_CMD)) rx_handle = value.val_hdl;
             if (uuid_is(&value.uuid, 2) && (value.prop & GATT_PROP_NOTI)) tx_handle = value.val_hdl;
             if (tx_handle && value.char_hdl > tx_handle && value.char_hdl <= tx_end)
@@ -204,13 +230,17 @@ static uint16_t client_callback(struct gatt_msg *message)
             message->param.gatt_data.msg_len >= sizeof(gatt_desc_report_t)) {
             gatt_desc_report_t value;
             memcpy(&value, message->param.gatt_data.p_msg_data, sizeof(value));
-            if (value.uuid.size == 2 && value.uuid.p_uuid[0] == 2 && value.uuid.p_uuid[1] == 0x29)
-                ccc_handle = value.desc_hdl;
+            if (value.uuid.size == 2 && value.uuid.p_uuid[0] == 2 && value.uuid.p_uuid[1] == 0x29) {
+                if (!discovering_smp) ccc_handle = value.desc_hdl;
+                else if (!smp_ccc && value.desc_hdl > smp_handle) smp_ccc = value.desc_hdl;
+            }
         }
         break;
     case GATTC_MSG_NTF_REQ: {
         struct eup_uuid_response value;
-        if (message->handle == tx_handle && !response_done &&
+        if (smp_handle && message->handle == smp_handle) {
+            if (smp_sink) smp_sink(message->param.gatt_data.p_msg_data, message->param.gatt_data.msg_len);
+        } else if (message->handle == tx_handle && !response_done &&
             eup_uuid_parse_response(message->param.gatt_data.p_msg_data,
                 message->param.gatt_data.msg_len, &value) == 0 &&
             value.cmd == expected_cmd && value.seq == expected_seq && value.part == part &&
@@ -376,11 +406,136 @@ static int release_owner(void)
     return released;
 }
 
+static void stage(enum et100_gatt_stage value, int result)
+{
+    if (exclusive && exclusive->stage) exclusive->stage(value, result, exclusive->ctx);
+}
+
+/* One owner session from WAIT_ADV (or DRAIN) back to IDLE. An exclusive owner
+ * (v0.8.9 relay) gets the link after AES and metadata via run(); the result
+ * (0 or negative errno) is kept in exclusive_result. */
+static void session(void)
+{
+    int result = -EIO;
+    if (state == DRAIN) goto cleanup;
+    uint32_t start = now_ms(), wait_ms = exclusive ? exclusive->wait_ms : 90000;
+    if (manual) event("WS", "manual");
+    while (state == WAIT_ADV && !matched && !cancel_requested &&
+        (uint32_t)(now_ms() - start) < wait_ms) {
+        if (radio_ready) et100_scan_start();
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    if (!matched || cancel_requested) {
+        result = cancel_requested ? -ECANCELED : -ETIMEDOUT;
+        event("CF", cancel_requested ? "cancelled" : "no_adv_timeout");
+        goto cleanup;
+    }
+    if (exclusive && exclusive->matched) exclusive->matched(exclusive->ctx);
+    result = -ENOTCONN;
+    event("CS", "");
+    state = CONNECTING;
+    scan_ended = 0; scan_stop_pending = 1;
+    if (gap_scan_stop() != BLE_API_ERR_NO_ERR) {
+        scan_stop_pending = 0; event("CF", "scan_stop"); goto cleanup;
+    }
+    scan_resume_pending = 1;
+    start = now_ms();
+    while (!scan_ended && !cancel_requested && (uint32_t)(now_ms()-start) < 1500)
+        vTaskDelay(pdMS_TO_TICKS(5));
+    if (!scan_ended || cancel_requested) { event("CF", "scan_stop"); goto cleanup; }
+    gap_conn_param_t params = {0};
+    params.peer_addr = peer;
+    params.own_addr_type = GAP_ADDR_TYPE_STATIC;
+    params.phy_mode = GAPM_PHY_TYPE_LE_1M;
+    params.scan_intv = params.scan_window = 40;
+    params.conn_intv_min = 12; params.conn_intv_max = 24;
+    params.supervision_to = 500; params.ce_len_max = 2;
+    initiating = 1; connection_end_seen = 0; connection_end_status = 0;
+    if (gap_conn_start(&params) != BLE_API_ERR_NO_ERR) {
+        initiating = 0; event("CF", "connect_start"); goto cleanup;
+    }
+    start = now_ms();
+    while (!connected && !(connection_end_seen && connection_end_status != 0) && !cancel_requested &&
+        (uint32_t)(now_ms()-start) < 10000) vTaskDelay(pdMS_TO_TICKS(5));
+    if (!connected || cancel_requested) { event("CF", "connect_timeout"); goto cleanup; }
+    stage(ET100_GATT_CONNECTED, 0);
+    state = SETUP;
+    if (!setup()) { event("CF", "gatt_setup"); goto cleanup; }
+    stage(ET100_GATT_AUTHENTICATING, 0);
+    if (!authenticate()) {
+        result = -EACCES;
+        stage(ET100_GATT_AUTHENTICATED, result);
+        event("AF", "auth"); goto cleanup;
+    }
+    stage(ET100_GATT_AUTHENTICATED, 0);
+    taskENTER_CRITICAL();
+    memcpy(cache_mac, target, 6); eup_aiot_metadata_reset(&metadata);
+    state = READY;
+    taskEXIT_CRITICAL();
+    event("AP", "");
+    if (exclusive) {
+        stage(ET100_GATT_METADATA_READING, 0);
+        for (uint8_t cmd = 1; cmd <= 8 && connected && !cancel_requested; cmd++)
+            if (command(cmd, NULL, 0, 1500)) update_metadata_cache(cmd);
+        if (!connected || cancel_requested) {
+            result = cancel_requested ? -ECANCELED : -ENOTCONN;
+            stage(ET100_GATT_METADATA_READY, result);
+            goto cleanup;
+        }
+        stage(ET100_GATT_METADATA_READY, 0);
+        result = exclusive->run(exclusive->ctx);
+        if (result && cancel_requested) result = -ECANCELED;
+        goto cleanup;
+    }
+    uint32_t activity = now_ms();
+    uint8_t metadata_cmd = 1;
+    while (connected && !cancel_requested && !output_fault &&
+        (uint32_t)(now_ms()-activity) < 30000) {
+        if (request_pending) {
+            int ok = command(request.command, request.payload, request.length, 2000);
+            if (ok) { activity = now_ms(); update_metadata_cache(request.command); }
+            complete_request(ok);
+        } else if (metadata_cmd <= 8) {
+            uint8_t cmd = metadata_cmd++;
+            if (command(cmd, NULL, 0, 1500)) {
+                update_metadata_cache(cmd);
+                activity = now_ms(); chunks(cmd, NULL, NULL);
+            }
+        } else vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    result = 0;
+    if (output_fault) event("CF", "uart_backpressure");
+    else if (!cancel_requested && connected) event("TO", "idle");
+cleanup:
+    state = DRAIN;
+    discovering_smp = 0; smp_sink = NULL; smp_handle = 0;
+    if (request_pending) complete_request(0);
+    unsigned fault_reported = 0;
+    uint32_t stop_attempt_ms = now_ms() - 1000;
+    start = now_ms();
+    /* Retain owner until the SDK confirms no initiator/link remains. */
+    for (;;) {
+        if (release_owner()) break;
+        if ((uint32_t)(now_ms() - stop_attempt_ms) >= 1000) {
+            if (initiating) (void)gap_conn_stop();
+            if (connected) (void)gap_disconnect(conidx);
+            stop_attempt_ms = now_ms();
+        }
+        if ((uint32_t)(now_ms()-start) >= 6000 && !fault_reported) {
+            event("CF", "disconnect_drain_timeout"); fault_reported = 1;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    if (scan_resume_pending) et100_scan_start();
+    exclusive_result = result;
+}
+
 static void worker(void *argument)
 {
     (void)argument;
     for (;;) {
         if (state == IDLE) {
+            if (idle_hook && idle_hook()) continue;
             if (radio_ready) {
                 extern volatile unsigned et100_scan_status;
                 if (scan_resume_pending && et100_scan_status == 0) scan_resume_pending = 0;
@@ -389,90 +544,7 @@ static void worker(void *argument)
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
-        if (state == DRAIN) goto cleanup;
-        uint32_t start = now_ms();
-        if (manual) event("WS", "manual");
-        while (state == WAIT_ADV && !matched && !cancel_requested &&
-            (uint32_t)(now_ms() - start) < 90000) {
-            if (radio_ready) et100_scan_start();
-            vTaskDelay(pdMS_TO_TICKS(20));
-        }
-        if (!matched || cancel_requested) {
-            event("CF", cancel_requested ? "cancelled" : "no_adv_timeout");
-            goto cleanup;
-        }
-        event("CS", "");
-        state = CONNECTING;
-        scan_ended = 0; scan_stop_pending = 1;
-        if (gap_scan_stop() != BLE_API_ERR_NO_ERR) {
-            scan_stop_pending = 0; event("CF", "scan_stop"); goto cleanup;
-        }
-        scan_resume_pending = 1;
-        start = now_ms();
-        while (!scan_ended && !cancel_requested && (uint32_t)(now_ms()-start) < 1500)
-            vTaskDelay(pdMS_TO_TICKS(5));
-        if (!scan_ended || cancel_requested) { event("CF", "scan_stop"); goto cleanup; }
-        gap_conn_param_t params = {0};
-        params.peer_addr = peer;
-        params.own_addr_type = GAP_ADDR_TYPE_STATIC;
-        params.phy_mode = GAPM_PHY_TYPE_LE_1M;
-        params.scan_intv = params.scan_window = 40;
-        params.conn_intv_min = 12; params.conn_intv_max = 24;
-        params.supervision_to = 500; params.ce_len_max = 2;
-        initiating = 1; connection_end_seen = 0; connection_end_status = 0;
-        if (gap_conn_start(&params) != BLE_API_ERR_NO_ERR) {
-            initiating = 0; event("CF", "connect_start"); goto cleanup;
-        }
-        start = now_ms();
-        while (!connected && !(connection_end_seen && connection_end_status != 0) && !cancel_requested &&
-            (uint32_t)(now_ms()-start) < 10000) vTaskDelay(pdMS_TO_TICKS(5));
-        if (!connected || cancel_requested) { event("CF", "connect_timeout"); goto cleanup; }
-        state = SETUP;
-        if (!setup()) { event("CF", "gatt_setup"); goto cleanup; }
-        if (!authenticate()) { event("AF", "auth"); goto cleanup; }
-        taskENTER_CRITICAL();
-        memcpy(cache_mac, target, 6); eup_aiot_metadata_reset(&metadata);
-        state = READY;
-        taskEXIT_CRITICAL();
-        event("AP", "");
-        uint32_t activity = now_ms();
-        uint8_t metadata_cmd = 1;
-        while (connected && !cancel_requested && !output_fault &&
-            (uint32_t)(now_ms()-activity) < 30000) {
-            if (request_pending) {
-                int ok = command(request.command, request.payload, request.length, 2000);
-                if (ok) { activity = now_ms(); update_metadata_cache(request.command); }
-                complete_request(ok);
-            } else if (metadata_cmd <= 8) {
-                uint8_t cmd = metadata_cmd++;
-                if (command(cmd, NULL, 0, 1500)) {
-                    update_metadata_cache(cmd);
-                    activity = now_ms(); chunks(cmd, NULL, NULL);
-                }
-            } else vTaskDelay(pdMS_TO_TICKS(10));
-        }
-        if (output_fault) event("CF", "uart_backpressure");
-        else if (!cancel_requested && connected) event("TO", "idle");
-cleanup:
-        state = DRAIN;
-        if (request_pending) complete_request(0);
-        unsigned fault_reported = 0;
-        uint32_t stop_attempt_ms = now_ms() - 1000;
-        start = now_ms();
-        /* Retain owner until the SDK confirms no initiator/link remains. */
-        for (;;) {
-            if (release_owner()) break;
-            if ((uint32_t)(now_ms() - stop_attempt_ms) >= 1000) {
-                if (initiating) (void)gap_conn_stop();
-                if (connected) (void)gap_disconnect(conidx);
-                stop_attempt_ms = now_ms();
-            }
-            if ((uint32_t)(now_ms()-start) >= 6000 && !fault_reported) {
-                event("CF", "disconnect_drain_timeout"); fault_reported = 1;
-            }
-            vTaskDelay(pdMS_TO_TICKS(20));
-        }
-        if (scan_resume_pending) et100_scan_start();
+        session();
     }
 }
 
@@ -547,7 +619,7 @@ void et100_gatt_gap(struct gap_event *message)
         for (unsigned i = 0; i < 6; i++) mac[i] = ad->addr.addr.addr[5-i];
         if ((ad->evt_type == GAP_SCAN_EVT_CONN_UNDIR || ad->evt_type == GAP_SCAN_EVT_CONN_DIR) &&
             client_id != 0xff) {
-            if (state == IDLE && (!cooldown_valid || (uint32_t)(now_ms()-cooldown_ms) >= 5000)) {
+            if (state == IDLE && !reserved && (!cooldown_valid || (uint32_t)(now_ms()-cooldown_ms) >= 5000)) {
                 for (unsigned i = 0; i < 8; i++) if (memcmp(auto_macs[i], mac, 6) == 0) {
                     memcpy(target, mac, 6); session_generation++; state = WAIT_ADV; manual = 0;
                     matched = cancel_requested = output_fault = 0; break;
@@ -573,7 +645,9 @@ int et100_gatt_uart(const char *cmd, char *params, const char *token)
     }
     if (!strcmp(cmd, "STYPESWITCH")) {
         int valid = 0;
-        if (!strcmp(params,"0") || !strcmp(params,"0;")) {
+        if (reserved) {
+            /* The Sensor OTA relay owns the link; only CSENSOROTA cancels it. */
+        } else if (!strcmp(params,"0") || !strcmp(params,"0;")) {
             cancel_requested = 1; valid = 1;
             snprintf(original, sizeof(original), "0");
         }
@@ -582,7 +656,7 @@ int et100_gatt_uart(const char *cmd, char *params, const char *token)
             char text[13]; mac_text(mac, text);
             snprintf(original, sizeof(original), "1:%s", text);
             taskENTER_CRITICAL();
-            if (state == IDLE && client_id != 0xff) {
+            if (state == IDLE && !reserved && client_id != 0xff) {
                 memcpy(target,mac,6); session_generation++; manual = 1; matched = cancel_requested = output_fault = 0;
                 state = WAIT_ADV; valid = 1;
             }
@@ -614,6 +688,7 @@ int et100_gatt_uart(const char *cmd, char *params, const char *token)
         reply(cmd,valid,original,token); return 1;
     }
     if (!strcmp(cmd,"GSENSORINFO")) {
+        if (reserved) { reply(cmd,0,"BUSY",token); return 1; }
         int valid=0; snprintf(fields,sizeof(fields),"%s;;;;;",params);
         if (unhex(params,mac,6)==6) {
             struct eup_gatt_metadata copy; uint32_t age;
@@ -644,7 +719,8 @@ int et100_gatt_uart(const char *cmd, char *params, const char *token)
         }
     }
     taskENTER_CRITICAL();
-    valid=valid && state==READY && connected && !cancel_requested && !request_pending && memcmp(mac,target,6)==0;
+    valid=valid && !exclusive && state==READY && connected && !cancel_requested && !request_pending &&
+          memcmp(mac,target,6)==0;
     if(valid) {
         request.command=operation; request.length=length;
         if(length) memcpy(request.payload,payload,length);
@@ -656,4 +732,135 @@ int et100_gatt_uart(const char *cmd, char *params, const char *token)
     taskEXIT_CRITICAL();
     if(!valid) reply(cmd,0,!strcmp(cmd,"GSENSORCMD")?"no_session":original,token);
     return 1;
+}
+
+/* ---- v0.8.9 Sensor OTA relay hooks ---- */
+void et100_gatt_set_idle_hook(int (*hook)(void)) { idle_hook = hook; }
+
+int et100_gatt_reserve(void)
+{
+    taskENTER_CRITICAL();
+    int ok = state == IDLE && !reserved && client_id != 0xff;
+    if (ok) { reserved = 1; reserved_cancel = 0; }
+    taskEXIT_CRITICAL();
+    return ok ? 0 : -EBUSY;
+}
+void et100_gatt_unreserve(void) { reserved_cancel = 0; reserved = 0; }
+/* Sticky while reserved: a cancel between two relay sessions stops the next one. */
+void et100_gatt_cancel(void)
+{
+    taskENTER_CRITICAL();
+    if (reserved) reserved_cancel = 1;
+    if (state != IDLE) cancel_requested = 1;
+    taskEXIT_CRITICAL();
+}
+
+int et100_gatt_exclusive(const uint8_t mac[6], const struct et100_gatt_exclusive_ops *ops)
+{
+    taskENTER_CRITICAL();
+    int ok = state == IDLE && reserved && client_id != 0xff;
+    if (ok) {
+        memcpy(target, mac, 6); session_generation++; manual = 0;
+        matched = output_fault = 0; cancel_requested = reserved_cancel;
+        exclusive = ops; exclusive_result = -EIO; state = WAIT_ADV;
+    }
+    taskEXIT_CRITICAL();
+    if (!ok) return -EBUSY;
+    session();
+    exclusive = NULL;
+    return exclusive_result;
+}
+
+int et100_gatt_metadata(const uint8_t mac[6], struct eup_gatt_metadata *out)
+{
+    taskENTER_CRITICAL();
+    int ok = metadata.seen && memcmp(mac, cache_mac, 6) == 0;
+    if (ok) *out = metadata;
+    taskEXIT_CRITICAL();
+    return ok ? 0 : -ENODATA;
+}
+
+int et100_gatt_wait(volatile unsigned *flag, uint32_t timeout_ms)
+{
+    if (wait_flag(flag, timeout_ms)) return 0;
+    if (cancel_requested) return -ECANCELED;
+    if (!connected) return -ENOTCONN;
+    return output_fault ? -EIO : -ETIMEDOUT;
+}
+
+uint16_t et100_gatt_mtu(void) { return mtu; }
+
+int et100_gatt_smp_open(void (*sink)(const uint8_t *, size_t))
+{
+    if (!connected || cancel_requested) return cancel_requested ? -ECANCELED : -ENOTCONN;
+    smp_sink = NULL;
+    smp_start = smp_end = smp_handle = smp_char_end = smp_ccc = 0;
+    discovering_smp = 1;
+    struct gatt_uuid uuid = {16, {0}};
+    memcpy(uuid.p_uuid, smp_service_uuid, 16);
+    begin_op(GATT_OP_PEER_SVC_DISC_END);
+    int ok = gatt_discovery_peer_svc(client_id, conidx, &uuid) == BLE_API_ERR_NO_ERR && finish_op();
+    int found = ok && smp_start && smp_end > smp_start;
+    if (found) {
+        smp_char_end = smp_end;
+        begin_op(GATT_OP_PEER_CHAR_DISC_END);
+        ok = gatt_discovery_peer_char(client_id, conidx, smp_start, smp_end) == BLE_API_ERR_NO_ERR &&
+             finish_op();
+        found = ok && smp_handle && smp_char_end > smp_handle;
+    }
+    if (found) {
+        begin_op(GATT_OP_PEER_DESC_DISC_END);
+        ok = gatt_discovery_peer_desc(client_id, conidx, smp_handle + 1, smp_char_end) ==
+             BLE_API_ERR_NO_ERR && finish_op();
+        found = ok && smp_ccc;
+    }
+    discovering_smp = 0;
+    if (!found) {
+        smp_handle = 0;
+        if (!connected) return -ENOTCONN;
+        return cancel_requested ? -ECANCELED : ok ? -ENOENT : -EIO;
+    }
+    static uint8_t enable[2] = {1,0};
+    begin_op(GATT_OP_WRITE_REQ);
+    struct gatt_client_write_param_handle write = {
+        .conidx = conidx, .client_id = client_id, .handle = smp_ccc,
+        .p_data = enable, .data_len = 2,
+    };
+    if (gatt_cilent_write_req_with_handle(&write) != BLE_API_ERR_NO_ERR || !finish_op() || op_status != 0) {
+        smp_handle = 0;
+        return connected ? -EIO : -ENOTCONN;
+    }
+    smp_sink = sink;
+    return 0;
+}
+
+int et100_gatt_smp_write(const uint8_t *data, size_t length)
+{
+    if (!connected || !smp_handle) return -ENOTCONN;
+    struct gatt_client_write_param_handle write = {
+        .conidx = conidx, .client_id = client_id, .handle = smp_handle,
+        .p_data = (uint8_t *)data, .data_len = (uint16_t)length,
+    };
+    return gatt_cilent_write_cmd_with_handle(&write) == BLE_API_ERR_NO_ERR ? 0 : -EAGAIN;
+}
+
+/* Type 8 OP event for the relay; never faults the session on a full UART queue. */
+void et100_gatt_op_event(const uint8_t mac[6], const char *data)
+{
+    char body[120], text[13];
+    struct queued_output item = {0};
+    uint8_t checksum = 0;
+    mac_text(mac, text);
+    snprintf(body, sizeof(body), "G1;8;OP;%s;%s", text, data);
+    for (const char *p = body; *p; p++) checksum ^= (uint8_t)*p;
+    int n = snprintf(item.line, sizeof(item.line), "AT$PD=%s*%02X\r\n", body, checksum);
+    if (n <= 0 || n >= (int)sizeof(item.line)) return;
+    item.generation = session_generation;
+    for (unsigned tries = 0; tries < 60; tries++) {
+        taskENTER_CRITICAL();
+        int sent = uxQueueMessagesWaiting(output_queue) < 12 && xQueueSend(output_queue, &item, 0) == pdPASS;
+        taskEXIT_CRITICAL();
+        if (sent) return;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
 }
