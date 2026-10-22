@@ -170,7 +170,7 @@ int smp_serial_feed(struct smp_serial *s, uint8_t byte, const uint8_t **packet, 
 int smp_serial_encode(const uint8_t *packet, size_t length, smp_serial_sink sink, void *context)
 {
     if (length > SMP_SERIAL_MAX_PACKET) return -1;
-    uint8_t raw[SMP_SERIAL_MAX_PACKET + 4];
+    static uint8_t raw[SMP_SERIAL_MAX_PACKET + 4];   /* single caller (OTA worker); keeps 1 KB off its stack */
     size_t total = length + 2;
     raw[0] = (uint8_t)(total >> 8);
     raw[1] = (uint8_t)total;

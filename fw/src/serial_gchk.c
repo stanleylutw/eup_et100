@@ -357,19 +357,24 @@ static void smp_line_out(const char *data, size_t length, void *context)
 }
 
 /* Worker -> UART3: encode one response packet into SMP serial lines. */
-static void smp_serial_respond(const uint8_t *packet, size_t length)
+static void smp_serial_respond(const uint8_t *packet, size_t length, uint32_t tag)
 {
+    (void)tag;
     smp_serial_encode(packet, length, smp_line_out, serial_uart);
 }
 
 static void set_baud(uint32_t baud)
 {
-    vTaskDelay(pdMS_TO_TICKS(5));        /* response fully shifted out at the old rate */
+    /* Own the transmitter: no worker/serial frame may be mid-flight at the old rate. */
+    if (tx_lock) xSemaphoreTake(tx_lock, portMAX_DELAY);
+    for (unsigned waited = 0; !serial_uart->UARTx->LSR.LSR_BIT.TEMT && waited < 50; waited++)
+        vTaskDelay(pdMS_TO_TICKS(1));    /* FIFO and shift register empty */
     taskENTER_CRITICAL();
     serial_uart->Init.BaudRate = baud;
     uart_init(serial_uart);
     uart_receive_IT(serial_uart, &rx_byte, 1);
     taskEXIT_CRITICAL();
+    if (tx_lock) xSemaphoreGive(tx_lock);
     uart_baud = baud;
     baud_since = xTaskGetTickCount();
 }
@@ -425,7 +430,7 @@ static void serial_task(void *argument)
             if (smp) {
                 smp_last = xTaskGetTickCount();
                 smp_seen = 1;
-                if (smp == 2) (void)ota_worker_submit(OTA_TRANSPORT_SERIAL, packet, packet_length);
+                if (smp == 2) (void)ota_worker_submit(OTA_TRANSPORT_SERIAL, packet, packet_length, 0);
                 continue;
             }
             et100_serial_feed(&serial_parser, (uint8_t)value);

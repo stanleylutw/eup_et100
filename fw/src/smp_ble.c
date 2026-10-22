@@ -48,7 +48,9 @@ static const gatt_attribute_t attributes[] = {
 };
 static uint8_t service_id = 0xff, link = 0xff;
 static volatile uint16_t mtu = 23;
-static volatile unsigned subscribed, in_flight, notify_failed, generation;
+/* outstanding: notifications sent minus completions seen. A completion that
+ * arrives after a timeout is absorbed here instead of finishing a later send. */
+static volatile unsigned subscribed, outstanding, notify_failed, generation;
 static struct smp_reassembly rx;
 volatile unsigned et100_smp_ble_drops;
 
@@ -59,9 +61,9 @@ static uint16_t server_callback(struct gatt_msg *msg)
     uint16_t result = 0;
     if (msg->conn_idx != link || link == 0xff) return 0;
     if (msg->msg_evt == GATTC_MSG_CMP_EVT) {
-        if (msg->param.gatt_op_cmp.operation == GATT_OP_NOTIFY) {
+        if (msg->param.gatt_op_cmp.operation == GATT_OP_NOTIFY && outstanding) {
             if (msg->param.gatt_op_cmp.status) notify_failed = 1;
-            in_flight = 0;
+            outstanding--;
         }
     } else if (msg->msg_evt == GATTS_MSG_READ_REQ) {
         if (msg->att_idx == CCC && msg->param.gatt_data.p_msg_data &&
@@ -81,7 +83,7 @@ static uint16_t server_callback(struct gatt_msg *msg)
             int done = smp_reassembly_add(&rx, p, n, now_ms());
             if (done < 0) et100_smp_ble_drops++;
             if (done == 1) {
-                if (!ota_worker_submit(OTA_TRANSPORT_BLE, rx.data, rx.length)) et100_smp_ble_drops++;
+                if (!ota_worker_submit(OTA_TRANSPORT_BLE, rx.data, rx.length, generation)) et100_smp_ble_drops++;
                 smp_reassembly_reset(&rx);
             }
         }
@@ -102,12 +104,12 @@ void smp_ble_gap(struct gap_event *event)
     if (event->type == GAP_EVT_SLAVE_CONNECT && link == 0xff) {
         link = event->param.connect.conidx;
         mtu = 23;
-        subscribed = in_flight = 0;
+        subscribed = outstanding = 0;
         smp_reassembly_reset(&rx);
         generation++;
     } else if (event->type == GAP_EVT_DISCONNECT && event->param.disconnect.conidx == link) {
         link = 0xff;
-        subscribed = in_flight = 0;
+        subscribed = outstanding = 0;
         smp_reassembly_reset(&rx);
         generation++;
     } else if (event->type == GATT_EVT_MTU && event->param.mtu_ind.conidx == link) {
@@ -115,27 +117,37 @@ void smp_ble_gap(struct gap_event *event)
     }
 }
 
-int smp_ble_send(const uint8_t *packet, size_t length)
+int smp_ble_send(const uint8_t *packet, size_t length, uint32_t tag)
 {
     static uint8_t segment[244];
-    unsigned start_generation = generation;
     size_t sent = 0;
+    /* Request must belong to this connection; a new peer never gets an old reply. */
+    if (generation != tag) return -1;
     while (sent < length) {
-        if (link == 0xff || !subscribed || generation != start_generation) return -1;
+        if (link == 0xff || !subscribed || generation != tag) return -1;
+        /* Drain: wait for every earlier notification (incl. a timed-out one). */
+        for (unsigned waited = 0; outstanding; waited++) {
+            if (waited >= 1000 || generation != tag) return -1;
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
         size_t room = mtu > 3 ? (size_t)mtu - 3 : 20;
         if (room > sizeof segment) room = sizeof segment;
         size_t n = length - sent < room ? length - sent : room;
         memcpy(segment, packet + sent, n);
         struct gatt_send_event notification = {.conidx = link, .att_idx = VALUE,
             .p_data = segment, .data_len = (uint16_t)n, .svc_id = service_id};
-        in_flight = 1;
         notify_failed = 0;
+        taskENTER_CRITICAL();
+        outstanding++;
+        taskEXIT_CRITICAL();
         if (gatt_notification(&notification)) {
-            in_flight = 0;
+            taskENTER_CRITICAL();
+            if (outstanding) outstanding--;
+            taskEXIT_CRITICAL();
             return -1;
         }
-        for (unsigned waited = 0; in_flight; waited++) {   /* completion from BLE task */
-            if (waited >= 1000 || generation != start_generation) return -1;
+        for (unsigned waited = 0; outstanding; waited++) {
+            if (waited >= 1000 || generation != tag) return -1;
             vTaskDelay(pdMS_TO_TICKS(1));
         }
         if (notify_failed) return -1;
@@ -143,8 +155,9 @@ int smp_ble_send(const uint8_t *packet, size_t length)
     }
     return 0;
 }
-void smp_ble_respond(const uint8_t *packet, size_t length)
+
+void smp_ble_respond(const uint8_t *packet, size_t length, uint32_t tag)
 {
-    if (smp_ble_send(packet, length)) et100_smp_ble_drops++;
+    if (smp_ble_send(packet, length, tag)) et100_smp_ble_drops++;
 }
 #endif

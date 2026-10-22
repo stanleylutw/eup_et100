@@ -35,9 +35,19 @@
 | `fw/tests/test_smp_interop.py`、`fw/tools/test_evb_serial_host.sh` | PASS |
 | ARM build | 開發版與 release（`ET100_SMP_BLE_FLAGS=`）皆 PASS |
 
+## Codex review 後修正與複測（2026-10-22）
+
+Codex 提出 4 項 P2（BLE 回應綁定連線世代、`set_baud()` 與 worker TX 互斥、notify 逾時後的遲到 completion、跨 transport 接手須重送 manifest），已全部修正，詳見 REVIEW_REPORT。
+
+| 複測 | 結果 |
+|---|---|
+| 手機 nRF Connect Device Manager（0.8.6 → 0.8.63，Test and Confirm） | ✅ Test → Resetting → Upload Complete；slot 0 = 0.8.63.0 confirmed |
+| Worker stack 高水位（`0xA5` 掃描，SWD 讀 `et100_ota_stack_free`） | ✅ 至少 1,916／4,096 bytes 未使用 |
+| BLE drops／B-info | ✅ 0／不變 |
+
 ## 限制
 
 - **安全**：BLE SMP 無認證、image 無簽章，只用於開發版；量產前須簽章（Q42）＋BLE 認證（06 §6.1）。
-- 未量測 FreeRTOS 剩餘 heap 與 worker stack 水位。
+- Worker stack 已量測（見上）；FreeRTOS 剩餘 heap 仍未量測。
 - BLE 更新期間僅暫停 Type-1 回報，未停止 sensor GATT client 的自動連線（EVB 測試時 auto list 為空）。
 - Logs：`/tmp/et100_v086_*.log`；手機截圖由 Stanley 提供（IMG_5533–5535）。

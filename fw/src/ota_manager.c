@@ -84,6 +84,7 @@ static int boot_state(const struct ota_manager *m, struct boot_record *state)
 static void start_session(struct ota_manager *m, const struct ota_manifest *mf, uint32_t at)
 {
     m->session = true;
+    m->session_source = mf->source;
     m->session_id = mf->session_id;
     m->length = mf->length;
     memcpy(m->sha256, mf->sha256, 32);
@@ -142,8 +143,10 @@ static int upload(void *context, const struct smp_upload *r, uint32_t *next)
     if (r->has_len && r->off == 0) {
         rc = begin(m, r);
         if (rc) return rc;
-    } else if (!m->session) {
-        return SMP_EBADSTATE;                                 /* client must restart at off 0 */
+    } else if (!m->session || m->session_source != m->active_source) {
+        /* Another transport must re-send the first packet (len/sha): begin()
+         * then verifies the manifest and records an explicit takeover. */
+        return SMP_EBADSTATE;
     }
     uint32_t expected = m->buffer_base + (uint32_t)m->buffer_len;
     if (r->off != expected) {                                 /* resync: tell client where to go */

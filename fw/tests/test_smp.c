@@ -426,6 +426,16 @@ static void test_manager(const char *path)
     ota_manager_set_source(&mgr, OTA_RS232);
     assert((upload_packet(candidate, 300, 100, false) & 0x7fffffffu) == SMP_EBUSY);
     ota_manager_set_source(&mgr, OTA_BLE);
+    /* review fix: after the hold expires, the other transport may not just continue
+     * with off/data; it must re-send the first packet so the manifest is checked
+     * and the takeover is journaled. */
+    clock_ms += OTA_OWNER_HOLD_MS;
+    ota_manager_set_source(&mgr, OTA_RS232);
+    assert((upload_packet(candidate, 300, 100, false) & 0x7fffffffu) == SMP_EBADSTATE);
+    assert(upload_packet(candidate, 0, 300, true) == 300);
+    assert(mgr.journal.progress.manifest.source == OTA_RS232);
+    ota_manager_set_source(&mgr, OTA_BLE);
+    clock_ms += OTA_OWNER_HOLD_MS;
 
     /* a fresh good upload replaces the failed session */
     reboot();

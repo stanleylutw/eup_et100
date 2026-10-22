@@ -33,7 +33,7 @@ struct ota_manager {
     size_t buffer_len;
     uint8_t sha256[32];
     struct image_info candidate;
-    uint32_t active_source, owner, owner_ms;
+    uint32_t active_source, owner, owner_ms, session_source;
     uint8_t buffer[OTA_JOURNAL_CHUNK_SIZE];
 };
 void ota_manager_init(struct ota_manager *m, const struct ota_env *env);

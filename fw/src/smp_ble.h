@@ -29,8 +29,8 @@ uint8_t smp_ble_add_service(void);
 void smp_ble_gap(struct gap_event *event);
 /* Send one SMP response packet as notifications of at most MTU-3 bytes each.
  * Blocks the caller (OTA worker) until every segment completes. */
-int smp_ble_send(const uint8_t *packet, size_t length);
+int smp_ble_send(const uint8_t *packet, size_t length, uint32_t tag);
 /* ota_worker_send_fn adapter; failures are counted, the client times out. */
-void smp_ble_respond(const uint8_t *packet, size_t length);
+void smp_ble_respond(const uint8_t *packet, size_t length, uint32_t tag);
 #endif
 #endif

@@ -24,6 +24,23 @@
 - **架構觀察（供 v0.8.6 參考）**：
   - v0.8.5 將 OTA manager 置於 serial task 內處理對於嚴格一問一答的 SMP serial 是合理的取捨；在 v0.8.6 引入 BLE SMP 時，因 GATT callback 不可阻塞，已正確規劃並實作獨立 `ota_worker` task。
 
+## 2026-10-22 Codex Step 5 review — v0.8.6（Step 6 由 Claude 修正）
+
+Codex 審查 `521b933＋cf3daeb`，提出 4 項 P2，全部確認並修正：
+
+| # | 問題 | 修正 |
+|---|---|---|
+| 1 | BLE 請求未綁定連線世代，斷線後新 peer 可能收到舊回應 | `ota_worker_submit()` 帶 tag（BLE 為提交時的 `generation`），`smp_ble_send()` 送出前核對，不符即丟棄 |
+| 2 | `set_baud()` 未與 worker TX 共用 mutex | `set_baud()` 先取 `tx_lock`，等 `LSR.TEMT`（FIFO＋shift register 清空）再重設 UART，完成後釋放 |
+| 3 | Notify 逾時後，晚到的 completion 可能誤完成下一筆 | `in_flight` 改為 `outstanding` 計數：送出前先等所有先前 notify（含逾時者）完成；completion 只在 `outstanding>0` 時遞減；斷線歸零 |
+| 4 | Owner 逾時後，另一 transport 只帶 `off／data` 就能續接，略過 manifest 且不記 takeover | 只有建立 session 的 transport 可送續傳包；其他 transport 回 `EBADSTATE`，必須重送第一包（`len`／`sha`），經 `begin()` 核對 manifest 並寫入 journal takeover。Host test 覆蓋 |
+
+**Stack 實測**（回應「無法宣稱餘量足夠」）：SDK `configCHECK_FOR_STACK_OVERFLOW=2` 使 FreeRTOS 以 `0xA5` 預填 stack；worker 每次處理後掃描未被觸及的區段，結果存於 `et100_ota_stack_free`（SWD 讀取）。EVB 115200 完整上傳＋裝置端驗證（最深路徑）後：**至少 1,916／4,096 bytes 未使用**（保守下限，實際峰值約 2.2 KB）。另將 `smp_serial_encode` 的 1 KB 暫存改為 static（唯一呼叫者為 worker）。
+
+**驗證**：host（含新增 fix 4 案例）、interop、serial 回歸 PASS；EVB：修正版經 UART 部署並完成一次 115200 上傳；**手機 nRF Connect Device Manager 再測 PASS**（0.8.6 → 0.8.63，Candidate 已存在時 App 立即顯示上傳完成，接著 Test → Resetting → Upload Complete，裝置 slot 0 = 0.8.63.0 confirmed）；BLE drops 0；B-info 不變。測後以 UART 恢復 0.8.6-dev。
+
+觀察（非韌體問題）：一次 `smp_serial_ota.py state` 收到 `SMPBadSequence`，原因是前一個 client 逾時離開後，裝置的遲到回應留在序列埠緩衝；工具端之後可在連線時先清空輸入緩衝。
+
 ## 2026-10-22 Codex Step 5 review — v0.8.5（Step 6 由 Claude 修正）
 
 Codex 獨立 review 提出 3 項 P2，全部確認並修正（在 `v0.8.6_ble_smp` 上，因 v0.8.6 已包含 v0.8.5）：
