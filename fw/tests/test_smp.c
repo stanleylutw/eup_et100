@@ -187,12 +187,13 @@ static uint64_t field(const uint8_t *m, const char *key)
     return v.u;
 }
 
+static int upload_upgrade = -1;                 /* -1: omit, else MCUmgr "upgrade" (2: not a bool) */
 static uint32_t upload_packet(const uint8_t *image, uint32_t off, size_t n, bool first)
 {
     uint8_t buf[SMP_SERIAL_MAX_PACKET];
     struct cbor_writer w;
     cbor_writer_init(&w, buf, sizeof buf);
-    cbor_put_map(&w, first ? 5 : 2);
+    cbor_put_map(&w, (first ? 5 : 2) + (first && upload_upgrade >= 0));
     cbor_put_text(&w, "off");
     cbor_put_uint(&w, off);
     cbor_put_text(&w, "data");
@@ -203,6 +204,8 @@ static uint32_t upload_packet(const uint8_t *image, uint32_t off, size_t n, bool
         cbor_put_text(&w, "image"); cbor_put_uint(&w, 0);
         cbor_put_text(&w, "len");   cbor_put_uint(&w, image_len);
         cbor_put_text(&w, "sha");   cbor_put_bytes(&w, sha, 32);
+        if (upload_upgrade == 2) { cbor_put_text(&w, "upgrade"); cbor_put_uint(&w, 1); }
+        else if (upload_upgrade >= 0) { cbor_put_text(&w, "upgrade"); cbor_put_bool(&w, upload_upgrade); }
     }
     assert(!w.error);
     const uint8_t *m = call(SMP_OP_WRITE, SMP_GROUP_IMG, 1, buf, w.len, NULL);
@@ -357,6 +360,30 @@ static void test_manager(const char *path)
         free(maxv);
     }
 
+    /* MCUmgr "upgrade": only a newer version is accepted (equal/older -> EBADSTATE) */
+    {
+        uint8_t *newer = malloc(image_len), *older = malloc(image_len);
+        assert(newer && older);
+        memcpy(newer, candidate, image_len);
+        memcpy(older, candidate, image_len);
+        newer[22]++;                            /* revision + 1 */
+        assert(older[22] || older[21]);
+        if (older[22]) older[22]--; else older[21]--;
+        rehash(newer);
+        rehash(older);
+        upload_upgrade = 1;
+        assert((upload_packet(candidate, 0, 300, true) & 0x7fffffffu) == SMP_EBADSTATE);  /* equal */
+        assert((upload_packet(older, 0, 300, true) & 0x7fffffffu) == SMP_EBADSTATE);
+        assert(upload_packet(newer, 0, 300, true) == 300);
+        upload_upgrade = 2;
+        assert((upload_packet(newer, 0, 300, true) & 0x7fffffffu) == SMP_EINVAL);
+        upload_upgrade = 0;
+        assert(upload_packet(older, 0, 300, true) == 300);   /* flag false: no version gate */
+        upload_upgrade = -1;
+        free(newer);
+        free(older);
+    }
+
     /* full upload with one simulated reboot, resume from committed offset */
     unsigned packets = upload(candidate, 300);
     (void)packets;
@@ -366,6 +393,22 @@ static void test_manager(const char *path)
 
     /* resync: wrong offset returns the expected one */
     assert(upload_packet(candidate, 100, 10, false) == image_len);
+
+    /* "Confirm only" clients: confirm(candidate) -> PENDING (never permanent install),
+     * reported as pending+permanent until reboot */
+    {
+        state_write(cand_hash, 1, 0);
+        struct boot_record c;
+        assert(!boot_state_read(&in_port, &c) && c.kind == BOOT_PENDING);
+        m = call(SMP_OP_READ, SMP_GROUP_IMG, 0, empty, 1, NULL);
+        const uint8_t key[] = { 0x69, 'p','e','r','m','a','n','e','n','t', 0xf5 };
+        int hits = 0;
+        for (size_t i = 0; i + sizeof key <= rsp_len - 8; i++) hits += !memcmp(m + i, key, sizeof key);
+        assert(hits == 1);
+        state_write(cand_hash, 1, 0);           /* idempotent */
+        write_state(BOOT_CONFIRMED, running);   /* undo for the test-path checks below */
+        reboot();
+    }
 
     /* test: wrong hash, then right hash -> PENDING; uploads now refused */
     state_write(run_hash, 0, SMP_ENOENT);
@@ -383,6 +426,8 @@ static void test_manager(const char *path)
         int hits = 0;
         for (size_t i = 0; i + sizeof key <= left; i++) hits += !memcmp(p + i, key, sizeof key);
         assert(hits == 1);   /* slot 0 confirmed=true, slot 1 confirmed=false */
+        const uint8_t perm[] = { 0x69, 'p','e','r','m','a','n','e','n','t', 0xf5 };
+        for (size_t i = 0; i + sizeof perm <= left; i++) assert(memcmp(p + i, perm, sizeof perm));
     }
     state_write(cand_hash, 0, 0);               /* idempotent */
     assert((upload_packet(candidate, 0, 300, true) & 0x7fffffffu) == SMP_EBADSTATE);
@@ -391,7 +436,7 @@ static void test_manager(const char *path)
     /* trial confirm: running image is the trial */
     write_state(BOOT_TRIAL, running);
     reboot();
-    state_write(cand_hash, 1, SMP_ENOTSUP);     /* no permanent install */
+    state_write(cand_hash, 1, SMP_EBADSTATE);   /* confirm(candidate) only from CONFIRMED */
     state_write(NULL, 1, 0);
     assert(!boot_state_read(&in_port, &s) && s.kind == BOOT_CONFIRMED);
 

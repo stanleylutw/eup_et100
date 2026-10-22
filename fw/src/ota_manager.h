@@ -27,6 +27,7 @@ struct ota_manager {
     const struct ota_env *env;
     struct ota_journal journal;
     bool ready, session, verified_valid;
+    bool pending_confirm;          /* candidate made PENDING by "confirm" (reported permanent) */
     int verified_rc;
     uint64_t session_id;
     uint32_t length, buffer_base;

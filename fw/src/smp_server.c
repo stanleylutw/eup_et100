@@ -108,10 +108,12 @@ static void handle_upload(const struct smp_ops *ops, const uint8_t *m, size_t n,
         r.sha = v.ptr;
         r.sha_len = v.len;
     }
-    if (cbor_map_find(m, n, "upgrade", &v) == 0 && v.type == CBOR_BOOL && v.u) {
-        put_rc(w, SMP_ENOTSUP);       /* permanent upgrade without trial is not allowed */
+    rc = cbor_map_find(m, n, "upgrade", &v);
+    if (rc < 0 || (rc == 0 && v.type != CBOR_BOOL)) {
+        put_rc(w, SMP_EINVAL);
         return;
     }
+    r.upgrade = rc == 0 && v.u;
     uint32_t next = 0;
     rc = ops->upload(ops->context, &r, &next);
     if (rc) {

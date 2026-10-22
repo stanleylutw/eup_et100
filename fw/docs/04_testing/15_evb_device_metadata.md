@@ -35,6 +35,14 @@ Stanley 以 Chrome 在 EVB 實測（log `rs232_log_20261022_152526.txt`），測
 
 B-info `ad7facb2…` 不變。`tools/tests/test_et100_smp.cjs`、`test_et100_ui.cjs` PASS（含 180 s 確認逾時、ASCII 逾時提示、pre-0.8.7 警告）。`tools/vendor/README.md` 已附 fflate MIT 授權說明。GLIST／GMAXRPT／GSOTAPKG 回 0 為 HTML 既有 gateway 查詢，ET-100 未實作，不影響更新。
 
+## 自家 iOS App 更新驗收（2026-10-22）
+
+第一次以 App 更新（0.8.7 → 0.8.71）：metadata 檢查全過，上傳完成後在最後一步失敗 `Not supported (RC: 8)`。App log（ios_app_log 27）顯示 App 用 nRF 函式庫預設的 **「Confirm only」** 模式，上傳後送 `state write {hash: 新 image, confirm: true}`；韌體原本「不做永久安裝」一律回 ENOTSUP。
+
+修正（`ota_manager.c`）：confirm 新 image 時與 test 相同排入 PENDING，回報 `pending／permanent`；重開機後照常備份、TRIAL、自檢 30 s 自動確認、失敗 rollback，只在 CONFIRMED 狀態接受。同時把 upload 的 `upgrade` 旗標改依 MCUmgr 規格實作（只接受較新版本；原誤解為永久安裝，與此次失敗無關）。`test_smp` 新增兩者案例，ALL PASS。
+
+複測（ios_app_log 28）✅：Confirm only 上傳 56 s → confirm 回 OK →「Upgrade complete」→ reset → App 重連讀到 `fw=0.8.71-dev`；SMP 確認 slot 0 `0.8.71.0` active confirmed。之後以 SMP serial 還原 0.8.7-dev（中途 Chrome HTML 分頁自動搶 port 造成一次逾時，關分頁後續傳完成），slot 0 `5e001460…` confirmed，CFSR 0，B-info `ad7facb2…` 不變。App 的「版本無法比較」警告為 App 端無法比較 `-dev` 版本字串，留待 App 修改。
+
 ## 限制
 
 - 未以手機實際送 PING／GET_FW_INFO；格式相容性以 FR3068 既有、已與真實 nRF sensor 互通的 client parser 驗證。

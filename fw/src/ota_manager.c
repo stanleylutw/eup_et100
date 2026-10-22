@@ -131,6 +131,19 @@ static int flush(struct ota_manager *m)
     return 0;
 }
 
+/* MCUboot ih_ver (header bytes 20..27) compared like Zephyr img_mgmt_vercmp:
+ * major, minor, revision, then build number. */
+static int version_compare(const uint8_t *a, const uint8_t *b)
+{
+    uint32_t va[4] = { a[20], a[21], (uint32_t)a[22] | (uint32_t)a[23] << 8,
+                       (uint32_t)a[24] | (uint32_t)a[25] << 8 | (uint32_t)a[26] << 16 | (uint32_t)a[27] << 24 };
+    uint32_t vb[4] = { b[20], b[21], (uint32_t)b[22] | (uint32_t)b[23] << 8,
+                       (uint32_t)b[24] | (uint32_t)b[25] << 8 | (uint32_t)b[26] << 16 | (uint32_t)b[27] << 24 };
+    for (unsigned i = 0; i < 4; i++)
+        if (va[i] != vb[i]) return va[i] < vb[i] ? -1 : 1;
+    return 0;
+}
+
 static int upload(void *context, const struct smp_upload *r, uint32_t *next)
 {
     struct ota_manager *m = context;
@@ -140,6 +153,12 @@ static int upload(void *context, const struct smp_upload *r, uint32_t *next)
     if (!rc) rc = boot_state(m, &state);
     if (rc) return rc;
     if (state.kind != BOOT_CONFIRMED) return SMP_EBADSTATE;  /* trial/pending in progress */
+    if (r->upgrade && r->off == 0) {
+        /* MCUmgr "upgrade": reject unless newer than the running image
+         * (Zephyr: CURRENT_VERSION_IS_NEWER, legacy rc EBADSTATE). */
+        if (r->data_len < 28) return SMP_EINVAL;
+        if (version_compare(r->data, m->env->app_slot) <= 0) return SMP_EBADSTATE;
+    }
     if (r->has_len && r->off == 0) {
         rc = begin(m, r);
         if (rc) return rc;
@@ -241,17 +260,16 @@ static int image_state(void *context, struct smp_image_slot slots[2])
             slots[1].bootable = true;
             slots[1].pending = state.kind == BOOT_PENDING &&
                                !memcmp(state.hash, m->journal.progress.manifest.sha256, 32);
+            slots[1].permanent = slots[1].pending && m->pending_confirm;
         }
     }
     return 0;
 }
 
-static int image_test(void *context, const uint8_t hash[32])
+static int mark_pending(struct ota_manager *m, const uint8_t hash[32])
 {
-    struct ota_manager *m = context;
     struct boot_record state;
-    int rc = claim(m);
-    if (!rc) rc = verify_candidate(m);
+    int rc = verify_candidate(m);
     if (rc) return rc;
     if (memcmp(hash, m->candidate.sha256, 32)) return SMP_ENOENT;
     if ((rc = boot_state(m, &state))) return rc;
@@ -268,6 +286,15 @@ static int image_test(void *context, const uint8_t hash[32])
     return rc ? SMP_EUNKNOWN : 0;
 }
 
+static int image_test(void *context, const uint8_t hash[32])
+{
+    struct ota_manager *m = context;
+    int rc = claim(m);
+    if (!rc) rc = mark_pending(m, hash);
+    if (!rc) m->pending_confirm = false;
+    return rc;
+}
+
 static int image_confirm(void *context, const uint8_t *hash)
 {
     struct ota_manager *m = context;
@@ -277,7 +304,15 @@ static int image_confirm(void *context, const uint8_t *hash)
     if (!rc) rc = running_image(m, &running);
     if (!rc) rc = boot_state(m, &state);
     if (rc) return rc;
-    if (hash && memcmp(hash, running.sha256, 32)) return SMP_ENOTSUP;  /* no permanent install */
+    if (hash && memcmp(hash, running.sha256, 32)) {
+        /* "Confirm only" clients (nRF libraries' default) confirm the uploaded image
+         * directly. There is no permanent install: it becomes PENDING exactly like
+         * "test", and the new App confirms itself after its health check, so the
+         * installer backup/rollback still applies (06 §5). */
+        rc = mark_pending(m, hash);
+        if (!rc) m->pending_confirm = true;
+        return rc;
+    }
     if (state.kind == BOOT_CONFIRMED) return 0;
     if (state.kind != BOOT_TRIAL) return SMP_EBADSTATE;
     uint8_t full[32];

@@ -38,6 +38,13 @@ Codex 審查 `8d94fd8`，提出 2 項 P2（並附 host 重現程式），全部�
 
 **Codex 複審：PASS**，未發現新的阻擋問題。另驗證 notify 失敗重試、MTU 23 分包、既有 serial host 回歸，ASan／UBSan 無錯誤。修正版已部署 EVB 並自動 confirm（見 15 報告）。
 
+## 2026-10-22 v0.8.7 App 實測修正：Confirm only 模式（Claude，待 Codex review）
+
+- 問題：自家 iOS App（nRF 函式庫預設「Confirm only」）上傳後送 confirm(新 image hash)，韌體回 ENOTSUP。
+- 修正：`image_confirm()` 對 candidate hash 改走與 test 相同的 `mark_pending()`，回報 permanent；不做永久安裝，備份／TRIAL／自檢確認／rollback 不變；非 CONFIRMED 狀態回 EBADSTATE。另依 MCUmgr 規格實作 upload `upgrade` 旗標（只接受較新版本，否則 EBADSTATE）。
+- 驗證：`test_smp` ALL PASS；App 實機 0.8.7 → 0.8.71 成功並自動確認（15 報告）。
+- **請 Codex review 時特別看**：`pending_confirm` 只存在 RAM（重開機即清除，與 MCUboot 語意差異可接受？）；`upgrade` 版本比較含 build number（同 Zephyr 預設）。
+
 ## 2026-10-22 v0.8.7 自我檢查（Claude 實作，待 Codex Step 5）
 
 - 範圍：`eup_meta_protocol`（packet／TLV／分 part，host 可測）、`eup_meta_service`（GATT，callback 內建好回應、serial loop 逐 part 送出，沿用 v0.8.6 的 completion 計數與連線世代）、`BLEGW$GFWINFO`、`evb_serial_ble.c` 一律註冊。SDK 未修改。

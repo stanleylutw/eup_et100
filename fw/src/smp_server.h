@@ -28,6 +28,7 @@ struct smp_upload {
     size_t data_len;
     const uint8_t *sha;        /* full-file SHA-256, first packet only */
     size_t sha_len;
+    bool upgrade;              /* MCUmgr "upgrade": only accept a newer version */
 };
 struct smp_ops {
     void *context;

@@ -51,7 +51,7 @@ SMP header 8 bytes（big-endian）：`op/ver(1) | flags(1) | len(2) | group(2) |
 - `off` 不等於期望值時，裝置不收資料、直接回期望值（client 會自動重送）。
 - **續傳**：兩種位置要分清楚——`off` 是「本次接收位置」；「可恢復位置」是已寫入 NOR 並 commit 的連續 4 KB 倍數。斷線、client 重開或裝置重開後，client 重新送第一包（同 `len`／`sha`），裝置回**可恢復位置**，client 從那裡續傳（RAM 裡未 commit 的部分會重送）。
 - 同一份檔案若已完整收到，第一包直接回 `off=len`。
-- `upgrade=true`（不經試運行直接永久安裝）不支援，回 ENOTSUP。
+- `upgrade=true`（MCUmgr：只允許升級）：第一包（off 0）的 MCUboot 版本（major.minor.revision.build）必須**大於**執行中版本，否則回 EBADSTATE（同 Zephyr `CURRENT_VERSION_IS_NEWER` 的 legacy rc）；非 bool 回 EINVAL。未帶或 false 不檢查版本。（v0.8.5–v0.8.7 初版誤解為「永久安裝」而回 ENOTSUP，v0.8.7 已依規格修正。）
 - 需求：目前 boot state 為已確認（有 PENDING 或 TRIAL 時回 EBADSTATE）。
 - **最後一包與第一次 state read 可能需要數秒**（裝置要驗整份檔案 hash、MCUboot TLV、EUPFWV1 metadata）：client timeout 建議 ≥ 30 秒。
 
@@ -60,7 +60,8 @@ SMP header 8 bytes（big-endian）：`op/ver(1) | flags(1) | len(2) | group(2) |
 ```text
 images[0] = { image:0, slot:0, version:"0.8.5.0", hash:<MCUboot TLV SHA-256>, bootable, pending:false,
               confirmed:<running 已確認；TRIAL 時為 false>, active:true, permanent:false }
-images[1] = { slot:1, version, hash, bootable:true, pending:<已 test>, confirmed:false, active:false }
+images[1] = { slot:1, version, hash, bootable:true, pending:<已 test／confirm>, confirmed:false, active:false,
+              permanent:<以 confirm 排入時為 true，至重開機> }
 ```
 
 - `hash` 是 **MCUboot image hash**（image 內 SHA-256 TLV 的值），與 nRF Connect Device Manager 從檔案算出的值相同。上傳用的 `sha` 是**整個檔案**的 SHA-256，兩者不同。
@@ -75,7 +76,7 @@ images[1] = { slot:1, version, hash, bootable:true, pending:<已 test>, confirme
 | reset | OS reset | installer 備份目前 App、安裝 Candidate，新 App 以 TRIAL 開機 |
 | confirm | `{"hash": slot0.hash, "confirm": true}` | TRIAL → CONFIRMED（新 App 自檢通過也會自動確認，見 06 §5） |
 
-`confirm:true` 搭配 slot 1 的 hash（永久安裝）→ ENOTSUP。
+`confirm:true` 搭配 slot 1 的 hash（nRF iOS／Android 函式庫預設的「Confirm only」模式）：**不做永久安裝**，與 test 相同排入 PENDING，回報 `pending:true, permanent:true`；重開機後一樣經 installer 備份、TRIAL、自檢 30 秒自動確認，失敗則 rollback。只在 boot state 為 CONFIRMED 時接受，否則 EBADSTATE。（v0.8.7 前回 ENOTSUP，App 在最後一步失敗。）
 
 ## 4. 切換 baud：`BLEGW$OTABAUD`（EUP 擴充）
 
