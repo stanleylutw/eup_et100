@@ -16,6 +16,13 @@
 
 `fw/tests/test_eup_meta.c`（已加入 `fw/tools/test_evb_serial_host.sh`）、`test_serial_gchk.c` 新增 GFWINFO 案例、`test_app_gatt_server.c` 加上 metadata service hook stub；全部 PASS（ASan／UBSan）。ARM build 無 warning（SDK 既有 RWX 除外）。
 
+## Codex Step 5 review 修正（2 項 P2）
+
+- 2 格 queue 取代 `pending`，最後一個 part 送出即釋放；poll／callback／gap handler 全程 critical，斷線重連清空 queue；`smp_ble_send()` 同步改為原子送出。詳見 `fw/REVIEW_REPORT.md`。
+- Codex 重現程式改寫後兩項皆通過；host 測試 PASS；ARM build 無 warning。
+- EVB 重新部署 ✅：板上原為 Codex review 留下的測試 image `0.8.63`（停在 115200、無 GFWINFO），直接以 115200 SMP 上傳修正版（298184 B，53.6 s）→ test → reset → 自檢 30 s 後自動 confirm；slot 0 `0.8.7.0` hash `7f1cb09c…` active confirmed。`GFWINFO` 9600 回 `…;0.8.7-dev;fr3068e_c;M087`；CFSR 0、`et100_meta_dropped` 0；B-info `ad7facb2…` 不變。
+- Codex 複審 PASS。手機 BLE 實機複測（連續 PING、斷線重連後查詢、BLE SMP 更新）依 Stanley 決定未做；修正以 host 重現程式驗證。
+
 ## 限制
 
 - 未以手機實際送 PING／GET_FW_INFO；格式相容性以 FR3068 既有、已與真實 nRF sensor 互通的 client parser 驗證。

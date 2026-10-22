@@ -130,22 +130,26 @@ int smp_ble_send(const uint8_t *packet, size_t length, uint32_t tag)
             if (waited >= 1000 || generation != tag) return -1;
             vTaskDelay(pdMS_TO_TICKS(1));
         }
-        size_t room = mtu > 3 ? (size_t)mtu - 3 : 20;
-        if (room > sizeof segment) room = sizeof segment;
-        size_t n = length - sent < room ? length - sent : room;
-        memcpy(segment, packet + sent, n);
-        struct gatt_send_event notification = {.conidx = link, .att_idx = VALUE,
-            .p_data = segment, .data_len = (uint16_t)n, .svc_id = service_id};
-        notify_failed = 0;
+        /* Check, copy, notify and count as one step so a disconnect/reconnect in
+         * the BLE task cannot slip in and receive an old response segment. */
+        size_t n = 0;
+        int rc = 0;
         taskENTER_CRITICAL();
-        outstanding++;
-        taskEXIT_CRITICAL();
-        if (gatt_notification(&notification)) {
-            taskENTER_CRITICAL();
-            if (outstanding) outstanding--;
-            taskEXIT_CRITICAL();
-            return -1;
+        if (link == 0xff || !subscribed || generation != tag) {
+            rc = -1;
+        } else {
+            size_t room = mtu > 3 ? (size_t)mtu - 3 : 20;
+            if (room > sizeof segment) room = sizeof segment;
+            n = length - sent < room ? length - sent : room;
+            memcpy(segment, packet + sent, n);
+            struct gatt_send_event notification = {.conidx = link, .att_idx = VALUE,
+                .p_data = segment, .data_len = (uint16_t)n, .svc_id = service_id};
+            notify_failed = 0;
+            if (gatt_notification(&notification)) rc = -1;
+            else outstanding++;
         }
+        taskEXIT_CRITICAL();
+        if (rc) return -1;
         for (unsigned waited = 0; outstanding; waited++) {
             if (waited >= 1000 || generation != tag) return -1;
             vTaskDelay(pdMS_TO_TICKS(1));

@@ -35,7 +35,7 @@ Base branch: v0.8.6_ble_smp（6817f6c）
 |---|---|
 | Service | `E9E00000-4F4C-4F47-4943-455550000001`；RX `E9E00001`（Write／Write Without Response）；TX `E9E00002`（Notify） |
 | Request | `E9 55 01 cmd seq len payload checksum`（checksum＝前面所有 byte 加總 & 0xFF） |
-| Response | `E9 55 01 cmd\|0x80 seq status part total len payload checksum`；超過一包時分 part，**不拆 TLV** |
+| Response | `E9 55 01 cmd\|0x80 seq status part total len payload checksum`；超過一包時分 part，**以 byte 切分（可能拆開 TLV，與 eup_gateway 實作相同）**，App 串回全部 part 再解析（2026-10-22 依 Codex review 統一；原寫「不拆 TLV」與實作不符） |
 | 指令 | `0x01 GET_FW_INFO`、`0x05 GET_DEVICE_ID`、`0x07 GET_CAPABILITIES`、`0x7F PING`；其他回 `0x01 UNKNOWN_COMMAND`；格式錯回 `0x02 INVALID_PACKET` |
 | GET_FW_INFO TLV | 0x01 project、0x02 hardware、0x03 firmware、0x04 build_time、0x05 build_id、0x06 git_commit、0x07 git_branch、0x08 ble_name_normal、0x09 ble_name_ota、0x0A release_note、0x0B metadata_schema、**0x0C soc=`fr3068e_c`**、0x0D protocol_version；字串取自 App 內的 EUPFWV1 block |
 | GET_DEVICE_ID | 0x01 `mac_string`＝BLE identity address（與 GCHK identity 同源，例如 `C0:32:32:32:59:03`） |

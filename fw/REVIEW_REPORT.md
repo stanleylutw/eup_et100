@@ -24,6 +24,20 @@
 - **架構觀察（供 v0.8.6 參考）**：
   - v0.8.5 將 OTA manager 置於 serial task 內處理對於嚴格一問一答的 SMP serial 是合理的取捨；在 v0.8.6 引入 BLE SMP 時，因 GATT callback 不可阻塞，已正確規劃並實作獨立 `ota_worker` task。
 
+## 2026-10-22 Codex Step 5 review — v0.8.7（Step 6 由 Claude 修正）
+
+Codex 審查 `8d94fd8`，提出 2 項 P2（並附 host 重現程式），全部確認並修正：
+
+| # | 問題 | 修正 |
+|---|---|---|
+| 1 | 最後一包 completion 後 `pending` 要等下一輪 poll 才清除，期間正常的接續查詢被丟棄 | `eup_meta_service.c` 改為 2 格 queue（同 gateway）；最後一個 part 交給 `gatt_notification` 後立即釋放該格 |
+| 2 | 世代檢查、編碼、取 link、送出、推進 part 非原子，斷線／重連可使舊回應送到新 peer | 整個 poll（檢查→編碼→notify→推進）在 `taskENTER_CRITICAL` 內；RX callback 與 gap handler 也進 critical；connect／disconnect 清空 queue 並 `generation++`；每格記錄提交時的世代，不符即丟棄。identity MAC 改在 `et100_meta_add_service` 預先算好（critical 內不呼叫 SDK）。`smp_ble_send()` 同樣改成檢查＋copy＋notify＋`outstanding++` 一次完成 |
+| 註 | 施工單寫「不拆 TLV」，實作以 byte 切分 | 施工單改為「以 byte 切分（可能拆開 TLV，與 eup_gateway 實作相同）」 |
+
+驗證：Codex 重現程式改寫成新結構後（原 injection 點在 encode 內，現已在 critical section 中、目標上不可能被搶佔，改在 callback→poll 之間及 notify→completion 之間注入斷線／重連）：接續 PING `dropped=0`、兩筆連續請求都保留；舊 seq 不會送到新 link，新請求從 part 0 開始完整送出（MTU 23，8 parts）。Host 測試全部 PASS，ARM build 無 warning。
+
+**Codex 複審：PASS**，未發現新的阻擋問題。另驗證 notify 失敗重試、MTU 23 分包、既有 serial host 回歸，ASan／UBSan 無錯誤。修正版已部署 EVB 並自動 confirm（見 15 報告）。
+
 ## 2026-10-22 v0.8.7 自我檢查（Claude 實作，待 Codex Step 5）
 
 - 範圍：`eup_meta_protocol`（packet／TLV／分 part，host 可測）、`eup_meta_service`（GATT，callback 內建好回應、serial loop 逐 part 送出，沿用 v0.8.6 的 completion 計數與連線世代）、`BLEGW$GFWINFO`、`evb_serial_ble.c` 一律註冊。SDK 未修改。
