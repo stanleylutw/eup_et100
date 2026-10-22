@@ -127,6 +127,25 @@ ET100 走 installer；Sensor 走現有相容 package＋BLE DFU relay，不走 MC
 
 Logs 從 0x460000 起，EVB 只能使用其 16 MB 實體範圍內的部分；不能照 ET100 32 MB end 擦寫。[08 內建 Flash 實測](../04_testing/08_evb_internal_flash_size.md)只屬 EP-C／debugger FLM 證據，不證明 E-C 的 XIP runtime erase 安全。
 
+**v0.8.1 EVB U11 實測（2026-10-22，G1 與 T2–T7 PASS，T8 未做）**，詳見 [09 U11 NOR 報告](../04_testing/09_evb_nor_bringup.md)：
+
+| 項目 | 結果 |
+|---|---|
+| 晶片／介面 | GD25LQ128（JEDEC `C8 60 18`，16 MB）；GPIO PB12–PB15／PC0／PC1 function 0xC → 精簡版 QSPI1（無 indirect／DMA 暫存器，只用 STIG） |
+| Geometry | SFDP BFPT v1.6：4／32／64 KB erase（20／52／D8），page 256 B；SFDP 的 8 dummy clock 在此 controller 為 `dummy_raw=1` |
+| Erase 實測 avg | 4 KB 13.1 ms、32 KB 58.1 ms、64 KB 99.7 ms（各 20 次） |
+| 完整性 | 06 的 Candidate＋Rollback 範圍 0x020000–0x41FFFF 寫入 3 輪，SHA-256 全部吻合 |
+| MCU reset 中斷 | PP／erase 後立即 reset：NOR 有電時操作會完成，reboot 後 init 正常、可再擦寫 |
+| Timeout | 實際觸發 STIG timeout 後 controller 可復原、再次 init 成功 |
+
+給 v0.8.2 journal 的規則（目前已知）：
+
+1. MCU reset 不代表 NOR 操作被中斷；reboot 後一律先等 WIP 清除，再以 journal commit marker 判斷，不以 sector 內容判斷完成與否。
+2. 斷電中斷（T8）尚未量測，**在 T8 前一律假設被中斷的 sector 不可信，必須重新 erase**。
+3. Debugger disconnect 會清掉 DEMCR.TRCENA 讓 DWT 停止；timeout 不可只依賴 DWT（現行實作已有迴圈上限 fallback）。
+
+限制：T5／T6 速度為 STIG 8-byte PP（約 55 KB/s），**不代表 OTA 效能**；4-byte 定址、XM25QH256D、SPIMX2_1 後端要等 ET-100 實板；download journal／installer／OTA manager 尚未實作。
+
 ## 8. 實測證據／工具與實作 gate
 
 以下指定證據與工具已恢復至本分支；報告標記本分支，量測事實維持原紀錄。本輪不執行工具、不重新量測，不帶回任何晶片內 A/B 分區表或其他計畫修改。

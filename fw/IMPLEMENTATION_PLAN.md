@@ -1,4 +1,112 @@
-# IMPLEMENTATION_PLAN — v0.8.0 NOR OTA 規格修訂（文件限定）
+# IMPLEMENTATION_PLAN — v0.8.1 外部 NOR bring-up（EVB 板上 U11）
+
+## Branch
+
+Before starting implementation, create and switch to the new branch:
+
+git checkout -b v0.8.1_nor_driver_bringup
+
+Base branch: v0.8.0_ota_nor_spec（9b1fdec）
+
+## 0. 工作模式
+
+**採用 [comm.md](../comm.md) 的「Hardware bring-up loop」**（2026-10-22 起）。Milestone：
+
+| Milestone | 內容 | 之後 |
+|---|---|---|
+| M-G1 | 開機 G1 PASS：JEDEC＋SFDP／BFPT geometry＋SR1／SR2，並證明 timeout 後可再次 init | 停下 review；T2 起含寫入，需 Stanley 核准 |
+| M-T7 | T2–T7 完成並寫入 09 報告 | 停下 review → Step 7／8 |
+
+T8／G2 仍延後（需量 C11／C30）。
+
+## 1. 目標與定位
+
+用 DEV1.4 EVB 板上 U11 開發 **NOR 上層共用部分**：`nor_port` 介面、測試方法／工具、erase／program 特性與**斷電後處理規則**，供 v0.8.2 download journal 與 [06 OTA 儲存規格](docs/01_firmware/06_ota_storage_design.md) 使用。
+
+| 項目 | EVB U11（本次） | ET-100 U0103（之後） |
+|---|---|---|
+| 晶片 | 照片 GD25LQ128EWIG、原理圖 XT25Q128 → **以 JEDEC ID 為準** | XM25QH256D |
+| 介面 | QSPI1（OSPI pads：PB12 CLK、PB13 CS、PC0 IO0、PC1 IO1、PB14 IO2、PB15 IO3） | SPIMX2_1 single-SPI（PD8–PD11） |
+| 電壓／容量 | 1.8 V（IO1V8_LDO）／16 MB，3-byte 位址 | 3.3 V／32 MB，4-byte |
+| Memory-mapped 讀 | DSP_FLASH_DAC_BASE **0x28000000**（SWD 可直接讀） | 無 |
+
+**可帶到 ET-100**：`nor_port` 介面、上層流程、測試工具、斷電規則。**帶不過去**：底層後端、4-byte 定址、XM25QH256D 的 timing／保護位元 → ET-100 板到後另開 branch 補 SPIMX2_1 後端，用同一套測試重跑。
+
+## 2. 前置 Gate
+
+| Gate | 內容 | 負責 |
+|---|---|---|
+| G1 JEDEC 唯讀 | 測試韌體第一個指令只做 power-on（`ool_write(0xfc)` bit0，同 lvgl_demo `hw_dsp_xip_flash_init`）＋OSPI pad mux＋讀 JEDEC ID／SFDP，**不寫不擦**。預期 GigaDevice `C8 60 18`；讀不到或不符 → 停止回報。另確認 EP-C 內建 PSRAM 沒有占用這組 OSPI pads（讀 ID 正常且 PSRAM 未啟用即視為通過，並記錄） | Codex 實作，Stanley 授權燒錄 |
+| G2 LDO 切電可行性 | 確認 `ool_write(0xfc)` bit0 是否真的切斷 U11 VCC（IO1V8_LDO）：關掉後 ID 讀不到、再開後恢復；**Stanley 用電錶量 C19 兩端電壓**確認真的掉到 ~0 V。通過才用韌體做 T8，否則 T8 延後 | Codex＋Stanley |
+| G3 燒錄 | 測試韌體會取代板上 0.7.0-dev；每次燒錄前取得 Stanley 同意，測完用 `fr3068_flash.py` 燒回 0.7.0-dev | Stanley |
+
+## 3. 已查到的 SDK 問題（不可直接沿用）
+
+`components/drivers/peripheral/Src/driver_flash.c` 支援 QSPI1（`DSP_QSPI_BASE`），page 切割正確，但：
+
+1. `flash_erase`／`flash_write` 在**整個操作期間 `GLOBAL_INT_DISABLE`**；多 sector erase 會關中斷數秒 → 產品中會拖垮 FreeRTOS tick／BLE。
+2. `flash_wait_wip_clear` 是**無 timeout 的無限迴圈**；NOR 掉電時 status 可能一直讀到 busy → 系統卡死（正是 T8 會遇到的情況）。
+3. 對 QSPI1 操作時仍呼叫 `flash_protect_bit_set(QSPI0, …)`，**順便解除／恢復內建 Flash 的保護位元**；操作外部 NOR 不該碰內建 Flash 的 status register。
+4. `flash_init` 遇到不在白名單的 ID 會 `while(1)`；`flash_erase` 只有 4 KB sector erase。
+5. `components/drivers/bsp/spi_flash/` 的 `ext_flash.c`／`IC_W25Qxx` 是另一種 EVB 接法（SPIMX8_1／PD0–PD5），且 page program 不切 page、`WaitBusy` 無 timeout、`BLOCK_ERASE_64K` 錯定成 0x52 → 不使用。
+
+**做法**：專案內寫 `nor_qspi1.c`，只用 SDK 的低階 QSPI 原語（`qspi_stig_cmd`、`flash_init_controller`／`flash_set_baudrate`、DAC 讀）自組指令；不 patch SDK（ADR 02）。
+
+## 4. 施工範圍（Codex）
+
+| 檔案 | 內容 |
+|---|---|
+| `fw/src/nor_port.h` | 後端介面：`init／read_id／read_sfdp／read／program／erase(4K/32K/64K)／wait_ready(timeout)／soft_reset／power(on/off)`，全部回錯誤碼 |
+| `fw/src/nor_qspi1.c`／`.h` | U11 後端，要求見 §5 |
+| `fw/src/nor_test_main.c` | 獨立測試韌體：UART console（沿用 evb_serial 的 DAPLink VCOM 腳位，115200 8N1），執行 §6 指令並逐行輸出；不啟 BLE |
+| `fw/targets/evb_nor.mk`、`fw/tools/build_evb_nor.sh` | 獨立 build target，產物與 evb_serial 分開；沿用 FR509x header 與 800 KB build guard |
+| `fw/tests/test_nor_port.c` | Host 測試（fake 後端）：位址編碼、範圍／對齊拒絕、page 切割、timeout 路徑 |
+| `fw/tools/evb/nor_test_host.py` | 送 console 指令、收結果、存 log，`--help` 完整 |
+| `fw/docs/04_testing/09_evb_nor_bringup.md` | 測試報告：JEDEC ID、量測數據、PASS／FAIL、斷電規則 |
+| `docs/03_hardware/FR3068EP-C Dev1.4/README.md` | 只**新增**「U11 外部 NOR」一節；Stanley 未 commit 的既有修改不得覆蓋，動之前先問 |
+
+## 5. 後端要求（nor_qspi1.c）
+
+1. 指令全部經 `qspi_stig_cmd` 自組：WREN 0x06、RDSR 0x05／0x35、SE 0x20、BE32 0x52、BE64 0xD8、PP 0x02、RDID 0x9F、RDSFDP 0x5A、soft reset 0x66＋0x99；opcode 以 JEDEC／SFDP 結果與 datasheet 核對後才啟用。
+2. **Busy 等待有 timeout**（datasheet max × 1.5），逾時回錯誤，不 hang。
+3. **關中斷只包住送指令那一小段**，等待 WIP 期間不關中斷、可讓出 CPU（測試韌體用 polling＋短 delay 即可，但結構要能直接搬進 RTOS）。
+4. **不碰 QSPI0／內建 Flash 的任何暫存器或保護位元**。
+5. Program 在 256 B page 邊界切割；erase 必須對齊；offset＋len 做 overflow／容量檢查（容量取 JEDEC／SFDP，不寫死）。
+6. 寫入後的讀回驗證走 DAC（0x28000000）；讀之前確保 controller 不在 STIG 操作中。若 DAC 有 cache／prefetch，讀回前要讓舊內容失效（查 SDK／datasheet，查不到就改用 STIG read 0x03 驗證並記錄）。
+7. 不提供 chip erase；不改 non-volatile status／OTP 位元。
+
+## 6. 測試項目（console 指令）
+
+U11 整顆視為 scratch，寫入只在指令指定的範圍。
+
+| # | 項目 | 方法 | PASS 條件 |
+|---|---|---|---|
+| T1 | ID／SFDP（=G1） | `id`、`sfdp` | 實際料號、容量、erase types 確認並記錄 |
+| T2 | 狀態／保護 | `status` | 記錄 SR1／SR2 預設值；若保護位元會擋寫入，回報並停止，不自動改 non-volatile 位元 |
+| T3 | 位址邊界（16 MB） | 在 0x000000、0x7FF000、0x800000、0xFFF000 各寫不同 signature | 四點讀回正確、互不 alias；SWD 讀 0x28000000＋offset 與 console 結果一致。**4-byte 定址不在本次範圍**，報告註明待 ET-100 |
+| T4 | Erase 幾何／時間 | `erase 4k／32k／64k`，各 ≥ 20 次 | 抹後全 0xFF；記錄 min／avg／max，對照 datasheet；未對齊被拒絕 |
+| T5 | Program | 整 page、跨 page、部分 page、`bench` | 讀回逐 byte 一致；記錄 KB/s 與 SPI clock |
+| T6 | 大範圍完整性 | 0x020000–0x41FFFF（06 的 Candidate＋Rollback）寫 pseudo-random → SHA-256，重複 3 次 | 3 次一致；記錄總耗時，推估 1792 KB App 備份／下載寫入時間 |
+| T7 | MCU reset 中斷 | 下 erase／program 後立即 SYSRESETREQ（NOR 仍有電） | reset 後 init 成功、WIP 最終清除；記錄操作是否完成；之後 erase＋program 正常 |
+| T8 | 斷電中斷（需 G2） | 在 sector erase 與 page program 的 typ 時間 10％／50％／90％ 用 LDO 切電，各點 ≥ 20 次 | 復電後 init 成功、無 hang（驗證 timeout 路徑）；記錄被中斷區域的狀態（全 0xFF／混合／部分寫入）；再 erase＋program 成功 |
+
+**T8 結論要寫成 v0.8.2 journal 的設計規則**，至少回答：中斷後讀到全 0xFF 是否可信？（預期：不可信，必須重新 erase；完成與否以 journal commit marker 判斷，不以內容判斷。）
+
+## 7. 不做事項
+
+不做 OTA manager、download journal、installer、RS232／BLE／LTE 傳輸；不碰內建 Flash 分區；不改 SDK、linker、FAL、FlashEnv；不改產品 evb_serial target；不做 4-byte 定址與 SPIMX2_1 後端；不 commit／push（等 Step 5 review 與 Stanley 指示）。
+
+## 8. 驗收與交付
+
+1. Host test PASS（ASan／UBSan）、`git diff --check`、`check_plan_vs_code.py` PASS。
+2. Stanley 授權燒錄後先跑 G1；通過才跑 T2–T7；G2 通過才跑 T8。
+3. `09_evb_nor_bringup.md` 填完整數據；FAIL 照實記錄，不改測試期望配合結果。
+4. 測完燒回 0.7.0-dev，確認 App 正常。
+5. Step 7 同步：06 §7（EVB 用 U11、結果與限制）、`11_project_bring_up_status.md`、`REVIEW_REPORT.md` addendum。
+
+---
+
+# 歷史施工單 — v0.8.0 NOR OTA 規格修訂（文件限定）
 
 ## Branch／授權
 

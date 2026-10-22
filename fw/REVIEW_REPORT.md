@@ -1,5 +1,25 @@
 # REVIEW_REPORT — Phase 1a: Validate GCC Build Chain
 
+## 2026-10-22 Claude Code Step 5 review — v0.8.1 M-G1／M-T7
+
+**結論：PASS，無 Critical／Major。** 依 comm.md「Hardware bring-up loop」在 milestone review。
+
+- M-G1：UART log 確認 `G1 init_rc=0`、16 MB、erase 20／52／D8、SR 00／00；dummy=11 timeout（rc=-3）後再次 init 成功，前後 SFDP／geometry 一致。
+- M-T7：T2–T7 PASS；T3 四點 UART 與 SWD DAC（0x28000000＋offset）一致；T6 三輪 SHA-256 與 host 獨立期望值相同；已恢復 0.7.0-dev 並以 GCHK 確認。
+- 根因鏈（G1 五輪）：QSPI1 indirect 暫存器不存在（HardFault @0x50290060）→ 誤用 dedicated OSPI pad 設定 → U11 實際接 GPIO function 0xC（由 SchDoc net label 確認，原 md 接線表為轉錄錯誤）→ SFDP dummy 編碼（raw=1 = 8 clocks）。
+- Minor（不擋 commit）：09 報告保留多段歷史快照，已有「以本文最上方為準」聲明；之後可整理成精簡版。DWT 在 debugger disconnect 後停止，已記為 journal 規則 3。
+- 仍未驗證：T8／G2 斷電、4-byte 定址、XM25QH256D／SPIMX2_1、page-PP 效能。
+
+## 2026-10-22 NOR bring-up loop 執行補充（非獨立 review）
+
+Stanley 已 review M-G1 PASS，並授權 U11 scratch T2–T7、M-T7 後恢復 0.7.0-dev；不含 non-volatile status／OTP 變更或 T8／power-cut。沿用 43,928-byte SFDP dummy 修正版，未修改 SDK、linker、FAL 或產品 source。詳細原始證據與限制見 [09 NOR bring-up](docs/04_testing/09_evb_nor_bringup.md)。
+
+T2–T5 已完成：00／00 status、unarmed gate、四個指定邊界的 UART／host pattern／SWD DAC 一致、三種 erase 各 20 次及未對齊拒絕、整頁／跨頁／部分頁／bench 逐 byte 與 SHA-256 驗證。首輪 SWD disconnect 後零計時無效，已重新 init 並重測；另修正暫存 runner 的既有 arm 狀態前提，不改 firmware。有效數據與失敗原始紀錄均保留於 09 所列 logs。
+
+T6 PASS：0x020000–0x41FFFF 三輪共 12 MB，每輪 4 MB SHA-256 皆等於 host 獨立期望值 `54EAE10E589E0EDE8456DF201377D80E30D8A802C3E534753BA20148CA69F617`。T7 PASS：PP／erase 後立即 MCU reset，兩次 G1／SR／write gate／全 sector SHA／再次擦寫讀回通過，未切 NOR 電源；未直接量測 reset 瞬間 WIP，不擴大宣稱。
+
+T5／T6 throughput 明確標記 **STIG 8-byte PP, not OTA-representative**，不得推論為優化後 OTA 性能、4-byte 定址、電源故障耐受或 ET-100 32 MB NOR 驗收。M-T7 已達，依授權恢復 284,712-byte 0.7.0-dev 備份，完整 readback PASS，9600 bps GCHK 回覆版本 0.7.0-dev；目前板上已非測試韌體。結果以 09 最新節為準；G2／T8 pending C11／C30。無 commit／push／merge，等待 milestone review。
+
 **Date**：2026-10-02（初版）、2026-10-02（Codex review 修訂）
 **Reviewer**：Claude Code（Step 5）
 **Cross-review**：Codex（在初版發送後審查，發現 3 項 Major → 已修正）
@@ -380,6 +400,16 @@ _None remaining after restoring the FR509x header selector._
 **驗收補充**：後續 17:00 export 顯示切至 CID 1234 後停止 Type 1、讀回 CID=1234／GTIME=3，再恢復 0639 成功。Stanley 明確確認查詢前有按 RST 且整體正常；因此 CID／GTIME 手動 reset 保存 PASS。突然斷電、GC 與長時間測試仍未驗收，詳見同份測試紀錄。
 
 ---
+
+# Addendum — v0.8.1 U11 NOR 實作自查（2026-10-21，待獨立 review／硬體核准）
+
+依 v0.8.1 施工單與 Stanley 補充授權，在 `v0.8.1_nor_driver_bringup` 新增專案內 nor_port／QSPI1 bounded STIG、獨立 115200 bare-metal console／build overlay、host fake tests 與 runner。不改 SDK／linker／FAL／FlashEnv／產品 evb_serial；不修改硬體 README／PCB／施工單，不 commit／push。SDK patch 新增 0。
+
+ASan／UBSan 覆蓋真實 SDK register layout、ID／BFPT geometry、overflow／alignment、page 切割、保護／write gate、controller idle／STIG／WIP timeout、IRQ-disabled／DWT-stalled／wrap、abort 後 next init；既有七組 host tests PASS。ARM build／FR509x header／CRC／payload／800 KB guard PASS。Python runner AST／help 與 fake serial G1-only／ID mismatch／write gate 測試 PASS；沒有開實體 UART／SWD。機械 plan check exit 0 但無 CHECK anchors，屬 no-op。全工作區 diff check 仍有原先硬體 README EOF 空行警告，不越權修正。
+
+重要界線：實際 JEDEC／SFDP、OSPI mux／PSRAM coexistence、DWT／controller reset 復原、C19 真正切電、T1–T8 與 DAC coherence **尚未實測**。readback 採 STIG 03 fallback；單筆 PP 最多 8 bytes，不能推論整頁性能或命中 program 中途切電。T8 off-state 的軟體 ENOTREADY 不是硬體 timeout 證據；實際斷電規則尚屬保守設計前提。每次 flash 包含恢復基線都需另取 Stanley 授權；下一步只申請測試韌體 flash＋G1 唯讀，不先擦寫／切電。
+
+完整來源、指令、產物／logs、待量測表與 v0.8.2 journal 前提見 [09 U11 NOR bring-up](docs/04_testing/09_evb_nor_bringup.md)。本節是執行者自查，不代替 Claude Step 5 的獨立 review，也不宣稱 Phase 已完整驗收。
 
 # Addendum — v0.8.0 NOR OTA 規格審查（2026-10-21）
 
