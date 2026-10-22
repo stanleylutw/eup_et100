@@ -8,6 +8,7 @@
 #include "mcuboot_image.h"
 #include "ota_journal.h"
 #include "smp_server.h"
+#include "sensor_store.h"
 
 #define OTA_CANDIDATE_BASE 0x020000u
 
@@ -20,6 +21,7 @@ struct ota_env {
     void (*unlock)(void);
     uint32_t source;                      /* default enum ota_source */
     uint32_t (*now_ms)(void);             /* for cross-transport ownership; may be NULL */
+    struct sensor_store *sensor;          /* v0.8.8 SMP image 1; NULL = unsupported */
 };
 /* A transport that changed state holds the session for this long; others get EBUSY. */
 #define OTA_OWNER_HOLD_MS 30000u
@@ -34,7 +36,8 @@ struct ota_manager {
     size_t buffer_len;
     uint8_t sha256[32];
     struct image_info candidate;
-    uint32_t active_source, owner, owner_ms, session_source;
+    uint32_t active_source, owner, owner_ms, session_source, session_target;
+    struct sensor_store_status sensor_status;   /* published copy for other tasks */
     uint8_t buffer[OTA_JOURNAL_CHUNK_SIZE];
 };
 void ota_manager_init(struct ota_manager *m, const struct ota_env *env);
@@ -42,4 +45,10 @@ void ota_manager_init(struct ota_manager *m, const struct ota_env *env);
 void ota_manager_set_source(struct ota_manager *m, uint32_t source);
 /* Fill smp_ops with this manager (context = m). */
 void ota_manager_smp_ops(struct ota_manager *m, struct smp_ops *ops);
+/* v0.8.8 sensor package: snapshot is safe from any task; delete runs in the
+ * manager's task (marks INVALID, erases the NOR slot, removes the record).
+ * Returns 0, SMP_EBUSY (another transport owns the update) or SMP_EUNKNOWN. */
+bool ota_manager_sensor_supported(const struct ota_manager *m);
+void ota_manager_sensor_status(struct ota_manager *m, struct sensor_store_status *out);
+int ota_manager_sensor_delete(struct ota_manager *m);
 #endif

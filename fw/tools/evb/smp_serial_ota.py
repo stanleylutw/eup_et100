@@ -9,6 +9,11 @@ Examples:
   smp_serial_ota.py upload fw/build_serial/output/dfu_application.zip --test --reset
   smp_serial_ota.py --baud 115200 upload image.signed.bin --test --reset
   smp_serial_ota.py confirm
+  smp_serial_ota.py --baud 115200 upload --image 1 sensor.pkg   (v0.8.8 sensor package -> NOR)
+
+Sensor packages (image 1) are Gateway Relay Header v1 files, e.g. from
+eup_gateway/tools/sensor_ota_package.py build <sensor_dfu.zip> <out.pkg>; check with
+BLEGW$GSOTAPKG afterwards.
 """
 import argparse
 import asyncio
@@ -81,14 +86,17 @@ async def run(args) -> None:
             print_state(await client.request(ImageStatesWrite(hash=bytes.fromhex(args.hash), confirm=False),
                                              timeout_s=60))
         elif args.cmd == "upload":
-            image = load_image(args.image)
+            image = load_image(args.file) if args.image == 0 else args.file.read_bytes()
             start, last = time.time(), -1
-            async for off in client.upload(image, first_timeout_s=60, subsequent_timeout_s=30):
+            async for off in client.upload(image, slot=args.image, first_timeout_s=60,
+                                           subsequent_timeout_s=30):
                 pct = off * 100 // len(image)
                 if pct // 10 != last // 10:
                     print(f"upload {off}/{len(image)} ({pct}%) {time.time() - start:.1f}s", flush=True)
                 last = pct
             print(f"upload done {len(image)} B in {time.time() - start:.1f}s")
+            if args.image == 1:
+                return                      # validated on the last packet; query GSOTAPKG
             state = await client.request(ImageStatesRead(), timeout_s=60)
             print_state(state)
             if args.test:
@@ -109,7 +117,9 @@ def main() -> None:
     e = sub.add_parser("echo"); e.add_argument("text")
     sub.add_parser("state"); sub.add_parser("confirm"); sub.add_parser("reset")
     t = sub.add_parser("test"); t.add_argument("hash", help="slot-1 image hash (hex)")
-    u = sub.add_parser("upload"); u.add_argument("image", type=Path)
+    u = sub.add_parser("upload"); u.add_argument("file", type=Path)
+    u.add_argument("--image", type=int, choices=(0, 1), default=0,
+                   help="0 = ET-100 App (zip/bin), 1 = sensor package (.pkg)")
     u.add_argument("--test", action="store_true", help="mark the uploaded image pending")
     u.add_argument("--reset", action="store_true", help="reset after --test to install")
     asyncio.run(run(p.parse_args()))

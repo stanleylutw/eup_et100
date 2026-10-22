@@ -38,6 +38,23 @@ Codex 審查 `8d94fd8`，提出 2 項 P2（並附 host 重現程式），全部�
 
 **Codex 複審：PASS**，未發現新的阻擋問題。另驗證 notify 失敗重試、MTU 23 分包、既有 serial host 回歸，ASan／UBSan 無錯誤。修正版已部署 EVB 並自動 confirm（見 15 報告）。
 
+## 2026-10-23 v0.8.8 自我檢查（Claude 實作，待 Codex Step 5）
+
+- 範圍：`sensor_package.c`（移植 gateway `sensor_ota_package.c`）、`sensor_store.c`（EMPTY／INVALID／VALID＋generation，Settings key `0x00030005`）、`ota_manager.c`（SMP `image=1` → journal `OTA_SENSOR` → 最後一包驗證＋commit；刪除）、`ota_worker.c`（FlashDB 後端、刪除排入 worker、狀態快照）、`serial_gchk.c`（`GSOTAPKG`／`DSOTAPKG`）、`smp_serial_ota.py --image 1`。SDK 未修改。
+- 驗收 M-PKG PASS（[16 報告](docs/04_testing/16_evb_sensor_package.md)）。
+- **請 Codex review 時特別看**：
+  1. `verify_candidate()` 只認 `OTA_ET100` session；sensor session 不能被 test／confirm 或列為 slot 1。
+  2. INVALID 在第一個 package byte 寫入前持久化；`sensor_finish()` 在 VALID 已存在時直接回 0（同 session 重送）是否有誤判情境。
+  3. 刪除時取消 journal 的 sensor session，避免之後同一 package「續傳」到已擦除區。
+  4. `sensor_status` 快照以 `env->lock`（critical section）複製，serial task 不碰 NOR／FlashDB 寫入。
+  5. 與 gateway 格式差異：`GSOTAPKG` 不每次重讀 NOR header（見 16 報告）。
+  6. 自查修正：資料已完整但 journal 未 finish 時（重開機時機），續傳第一包會先 finish＋驗證＋commit（`begin()` resume 分支）。
+  7. FlashDB key 衝突修正（v0.8.4 起的既有問題，併入本分支）：`boot_health.c` 的 TRIAL 探針原本寫 `0x00030004`，和 `gatt_client.c` 的 100 B auto 清單同一個 key，每次 OTA 後的 TRIAL 開機都會清掉 auto 清單。現在探針改用 `0x00030006`；新增 `fw/src/et100_fdb_keys.h` 集中定義 GTIME `…02`、CID `…03`、auto 清單 `…04`、sensor package `…05`、boot health `…06`。`serial_gchk.c`、`gatt_client.c`、`ota_worker.c` 移除各自的 define，值不變。已經過 TRIAL 開機的舊裝置，auto 清單需要重設一次。
+- 測試補強：`test_smp` 新增「upload SHA 與 header CRC 正確、只有 MCUboot TLV 錯」兩個 case（以 mutation 確認有效）；新增 `test_boot_health.c`（TRIAL 探針不動 auto 清單與 GTIME、key 互不相同）；`test_evb_serial_host.sh` 納入 `test_smp` 與 `test_boot_health`，找不到 signed image 時直接失敗。
+- Codex 核對 hash 行為：sensor package 驗證範圍與 gateway 相同（header CRC、upload SHA-256、MCUboot SHA-256 TLV 與 header 一致），符合 D3，不列為缺陷；但**沒有驗 MCUboot 簽章**，不可稱為「已驗證簽章」（簽章屬 06 §8 第 7 步量產 gate）。
+- EVB 複測（最新修正版，含上述兩項修正，Codex 執行）：第 2–4 項 PASS；auto 清單在三次 TRIAL 更新（部署、0.8.81、還原）後都保留；B-info 7 次一致、CFSR／HFSR 0。測試程式端有三次通訊異常，重查都通過，原因未定（見 16 報告）。
+- HTML（D8，Codex）：ET-100 模式新增 Sensor 套件目標；離線測試 `test_et100_sensor／smp／ui.cjs` PASS，瀏覽器打包結果與 gateway Python 工具逐 byte 相同。本輪 EVB 複測未使用 HTML。
+
 ## 2026-10-22 v0.8.7 App 實測修正：Confirm only 模式（Claude 實作＋自審，Stanley 指示不送 Codex）
 
 - 問題：自家 iOS App（nRF 函式庫預設「Confirm only」）上傳後送 confirm(新 image hash)，韌體回 ENOTSUP。

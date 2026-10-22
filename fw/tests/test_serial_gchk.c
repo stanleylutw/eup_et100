@@ -1,5 +1,6 @@
 #include "serial_gchk.h"
 #include "../include/eup_fw_info.h"
+#include "smp_server.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -36,6 +37,14 @@ static void capture(const char *data, size_t length, void *context)
     output[used] = '\0';
 }
 
+static struct sensor_store_status pkg;
+static int pkg_ok = 1;
+static int pkg_status(struct sensor_store_status *out)
+{
+    *out = pkg;
+    return pkg_ok;
+}
+
 static void feed(struct et100_serial_parser *p, const char *text)
 {
     while (*text)
@@ -46,7 +55,9 @@ static void expect(struct et100_serial_parser *p, const char *request,
                    const char *response)
 {
     used = 0;
+    output[0] = '\0';
     feed(p, request);
+    if (strcmp(output, response)) fprintf(stderr, "got: %s\nwant: %s\n", output, response);
     assert(strcmp(output, response) == 0);
 }
 
@@ -140,6 +151,50 @@ int main(void)
            "AT$PD=BLEGW$GFWINFO;1;PPPPPPPPPPPPPPPPPPPPPPPP;;;fr3068e_c;F002\r\n");
     p.fw_info = NULL;
     puts("PASS: GFWINFO from EUPFWV1, missing source, unterminated fields");
+    /* v0.8.8 GSOTAPKG / DSOTAPKG: eup_gateway rs232_cmd_handler.c formats */
+    expect(&p, "BLEGW$GSOTAPKG;P000\r\n", "AT$PD=BLEGW$GSOTAPKG;0;UNSUPPORTED;P000\r\n");
+    expect(&p, "BLEGW$DSOTAPKG;P001\r\n", "AT$PD=BLEGW$DSOTAPKG;0;UNSUPPORTED;P001\r\n");
+    p.pkg_status = pkg_status;
+    expect(&p, "BLEGW$GSOTAPKG;P002\r\n", "AT$PD=BLEGW$GSOTAPKG;1;EMPTY;0;-;-;-;-;-;-;-;-;P002\r\n");
+    pkg.state = SENSOR_STORE_INVALID; pkg.generation = 7;
+    expect(&p, "BLEGW$GSOTAPKG;P003\r\n", "AT$PD=BLEGW$GSOTAPKG;1;INVALID;7;-;-;-;-;-;-;-;-;P003\r\n");
+    pkg.state = SENSOR_STORE_VALID; pkg.generation = 8;
+    pkg.info.package_length = 167312; pkg.info.image_length = 167056;
+    strcpy(pkg.info.product, "EUP_AIoT_P1"); strcpy(pkg.info.board, "p1_nrf52832");
+    strcpy(pkg.info.soc, "nrf52832"); strcpy(pkg.info.firmware, "v3.6.14");
+    memset(pkg.info.firmware + 8, 0, sizeof pkg.info.firmware - 8);
+    for (unsigned i = 0; i < 32; i++) pkg.info.upload_sha256[i] = (uint8_t)(0xd0 + i);
+    expect(&p, "BLEGW$GSOTAPKG;P004\r\n",
+           "AT$PD=BLEGW$GSOTAPKG;1;VALID;8;167312;167056;EUP_AIoT_P1;p1_nrf52832;nrf52832;v3.6.14;"
+           "D0D1D2D3D4D5D6D7D8D9DADBDCDDDEDFE0E1E2E3E4E5E6E7E8E9EAEBECEDEEEF;-;P004\r\n");
+    strcpy(pkg.info.build_id, "20261017223216");
+    memset(pkg.info.product, 'P', sizeof pkg.info.product);        /* unterminated: bounded */
+    used = 0;
+    feed(&p, "BLEGW$GSOTAPKG;P005\r\n");
+    assert(strstr(output, ";VALID;8;167312;167056;PPPPPPPPPPPPPPPPPPPPPPPP;p1_nrf52832;") &&
+           strstr(output, ";20261017223216;P005\r\n"));
+    pkg_ok = 0;
+    expect(&p, "BLEGW$GSOTAPKG;P006\r\n", "AT$PD=BLEGW$GSOTAPKG;0;READ_FAILED;P006\r\n");
+    pkg_ok = 1;
+    expect(&p, "BLEGW$DSOTAPKG;D001\r\n", "");                  /* answered after the erase */
+    assert(p.pkg_delete_request && p.pkg_delete_busy);
+    p.pkg_delete_request = 0;
+    expect(&p, "BLEGW$GSOTAPKG;D002\r\n", "AT$PD=BLEGW$GSOTAPKG;0;BUSY;D002\r\n");
+    expect(&p, "BLEGW$DSOTAPKG;D003\r\n", "AT$PD=BLEGW$DSOTAPKG;0;BUSY;D003\r\n");
+    used = 0;
+    et100_serial_pkg_deleted(&p, 0);
+    assert(!strcmp(output, "AT$PD=BLEGW$DSOTAPKG;1;OK;D001\r\n") && !p.pkg_delete_busy);
+    feed(&p, "BLEGW$DSOTAPKG;D004\r\n");
+    used = 0;
+    et100_serial_pkg_deleted(&p, SMP_EBUSY);
+    assert(!strcmp(output, "AT$PD=BLEGW$DSOTAPKG;0;BUSY;D004\r\n"));
+    feed(&p, "BLEGW$DSOTAPKG;D005\r\n");
+    used = 0;
+    et100_serial_pkg_deleted(&p, SMP_EUNKNOWN);
+    assert(!strcmp(output, "AT$PD=BLEGW$DSOTAPKG;0;DELETE_FAILED;D005\r\n"));
+    p.pkg_delete_request = 0;
+    p.pkg_status = NULL;
+    puts("PASS: GSOTAPKG EMPTY/INVALID/VALID/BUSY/READ_FAILED, DSOTAPKG deferred OK/BUSY/FAILED");
     save_fails = 0;
     et100_serial_set_cid_storage(&p, durable_cids, save_cids);
     expect(&p, "BLEGW$GCID;C001\r\n", "AT$PD=BLEGW$GCID;1;0639;;;;C001\r\n");

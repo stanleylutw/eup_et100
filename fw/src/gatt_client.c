@@ -7,13 +7,14 @@
 #include "gap_api.h"
 #include "gatt_api.h"
 #include "fdb_app.h"
+#include "et100_fdb_keys.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
 #include <stdio.h>
 #include <string.h>
 
-#define AUTO_KEY 0x00030004U
+#define AUTO_KEY ET100_FDB_AUTO_LIST_KEY
 #define RAW_MAX 320
 #define OUT_MAX 256
 enum session_state { IDLE, WAIT_ADV, CONNECTING, SETUP, AUTH, READY, DRAIN };

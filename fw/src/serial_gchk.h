@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "sensor_store.h"
 
 struct eup_fw_info;
 
@@ -34,6 +35,12 @@ struct et100_serial_parser {
     unsigned char baud_supported;
     /* GFWINFO source (App EUPFWV1 block); NULL answers ";0;". */
     const struct eup_fw_info *fw_info;
+    /* v0.8.8 sensor package (format of eup_gateway GSOTAPKG/DSOTAPKG). pkg_status
+     * NULL answers UNSUPPORTED. DSOTAPKG sets pkg_delete_request; the transport
+     * queues the erase and answers with et100_serial_pkg_deleted(). */
+    int (*pkg_status)(struct sensor_store_status *);
+    unsigned char pkg_delete_request, pkg_delete_busy;
+    char pkg_delete_token[5];
 };
 
 void et100_serial_init(struct et100_serial_parser *, const char *,
@@ -43,6 +50,8 @@ void et100_serial_feed(struct et100_serial_parser *, uint8_t);
 void et100_serial_set_storage(struct et100_serial_parser *, int, uint16_t,
                              et100_serial_save_fn, void *);
 void et100_serial_storage_ready(int);
+/* rc: 0 OK, SMP_EBUSY, SMP_ENOTSUP, other = DELETE_FAILED. */
+void et100_serial_pkg_deleted(struct et100_serial_parser *, int rc);
 void et100_serial_set_cid_storage(struct et100_serial_parser *, const uint16_t[4],
                                   et100_serial_save_cids_fn);
 

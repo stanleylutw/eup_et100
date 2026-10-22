@@ -14,7 +14,7 @@
 - 狀態值：NONE=0、PENDING=1、CONFIRMED=2、BACKUP_READY=3、TRIAL=4、ROLLBACK_REQUIRED=5。另存 confirmed 長度／hash、Candidate 長度／hash、last_update（OK=0／FAILED=1／ABORTED=2）。回滾成功仍保留失敗 Candidate 身分，但 confirmed hash 指向舊 App。
 - PENDING 先驗 Candidate 與內建 confirmed App，再備份 NOR `0x220000–0x41FFFF`，讀回驗證才提交 BACKUP_READY；實際備份已符合 confirmed hash 時重用，不只比較 metadata 字串。備份錯誤中止更新、保留舊 App，標 ABORTED。
 - BACKUP_READY 才能擦 App；完成後提交 TRIAL，再啟用 watchdog 跳 App。TRIAL 未確認就重開，先提交 ROLLBACK_REQUIRED，再驗 Rollback 並從頭搬回，成功後 CONFIRMED／FAILED。任何中斷都以內建 state 為唯一依據，不從 NOR journal 猜測安裝狀態。
-- App 在既有 serial/main loop 每約 1 秒清除 watchdog，確認後仍持續；BLE ADV_START 成功、FlashEnv 初始化與讀寫探針通過、迴圈連續運行 30 秒才呼叫共用 confirm API。迴圈超過 2 秒未前進會重新計算健康窗口。FlashEnv 探針用獨立 key `0x00030004`，寫本次 trial sequence 並讀回，不改 GTIME／CID。
+- App 在既有 serial/main loop 每約 1 秒清除 watchdog，確認後仍持續；BLE ADV_START 成功、FlashEnv 初始化與讀寫探針通過、迴圈連續運行 30 秒才呼叫共用 confirm API。迴圈超過 2 秒未前進會重新計算健康窗口。FlashEnv 探針用獨立 key `0x00030006`（`ET100_FDB_BOOT_HEALTH_KEY`，見 `fw/src/et100_fdb_keys.h`），寫本次 trial sequence 並讀回，不改 GTIME／CID／auto list。
 - Installer 每次跳 App 前啟用 watchdog；App 每次開機在 `pmu_init()` 返回後立即呼叫 `iwdt_init`／`iwdt_Enable`／`iwdt_Refresh`，不只依賴繼承設定。**剩餘盲窗**：SDK `pmu_init()` 內清掉 WDT clock，若在該處卡死不能保證 reset；返回後緊接重新 arm 的指令亦有極短交接時間。未更改 SDK，不宣稱此盲窗已消除。
 - App confirm API 只接受 TRIAL 且 hash 等於自己完整 MCUboot image；錯誤 hash 不寫 NOR／內建 state。App 寫入 adapter 只允許 boot-state 區，不允許 App、Settings 或 B-info。
 - 測試 build flag 預設皆關：NO_CONFIRM 仍清除 watchdog，但不確認；HANG 在 trial 約 5 秒後關 IRQ 卡死，停止清除。dev loader 的 reset mask bit 8 僅供備份途中 MCU reset 一次；清除 flag 先持久化，避免無限測試循環。

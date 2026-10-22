@@ -3,7 +3,7 @@
 Version: v0.2 REVIEW DRAFT（2026-10-22：BLE 更新採 SMP＋MCUboot image 格式，見 §6.1）
 日期：2026-10-21；分支：v0.8.0_ota_nor_spec；基底：v0.7.0_evb_app_gatt_server（e5274b2）。
 
-**狀態**：Stanley 已同意產品方向與本次文件修訂。以下為候選地址及行為契約，不是 SDK／linker／FlashDB 修改、燒錄或量產授權。EVB 仍執行 0.7.0-dev，現有 FlashEnv／linker 不變。Q43-5／Q48-6、installer 可獨立開機與斷電復原為實作 gate。
+**狀態**：Stanley 已同意產品方向與本次文件修訂。以下為候選地址及行為契約，不是 SDK／linker／FlashDB 修改、燒錄或量產授權。撰寫時（2026-10-21）EVB 執行 0.7.0-dev，FlashEnv／linker 未改。**現況（2026-10-23）**：已實作到 v0.8.8，EVB 執行 0.8.8-dev；linker（App @0x08020000）與 FlashEnv（0x081E0000、112 KB）已於 v0.8.3 改成 §2 的布局。Q43-5／Q48-6、installer 可獨立開機與斷電復原為實作 gate。
 
 ## 1. 決策與來源
 
@@ -45,11 +45,11 @@ App slot 1792 KB 是包含所需 App image header／驗證結構與程式資料�
 - **ROM OTA 不能從 NOR 安裝**，且原廠 A／B 需在內建 Flash 放兩份 App（上限約 960 KB），故維持自有 installer＋NOR staging。
 - **硬規則：0x08001000 sector 永遠不擦、不寫，維持原內容。** 目前內容是全 0x00（`post_process.py` 以 `seek(0x2000)` 留下檔案空洞；原廠 baseline 與所有 burn image 皆如此，EVB 一直以此正常開機）。全 00 與全 FF 對 ROM 都是「無 OTA」，但不主動改成 FF。Installer、App、工具都不得寫入；燒錄工具須跳過此 sector；SDK vendor OTA service（`examples/common/ota`）會寫 B 資訊段，產品 App 不得啟用。
 
-### 現行 FlashEnv 風險與遷移
+### FlashEnv 位置與遷移
 
-目前 SDK fal_cfg.h 的 FlashEnv 在 **0x080C8000、12 KB**，位於目前 linker window 中。build guard 將 burn image 限於 Flash offset 800 KB 前，尚未撞設定；raw App 起點是 0x08002000，並非目前可安全使用整個 1016 KB window。將來新 App slot 包含舊 FlashEnv 地址，**未完成遷移不得安裝新 App**。
+v0.8.3 起，專案自己的 `fw/include/fal_cfg.h`（排在 SDK includes 前）把 FlashEnv 設在 **0x081E0000（offset 0x1E0000）、112 KB**，也就是 §2 的 Settings／KV 區；SDK 原本的 0x080C8000、12 KB 不再使用，該位址現在落在 App slot 內。v0.8.3 **沒有遷移舊資料**：EVB 換版後新區從預設值開始（GTIME=15、CID=0639，見 [11 報告](../04_testing/11_evb_installer.md)），舊 BT bonding 與 auto 清單也一併重來。
 
-遷移施工單必須處理舊 schema／BT bonding／GTIME／CID／auto-GATT keys、版本與 CRC、可重入 copy／readback，以及中斷／降版政策。App rollback 不代表 Settings schema 自動 rollback；未確認新 App 前不得做破壞舊版可讀性的設定遷移。112 KB 是新 Settings 容量預留，不是現在 FAL 已配置的大小。
+遷移施工單必須處理舊 schema／BT bonding／GTIME／CID／auto-GATT keys／sensor package 記錄（v0.8.8；記錄遺失會被當成 EMPTY，但 NOR 上的 package 仍在）／boot health 探針，專案 key 一律以 `fw/src/et100_fdb_keys.h` 為準（一筆記錄一個 key，已上 flash 的 key 不改值、不重用）、版本與 CRC、可重入 copy／readback，以及中斷／降版政策。App rollback 不代表 Settings schema 自動 rollback；未確認新 App 前不得做破壞舊版可讀性的設定遷移。上面這些要求適用於日後任何 Settings 搬移或 schema 變更（例如量產前），以及從 v0.8.3 之前版本升級的裝置。
 
 ## 3. 外部 NOR 候選布局：32 MB
 
@@ -229,10 +229,11 @@ Logs 從 0x460000 起，EVB 只能使用其 16 MB 實體範圍內的部分；不
 | — | v0.8.5 | RS232：SMP over serial＋`OTABAUD`（[協定](../02_protocol/04_smp_serial_ota.md)）＋`smp_serial_ota.py` | RS232 | ✅（EVB：9600 續傳、115200 約 53 秒、SMP-only 更新 2 次） |
 | — | v0.8.6 | BLE SMP（GATT transport＋OTA worker task、單一 owner、bootloader info）；以 nRF Connect Device Manager 驗證 | BLE | ✅（EVB：手機完整 Test and Confirm；`ET100_SMP_BLE_OPEN` 開發版限定） |
 | — | v0.8.7 | 裝置端 `GET_FW_INFO`／`GET_DEVICE_ID`＋RS232 `GFWINFO`（[05 協定](../02_protocol/05_device_metadata.md)） | BLE／RS232 | ✅ |
+| — | v0.8.8 | Sensor package 存 NOR 0x420000：SMP upload `image=1`（RS232／BLE）、持久 EMPTY／INVALID／VALID 記錄（Settings key 0x00030005）、RS232 `GSOTAPKG`／`DSOTAPKG`（格式同 gateway；[04 §3.1a](../02_protocol/04_smp_serial_ota.md)） | RS232／BLE | ✅（EVB：p1 v3.6.14 package 31 秒、重開機仍 VALID、ET-100 自身更新後仍 VALID、刪除 EMPTY） |
 | 5 | — | App 端修改（§6.1） | BLE | **韌體端已備齊，可交給 App 團隊** |
 | 6 | — | EG800Q modem 驅動＋FTP 分塊下載 | LTE | 需 ET-100 實板或 EG800Q 開發板 |
 | 7 | — | 簽章驗證（installer 驗 MCUboot 簽章 TLV、打包帶 key） | 量產 gate | Q42 |
 | 8 | — | ET-100 移植：SPIMX2_1 NOR 後端、4-byte 定址、XM25QH256D、實機斷電（T8）、E-C ROM 行為 | 量產 gate | ET-100 實板 |
-| 9 | — | Sensor OTA relay | 第四種 target | 排程待定 |
+| 9 | — | Sensor OTA relay（FR3068 當 central，把 NOR 內 package 以 SMP 推給 sensor；package 存放已於 v0.8.8 完成） | 第四種 target | 排程待定 |
 
 EVB 上完成第 1–4 步後，RS232 與 BLE 即可端到端更新；LTE 與量產 gate 需 ET-100 實板。此順序不代表 transport 可以繞過 boot gate 提前宣稱安全更新。簽章／公鑰／降版政策、驗證錯誤與不可用時的安全輸出須列正式產品 gate；本輪不宣稱 secure boot root-of-trust 已成立。

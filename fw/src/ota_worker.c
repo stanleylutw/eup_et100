@@ -7,6 +7,8 @@
 #include "fr30xx.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "fdb_app.h"
+#include "et100_fdb_keys.h"
 #include <string.h>
 
 #define ACTIVE_MS 30000u
@@ -26,6 +28,31 @@ static struct smp_ops ops;
 static uint8_t response[SMP_SERIAL_MAX_PACKET];
 static volatile TickType_t last_activity;
 static volatile bool seen;
+static struct sensor_store sensor;
+static volatile bool delete_queued;
+static volatile int delete_result = -1;
+
+static size_t pkg_load(uint8_t *record, size_t capacity)
+{
+    size_t n = flashdb_get_length(ET100_FDB_SENSOR_PKG_KEY);
+    if (!n || n > capacity) return n;
+    return flashdb_get(ET100_FDB_SENSOR_PKG_KEY, record, (uint32_t)n);
+}
+static int pkg_save(const uint8_t *record, size_t length)
+{
+    static uint8_t verify[SENSOR_STORE_RECORD_SIZE];
+    if (length > sizeof verify ||
+        flashdb_set(ET100_FDB_SENSOR_PKG_KEY, (uint8_t *)record, (uint32_t)length) != FDB_NO_ERR ||
+        flashdb_get(ET100_FDB_SENSOR_PKG_KEY, verify, (uint32_t)length) != length)
+        return -1;
+    return memcmp(record, verify, length) ? -1 : 0;
+}
+static int pkg_remove(void)
+{
+    (void)flashdb_del(ET100_FDB_SENSOR_PKG_KEY);
+    return flashdb_get_length(ET100_FDB_SENSOR_PKG_KEY) ? -1 : 0;
+}
+static const struct sensor_store_ops pkg_ops = { pkg_load, pkg_save, pkg_remove };
 
 void nor_qspi1_yield(void) { taskYIELD(); }
 
@@ -42,6 +69,30 @@ static uint32_t now_ms(void) { return (uint32_t)xTaskGetTickCount() * portTICK_P
 bool ota_worker_active(void)
 {
     return seen && (TickType_t)(xTaskGetTickCount() - last_activity) < pdMS_TO_TICKS(ACTIVE_MS);
+}
+
+bool ota_worker_sensor_status(struct sensor_store_status *out)
+{
+    if (!worker || !ota_manager_sensor_supported(&ota)) return false;
+    ota_manager_sensor_status(&ota, out);
+    return true;
+}
+
+bool ota_worker_sensor_delete(void)
+{
+    if (!worker || delete_queued) return false;
+    delete_result = -1;
+    __DMB();
+    delete_queued = true;
+    xTaskNotifyGive(worker);
+    return true;
+}
+
+int ota_worker_sensor_deleted(void)
+{
+    int rc = delete_result;
+    if (rc >= 0) delete_result = -1;
+    return rc;
 }
 
 bool ota_worker_submit(enum ota_transport transport, const uint8_t *packet, size_t length, uint32_t tag)
@@ -85,6 +136,14 @@ static void worker_task(void *argument)
     stack_low = (const uint8_t *)(((uintptr_t)&top_marker & ~3u) - WORKER_STACK_WORDS * 4u + SCAN_MARGIN);
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (delete_queued) {
+            ota_manager_set_source(&ota, OTA_RS232);
+            int rc = ota_manager_sensor_delete(&ota);
+            delete_result = rc < 0 ? SMP_EUNKNOWN : rc;
+            __DMB();
+            delete_queued = false;
+            stack_check();
+        }
         for (unsigned t = 0; t < OTA_TRANSPORT_COUNT; t++) {
             struct slot *s = &slots[t];
             if (!s->full) continue;
@@ -103,7 +162,7 @@ static void worker_task(void *argument)
     }
 }
 
-void ota_worker_start(const ota_worker_send_fn send[OTA_TRANSPORT_COUNT])
+void ota_worker_start(const ota_worker_send_fn send[OTA_TRANSPORT_COUNT], bool storage_ready)
 {
     for (unsigned t = 0; t < OTA_TRANSPORT_COUNT; t++) senders[t] = send[t];
     env.nor = nor_qspi1_port();
@@ -114,6 +173,10 @@ void ota_worker_start(const ota_worker_send_fn send[OTA_TRANSPORT_COUNT])
     env.unlock = unlock;
     env.source = OTA_RS232;
     env.now_ms = now_ms;
+    if (storage_ready) {
+        sensor_store_init(&sensor, &pkg_ops);
+        env.sensor = &sensor;
+    }
     ota_manager_init(&ota, &env);
     ota_manager_smp_ops(&ota, &ops);
     /* Same priority as the serial task: long hashes are time-sliced, and the

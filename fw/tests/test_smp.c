@@ -7,6 +7,9 @@
 #include "fake_nor.h"
 #include "smp_ble.h"
 #include "mbedtls/sha256.h"
+#include "sensor_package.h"
+#include "sensor_store.h"
+#include "integrity.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -498,6 +501,257 @@ static void test_manager(const char *path)
     free(running); free(candidate); free(internal);
 }
 
+
+/* ---------- v0.8.8 sensor package (SMP image 1) ---------- */
+static uint8_t pkg_record[SENSOR_STORE_RECORD_SIZE];
+static size_t pkg_record_len;
+static size_t fs_load(uint8_t *r, size_t cap)
+{
+    if (pkg_record_len && pkg_record_len <= cap) memcpy(r, pkg_record, pkg_record_len);
+    return pkg_record_len;
+}
+static int fs_save(const uint8_t *r, size_t n)
+{
+    if (n > sizeof pkg_record) return -1;
+    memcpy(pkg_record, r, n);
+    pkg_record_len = n;
+    return 0;
+}
+static int fs_remove(void) { pkg_record_len = 0; return 0; }
+static const struct sensor_store_ops fs_ops = { fs_load, fs_save, fs_remove };
+static struct sensor_store store;
+
+static void le16(uint8_t *p, uint32_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
+static void le32(uint8_t *p, uint32_t v) { le16(p, v); le16(p + 2, v >> 16); }
+
+/* Minimal MCUboot image (32 B header, payload, TLV info + SHA-256 TLV) inside a
+ * Gateway Relay Header v1, as eup_gateway tools/sensor_ota_package.py builds it. */
+static size_t make_package(uint8_t *out, uint32_t payload, const char *firmware)
+{
+    uint8_t *img = out + SENSOR_PKG_HEADER_SIZE;
+    memset(out, 0, SENSOR_PKG_HEADER_SIZE + 32);
+    le32(img, 0x96f3b83du); le16(img + 8, 32); le32(img + 12, payload);
+    for (uint32_t i = 0; i < payload; i++) img[32 + i] = (uint8_t)(i * 7 + 1);
+    uint32_t tlv = 32 + payload;
+    le16(img + tlv, 0x6907); le16(img + tlv + 2, 4 + 4 + 32);
+    img[tlv + 4] = 0x10; img[tlv + 5] = 0; le16(img + tlv + 6, 32);
+    mbedtls_sha256_ret(img, tlv, img + tlv + 8, 0);
+    uint32_t image = tlv + 40;
+    memcpy(out, "EUPSRLY1", 8); le16(out + 8, 1); le16(out + 10, 256);
+    le32(out + 12, 256 + image); le32(out + 16, 256); le32(out + 20, image);
+    strcpy((char *)out + 0x1c, "EUP_AIoT_P1"); strcpy((char *)out + 0x34, "P1_HW_1.0.0");
+    strcpy((char *)out + 0x48, firmware); strcpy((char *)out + 0x68, "nrf52832");
+    strcpy((char *)out + 0x78, "p1_nrf52832"); strcpy((char *)out + 0xd0, "20261017223216");
+    mbedtls_sha256_ret(img, image, out + 0x90, 0);
+    memcpy(out + 0xb0, img + tlv + 8, 32);
+    le32(out + 0xfc, installer_crc32(out, 0xfc));
+    return 256 + image;
+}
+
+/* Re-seal a modified package: upload SHA-256 and header CRC valid again. */
+static void reseal_package(uint8_t *out)
+{
+    uint32_t image = out[20] | out[21] << 8 | out[22] << 16 | (uint32_t)out[23] << 24;
+    mbedtls_sha256_ret(out + SENSOR_PKG_HEADER_SIZE, image, out + 0x90, 0);
+    le32(out + 0xfc, installer_crc32(out, 0xfc));
+}
+
+static uint32_t pkg_packet(const uint8_t *buf, size_t total, unsigned image, uint32_t off, size_t n, bool first)
+{
+    uint8_t req[SMP_SERIAL_MAX_PACKET];
+    struct cbor_writer w;
+    cbor_writer_init(&w, req, sizeof req);
+    cbor_put_map(&w, first ? 5 : 2);
+    cbor_put_text(&w, "off"); cbor_put_uint(&w, off);
+    cbor_put_text(&w, "data"); cbor_put_bytes(&w, buf + off, n);
+    if (first) {
+        uint8_t sha[32];
+        mbedtls_sha256_ret(buf, total, sha, 0);
+        cbor_put_text(&w, "image"); cbor_put_uint(&w, image);
+        cbor_put_text(&w, "len"); cbor_put_uint(&w, total);
+        cbor_put_text(&w, "sha"); cbor_put_bytes(&w, sha, 32);
+    }
+    assert(!w.error);
+    const uint8_t *m = call(SMP_OP_WRITE, SMP_GROUP_IMG, 1, req, w.len, NULL);
+    uint64_t rc = field(m, "rc");
+    return rc ? 0x80000000u | (uint32_t)rc : (uint32_t)field(m, "off");
+}
+
+/* Upload a package; returns the rc of the failing/last packet (0 = all OK).
+ * stop_at: stop (simulated drop) once this many bytes were sent; 0 = never. */
+static uint32_t pkg_upload(const uint8_t *buf, size_t total, uint32_t stop_at)
+{
+    uint32_t off = pkg_packet(buf, total, 1, 0, 300, true);
+    if (off & 0x80000000u) return off & 0x7fffffffu;
+    while (off < total) {
+        if (stop_at && off >= stop_at) return 0;
+        size_t n = total - off < 450 ? total - off : 450;
+        uint32_t next = pkg_packet(buf, total, 1, off, n, false);
+        if (next & 0x80000000u) return next & 0x7fffffffu;
+        assert(next == off + n);
+        off = next;
+    }
+    return 0;
+}
+
+static void sensor_reboot(void)
+{
+    sensor_store_init(&store, &fs_ops);
+    reboot();
+}
+
+static void test_sensor(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    assert(f);
+    fseek(f, 0, SEEK_END);
+    image_len = (size_t)ftell(f);
+    rewind(f);
+    running = malloc(image_len);
+    candidate = malloc(image_len);
+    internal = malloc(0x200000);
+    uint8_t *pkg = malloc(SENSOR_PKG_MAX_SIZE + 64), *bad = malloc(SENSOR_PKG_MAX_SIZE + 64);
+    assert(running && candidate && internal && pkg && bad);
+    assert(fread(running, 1, image_len, f) == image_len);
+    fclose(f);
+    memset(internal, 0xff, 0x200000);
+    memcpy(candidate, running, image_len);
+    candidate[0x400] ^= 0x5a;
+    rehash(candidate);
+    fake_nor_create(&nor);
+    fake_nor_select(&nor);
+    memset(&env, 0, sizeof env);
+    env.nor = &nor.port; env.nor_prepare = prepare; env.internal = &in_port;
+    env.app_slot = running; env.source = OTA_RS232; env.now_ms = fake_now;
+    env.sensor = &store;
+    pkg_record_len = 0;
+    sensor_reboot();
+    write_state(BOOT_CONFIRMED, running);
+    assert(store.status.state == SENSOR_STORE_EMPTY && store.status.generation == 0);
+
+    /* good package -> VALID; never listed as slot 1 */
+    size_t len = make_package(pkg, 20000, "v3.6.14");
+    assert(pkg_upload(pkg, len, 0) == 0);
+    struct sensor_store_status st;
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_VALID && st.generation == 1 && st.info.package_length == len);
+    assert(!strcmp(st.info.product, "EUP_AIoT_P1") && !strcmp(st.info.firmware, "v3.6.14") &&
+           !strcmp(st.info.build_id, "20261017223216") && !memcmp(st.info.upload_sha256, pkg + 0x90, 32));
+    assert(!memcmp(nor.bytes + SENSOR_STORE_NOR_BASE, pkg, len));
+    const uint8_t empty[] = { 0xa0 };
+    struct cbor_value v;
+    const uint8_t *m = call(SMP_OP_READ, SMP_GROUP_IMG, 0, empty, 1, NULL);
+    assert(!cbor_map_find(m, rsp_len - 8, "images", &v) && v.u == 1);
+
+    /* VALID survives a reset (record only; queries never read the NOR) */
+    sensor_reboot();
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_VALID && st.generation == 1 && !strcmp(st.info.board, "p1_nrf52832"));
+
+    /* an ET-100 self update afterwards works and leaves the package VALID */
+    upload(candidate, 0);
+    uint8_t cand_hash[32];
+    tlv_hash(candidate, cand_hash);
+    state_write(cand_hash, 0, 0);
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_VALID && !memcmp(nor.bytes + SENSOR_STORE_NOR_BASE, pkg, len));
+    /* while ET-100 is PENDING no upload of either kind is accepted */
+    assert(pkg_upload(pkg, len, 0) == SMP_EBADSTATE);
+    write_state(BOOT_CONFIRMED, running);
+    sensor_reboot();
+
+    /* header CRC broken / image not matching header SHA -> INVALID, ECORRUPT on last packet */
+    len = make_package(bad, 20000, "v3.6.15");
+    bad[0x1c] = 'X';
+    assert(pkg_upload(bad, len, 0) == SMP_ECORRUPT);
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_INVALID && st.generation == 2);
+    len = make_package(bad, 20000, "v3.6.16");
+    bad[256 + 100] ^= 1;
+    assert(pkg_upload(bad, len, 0) == SMP_ECORRUPT);
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_INVALID && st.generation == 3);
+    /* upload SHA + header CRC valid, only MCUboot TLV wrong: hash TLV != header, TLV info missing */
+    len = make_package(bad, 20000, "v3.6.19");
+    bad[256 + 32 + 20000 + 8] ^= 1;
+    reseal_package(bad);
+    assert(pkg_upload(bad, len, 0) == SMP_ECORRUPT);
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_INVALID && st.generation == 4);
+    len = make_package(bad, 20000, "v3.6.20");
+    bad[256 + 32 + 20000] ^= 1;
+    reseal_package(bad);
+    assert(pkg_upload(bad, len, 0) == SMP_ECORRUPT);
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_INVALID && st.generation == 5);
+
+    /* limits and unknown images */
+    assert(pkg_packet(pkg, SENSOR_PKG_MAX_SIZE + 1, 1, 0, 300, true) == (0x80000000u | SMP_EINVAL));
+    assert(pkg_packet(pkg, len, 2, 0, 300, true) == (0x80000000u | SMP_EINVAL));
+    len = make_package(pkg, SENSOR_PKG_IMAGE_MAX - 72, "v3.6.17");   /* exactly 225280 B */
+    assert(len == SENSOR_PKG_MAX_SIZE);
+    /* interrupted upload resumes after a reset from the committed 4 KB offset */
+    assert(pkg_upload(pkg, len, 100000) == 0);
+    sensor_reboot();
+    uint32_t off = pkg_packet(pkg, len, 1, 0, 300, true);
+    assert(off >= 4096 && off % 4096 == 0 && off < 100000 + 4096);
+    while (off < len) {
+        size_t n = len - off < 450 ? len - off : 450;
+        uint32_t next = pkg_packet(pkg, len, 1, off, n, false);
+        assert(!(next & 0x80000000u));
+        off = next;
+    }
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_VALID && st.generation == 6 && st.info.package_length == SENSOR_PKG_MAX_SIZE);
+    /* reset after the last chunk reached the NOR but before journal finish:
+     * re-sending the first packet finishes, validates and commits */
+    len = make_package(pkg, 30000, "v3.6.21");
+    uint32_t last = (uint32_t)((len - 1) / 4096);
+    assert(pkg_upload(pkg, len, last * 4096) == 0);
+    assert(mgr.buffer_base == last * 4096);
+    assert(!ota_journal_write_chunk(&mgr.journal, mgr.session_id, last, pkg + last * 4096, len - last * 4096));
+    sensor_reboot();
+    assert(store.status.state == SENSOR_STORE_INVALID);
+    assert(pkg_packet(pkg, len, 1, 0, 300, true) == len);
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_VALID && st.generation == 7 && !strcmp(st.info.firmware, "v3.6.21"));
+
+    /* delete: refused while another transport owns the update, then EMPTY + erased */
+    clock_ms += OTA_OWNER_HOLD_MS;
+    ota_manager_set_source(&mgr, OTA_BLE);
+    len = make_package(bad, 1000, "v3.6.18");
+    assert(pkg_packet(bad, len, 1, 0, 300, true) == 300);       /* BLE now owns, record INVALID */
+    ota_manager_set_source(&mgr, OTA_RS232);
+    assert(ota_manager_sensor_delete(&mgr) == SMP_EBUSY);
+    clock_ms += OTA_OWNER_HOLD_MS;
+    assert(ota_manager_sensor_delete(&mgr) == 0);
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_EMPTY && st.generation == 0 && pkg_record_len == 0);
+    for (uint32_t i = 0; i < SENSOR_STORE_NOR_SIZE; i++) assert(nor.bytes[SENSOR_STORE_NOR_BASE + i] == 0xff);
+    assert(mgr.journal.progress.state == OTA_CANCELLED);
+    /* the same package again starts from 0 (no resume onto erased bytes) */
+    len = make_package(pkg, 20000, "v3.6.14");
+    assert(pkg_upload(pkg, len, 0) == 0);
+    ota_manager_sensor_status(&mgr, &st);
+    assert(st.state == SENSOR_STORE_VALID && st.generation == 1);
+
+    /* no store (KVDB unavailable): image 1 unsupported */
+    env.sensor = NULL;
+    reboot();
+    assert(!ota_manager_sensor_supported(&mgr));
+    assert(pkg_packet(pkg, len, 1, 0, 300, true) == (0x80000000u | SMP_ENOTSUP));
+    assert(ota_manager_sensor_delete(&mgr) == SMP_ENOTSUP);
+
+    /* corrupt stored record reads back INVALID */
+    env.sensor = &store;
+    pkg_record[20] ^= 1;
+    sensor_reboot();
+    assert(store.status.state == SENSOR_STORE_INVALID);
+    puts("PASS sensor package (image 1: VALID/INVALID/TLV/limits/resume/persist/delete/busy, ET-100 unaffected)");
+    fake_nor_destroy(&nor);
+    free(running); free(candidate); free(internal); free(pkg); free(bad);
+}
+
 static void test_reassembly(void)
 {
     static struct smp_reassembly r;
@@ -535,6 +789,7 @@ int main(int argc, char **argv)
     test_framing();
     test_reassembly();
     test_manager(argv[1]);
+    test_sensor(argv[1]);
     puts("ALL PASS");
     return 0;
 }

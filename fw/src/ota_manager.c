@@ -24,6 +24,27 @@ void ota_manager_init(struct ota_manager *m, const struct ota_env *env)
     memset(m, 0, sizeof *m);
     m->env = env;
     m->active_source = env->source;
+    if (env->sensor) m->sensor_status = env->sensor->status;
+}
+
+/* Publish the store's status for other tasks (GSOTAPKG runs in the serial task). */
+static void publish(struct ota_manager *m)
+{
+    lock(m);
+    m->sensor_status = m->env->sensor->status;
+    unlock(m);
+}
+
+bool ota_manager_sensor_supported(const struct ota_manager *m)
+{
+    return m->env->sensor != NULL;
+}
+
+void ota_manager_sensor_status(struct ota_manager *m, struct sensor_store_status *out)
+{
+    lock(m);
+    *out = m->sensor_status;
+    unlock(m);
 }
 
 void ota_manager_set_source(struct ota_manager *m, uint32_t source)
@@ -84,6 +105,7 @@ static int boot_state(const struct ota_manager *m, struct boot_record *state)
 static void start_session(struct ota_manager *m, const struct ota_manifest *mf, uint32_t at)
 {
     m->session = true;
+    m->session_target = mf->target;
     m->session_source = mf->source;
     m->session_id = mf->session_id;
     m->length = mf->length;
@@ -93,14 +115,20 @@ static void start_session(struct ota_manager *m, const struct ota_manifest *mf, 
     m->verified_valid = false;
 }
 
+static int sensor_finish(struct ota_manager *m);
+
 static int begin(struct ota_manager *m, const struct smp_upload *r)
 {
-    if (r->image != 0 || r->sha_len != 32 || r->len < 560 || r->len > ET100_APP_SLOT_SIZE || r->off != 0)
+    bool sensor = r->image == 1;          /* v0.8.8: image 1 = Gateway sensor package */
+    if (sensor && !m->env->sensor) return SMP_ENOTSUP;
+    uint32_t min = sensor ? SENSOR_PKG_HEADER_SIZE + 32 : 560;
+    uint32_t max = sensor ? SENSOR_PKG_MAX_SIZE : ET100_APP_SLOT_SIZE;
+    if (r->image > 1 || r->sha_len != 32 || r->len < min || r->len > max || r->off != 0)
         return SMP_EINVAL;
     struct ota_manifest mf = { 0 };
     for (unsigned i = 0; i < 8; i++) mf.session_id |= (uint64_t)r->sha[i] << (8 * i);
     if (!mf.session_id) mf.session_id = 1;
-    mf.target = OTA_ET100;
+    mf.target = sensor ? OTA_SENSOR : OTA_ET100;
     mf.source = m->active_source;
     mf.length = r->len;
     memcpy(mf.sha256, r->sha, 32);
@@ -109,10 +137,19 @@ static int begin(struct ota_manager *m, const struct smp_upload *r)
         /* Same image: resume (explicit takeover if the source changed). */
         if (ota_journal_resume(&m->journal, &mf)) { drop(m); return SMP_EUNKNOWN; }
         start_session(m, &mf, p->state == OTA_VERIFIED ? mf.length : committed_bytes(p));
-        return 0;
+        /* Complete package from before a reset (journal finished or not yet):
+         * finish, validate and commit it now; the client is told off=len. */
+        bool complete = p->state == OTA_VERIFIED || committed_bytes(p) == mf.length;
+        return sensor && complete ? sensor_finish(m) : 0;
     }
     if (p->state == OTA_DOWNLOADING || p->state == OTA_VERIFIED || p->state == OTA_FAILED) {
         if (ota_journal_cancel(&m->journal, p->manifest.session_id)) { drop(m); return SMP_EUNKNOWN; }
+    }
+    if (sensor) {
+        /* D4: INVALID is durable before the first package byte reaches the NOR. */
+        int rc = sensor_store_begin(m->env->sensor);
+        publish(m);
+        if (rc) return SMP_EUNKNOWN;
     }
     if (ota_journal_begin(&m->journal, &mf)) { drop(m); return SMP_EUNKNOWN; }
     start_session(m, &mf, 0);
@@ -151,7 +188,7 @@ static int upload(void *context, const struct smp_upload *r, uint32_t *next)
     if (!rc) rc = boot_state(m, &state);
     if (rc) return rc;
     if (state.kind != BOOT_CONFIRMED) return SMP_EBADSTATE;  /* trial/pending in progress */
-    if (r->upgrade && r->off == 0) {
+    if (r->upgrade && r->off == 0 && r->image == 0) {
         /* MCUmgr "upgrade": reject unless newer than the running image
          * (Zephyr: CURRENT_VERSION_IS_NEWER, legacy rc EBADSTATE). */
         if (r->data_len < 28) return SMP_EINVAL;
@@ -185,7 +222,67 @@ static int upload(void *context, const struct smp_upload *r, uint32_t *next)
         }
     }
     *next = m->buffer_base + (uint32_t)m->buffer_len;
+    if (m->session_target == OTA_SENSOR && *next == m->length && r->data_len)
+        return sensor_finish(m);
     return 0;
+}
+
+/* Whole sensor package in the journal: finish (SHA-256 of the upload), validate
+ * the Relay Header package from the NOR, then commit VALID with its header. */
+static int sensor_finish(struct ota_manager *m)
+{
+    struct ota_progress *p = &m->journal.progress;
+    struct sensor_store *store = m->env->sensor;
+    if (p->state == OTA_DOWNLOADING) {
+        int rc = ota_journal_finish(&m->journal, p->manifest.session_id);
+        if (rc == OTA_EHASH) { m->session = false; return SMP_ECORRUPT; }
+        if (rc || p->state != OTA_VERIFIED) { drop(m); return SMP_EUNKNOWN; }
+    }
+    if (p->state != OTA_VERIFIED || p->manifest.target != OTA_SENSOR) return SMP_EUNKNOWN;
+    if (store->status.state == SENSOR_STORE_VALID) return 0;    /* this session, committed */
+    struct region r = { m->env->nor, SENSOR_STORE_NOR_BASE };
+    struct sensor_pkg_info info;
+    uint8_t header[SENSOR_PKG_HEADER_SIZE];
+    if (sensor_pkg_validate(region_read, &r, p->manifest.length, &info)) {
+        m->session = false;
+        return SMP_ECORRUPT;                                    /* record stays INVALID */
+    }
+    int rc = region_read(&r, 0, header, sizeof header) ||
+             sensor_store_commit(store, header, p->manifest.length);
+    publish(m);
+    if (rc) return SMP_EUNKNOWN;
+    m->session = false;
+    return 0;
+}
+
+int ota_manager_sensor_delete(struct ota_manager *m)
+{
+    struct sensor_store *store = m->env->sensor;
+    if (!store) return SMP_ENOTSUP;
+    int rc = claim(m);
+    if (!rc) rc = ensure_ready(m);
+    if (rc) return rc;
+    struct ota_progress *p = &m->journal.progress;
+    /* A finished sensor session must not be resumed onto erased bytes. */
+    if (p->manifest.target == OTA_SENSOR &&
+        (p->state == OTA_DOWNLOADING || p->state == OTA_VERIFIED || p->state == OTA_FAILED) &&
+        ota_journal_cancel(&m->journal, p->manifest.session_id)) {
+        drop(m);
+        return SMP_EUNKNOWN;
+    }
+    if (m->session_target == OTA_SENSOR) m->session = false;
+    rc = sensor_store_mark_invalid(store);
+    publish(m);
+    if (rc) return SMP_EUNKNOWN;
+    for (uint32_t off = 0; off < SENSOR_STORE_NOR_SIZE; off += 4096) {   /* ~13 ms each */
+        if (m->env->nor->erase(SENSOR_STORE_NOR_BASE + off, 4096)) {
+            drop(m);
+            return SMP_EUNKNOWN;
+        }
+    }
+    rc = sensor_store_remove(store);
+    publish(m);
+    return rc ? SMP_EUNKNOWN : 0;
 }
 
 /* Finish the journal (if complete) and verify the Candidate image once; cached. */
@@ -195,6 +292,7 @@ static int verify_candidate(struct ota_manager *m)
     int rc = ensure_ready(m);
     if (rc) return rc;
     struct ota_progress *p = &m->journal.progress;
+    if (p->manifest.target != OTA_ET100) return SMP_ENOENT;   /* sensor package is not slot 1 */
     if (p->state == OTA_DOWNLOADING && committed_bytes(p) == p->manifest.length) {
         if (ota_journal_finish(&m->journal, p->manifest.session_id) == OTA_EHASH) {
             m->verified_valid = true;

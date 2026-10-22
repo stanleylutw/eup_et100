@@ -1,6 +1,7 @@
 #include "serial_gchk.h"
 #include "../include/eup_fw_info.h"
 #include "eup_meta_protocol.h"
+#include "smp_server.h"
 #include <stdio.h>
 #include <string.h>
 #ifndef ET100_SERIAL_HOST_TEST
@@ -115,9 +116,49 @@ static int cid_response(char *out, size_t capacity, const char *command, int val
                     command, valid, text[0], text[1], text[2], text[3], token);
 }
 
+static int pkg_status_response(struct et100_serial_parser *p, char *out, size_t capacity,
+                               const char *token)
+{
+    struct sensor_store_status st;
+    if (!p->pkg_status)
+        return snprintf(out, capacity, "AT$PD=BLEGW$GSOTAPKG;0;UNSUPPORTED;%s\r\n", token);
+    if (p->pkg_delete_busy)
+        return snprintf(out, capacity, "AT$PD=BLEGW$GSOTAPKG;0;BUSY;%s\r\n", token);
+    if (!p->pkg_status(&st))
+        return snprintf(out, capacity, "AT$PD=BLEGW$GSOTAPKG;0;READ_FAILED;%s\r\n", token);
+    if (st.state != SENSOR_STORE_VALID)
+        return snprintf(out, capacity, "AT$PD=BLEGW$GSOTAPKG;1;%s;%lu;-;-;-;-;-;-;-;-;%s\r\n",
+                        st.state == SENSOR_STORE_EMPTY ? "EMPTY" : "INVALID",
+                        (unsigned long)st.generation, token);
+    const struct sensor_pkg_info *i = &st.info;
+    char hash[65];
+    for (unsigned k = 0; k < 32; k++) snprintf(hash + 2 * k, 3, "%02X", i->upload_sha256[k]);
+    int build = field_len(i->build_id, sizeof i->build_id);
+    return snprintf(out, capacity,
+                    "AT$PD=BLEGW$GSOTAPKG;1;VALID;%lu;%lu;%lu;%.*s;%.*s;%.*s;%.*s;%s;%.*s;%s\r\n",
+                    (unsigned long)st.generation, (unsigned long)i->package_length,
+                    (unsigned long)i->image_length,
+                    field_len(i->product, sizeof i->product), i->product,
+                    field_len(i->board, sizeof i->board), i->board,
+                    field_len(i->soc, sizeof i->soc), i->soc,
+                    field_len(i->firmware, sizeof i->firmware), i->firmware, hash,
+                    build ? build : 1, build ? i->build_id : "-", token);
+}
+
+void et100_serial_pkg_deleted(struct et100_serial_parser *p, int rc)
+{
+    char response[64];
+    const char *reason = rc == 0 ? "OK" : rc == SMP_EBUSY ? "BUSY" :
+                         rc == SMP_ENOTSUP ? "UNSUPPORTED" : "DELETE_FAILED";
+    p->pkg_delete_busy = 0;
+    int length = snprintf(response, sizeof response, "AT$PD=BLEGW$DSOTAPKG;%u;%s;%s\r\n",
+                          rc == 0, reason, p->pkg_delete_token);
+    if (length > 0 && (size_t)length < sizeof response) p->send(response, (size_t)length, p->context);
+}
+
 static void handle_line(struct et100_serial_parser *p)
 {
-    char response[160];
+    char response[320];
     char *command, *end, *token;
     size_t command_length;
     int length;
@@ -195,6 +236,17 @@ static void handle_line(struct et100_serial_parser *p)
         }
         length = snprintf(response, sizeof(response),
                           "AT$PD=BLEGW$OTABAUD;%u;%s;%s\r\n", valid, params, token);
+    } else if (strcmp(command, "GSOTAPKG") == 0 && token == end + 1) {
+        length = pkg_status_response(p, response, sizeof(response), token);
+    } else if (strcmp(command, "DSOTAPKG") == 0 && token == end + 1) {
+        if (!p->pkg_status || p->pkg_delete_busy) {
+            length = snprintf(response, sizeof(response), "AT$PD=BLEGW$DSOTAPKG;0;%s;%s\r\n",
+                              p->pkg_status ? "BUSY" : "UNSUPPORTED", token);
+        } else {
+            memcpy(p->pkg_delete_token, token, 5);
+            p->pkg_delete_busy = p->pkg_delete_request = 1;
+            length = 0;                               /* answered when the erase finishes */
+        }
     } else if (strcmp(command, "GCID") == 0 && token == end + 1) {
         length = cid_response(response, sizeof(response), command,
                               p->storage_ready, p->cids, token);
@@ -258,6 +310,7 @@ void et100_serial_feed(struct et100_serial_parser *p, uint8_t byte)
 #include "task.h"
 #include "app_at.h"
 #include "fdb_app.h"
+#include "et100_fdb_keys.h"
 #include "ble_reporter.h"
 #include "app_gatt_server.h"
 #include "boot_health.h"
@@ -269,9 +322,6 @@ extern const struct eup_fw_info et100_fw_info;
 #include "semphr.h"
 #include "smp_ble.h"
 
-/* Reserved user key; distinct from SDK random seed and BT keys. */
-#define ET100_FDB_GTIME_KEY 0x00030002U
-#define ET100_FDB_CID_KEY 0x00030003U
 static int storage_initialized;
 
 void et100_serial_storage_ready(int ready)
@@ -403,6 +453,11 @@ static void set_baud(uint32_t baud)
     baud_since = xTaskGetTickCount();
 }
 
+static int pkg_status(struct sensor_store_status *out)
+{
+    return ota_worker_sensor_status(out);
+}
+
 static void serial_task(void *argument)
 {
     uint8_t address[] = {0x32, 0x32, 0x32, 0x32, 0x32, 0xc0};
@@ -418,6 +473,8 @@ static void serial_task(void *argument)
     et100_serial_init(&serial_parser, identity, serial_send, serial_uart);
     serial_parser.baud_supported = 1;
     serial_parser.fw_info = &et100_fw_info;
+    struct sensor_store_status pkg;
+    if (ota_worker_sensor_status(&pkg)) serial_parser.pkg_status = pkg_status;
     smp_serial_init(&smp_rx);
     et100_serial_set_storage(&serial_parser, storage_initialized,
         storage_initialized ? load_gtime() : ET100_GTIME_DEFAULT,
@@ -464,6 +521,10 @@ static void serial_task(void *argument)
                 serial_parser.baud_request = 0;
                 if (baud != uart_baud) set_baud(baud);
             }
+            if (serial_parser.pkg_delete_request) {
+                serial_parser.pkg_delete_request = 0;
+                if (!ota_worker_sensor_delete()) et100_serial_pkg_deleted(&serial_parser, SMP_EBUSY);
+            }
             if (value == '\n') {
                 et100_scan_configure(serial_parser.cids, serial_parser.gtime,
                                   cid_revision != serial_parser.cid_revision);
@@ -473,6 +534,8 @@ static void serial_task(void *argument)
         et100_gatt_poll(serial_send, serial_uart);
         et100_app_server_poll();
         et100_meta_poll();
+        int deleted = ota_worker_sensor_deleted();
+        if (deleted >= 0) et100_serial_pkg_deleted(&serial_parser, deleted);
         TickType_t now = xTaskGetTickCount();
         int smp_active = smp_seen && (TickType_t)(now - smp_last) < pdMS_TO_TICKS(SMP_IDLE_MS);
         /* Pause unsolicited Type-1 reports while any SMP client (UART or BLE) is active. */
@@ -509,7 +572,7 @@ void app_at_init(struct __UART_HandleTypeDef *handle)
         [OTA_TRANSPORT_BLE] = smp_ble_respond,
 #endif
     };
-    ota_worker_start(senders);
+    ota_worker_start(senders, storage_initialized);
     et100_gatt_init(storage_initialized);
     BaseType_t result = xTaskCreate(serial_task, "serial", 1024, NULL, 1, NULL);
     configASSERT(result == pdPASS);

@@ -1,4 +1,94 @@
-# IMPLEMENTATION_PLAN — v0.8.7 裝置端 GET_FW_INFO／GET_DEVICE_ID（App 相容性查詢）
+# IMPLEMENTATION_PLAN — v0.8.8 Sensor package 存到 NOR（SMP image 1）
+
+> **Claude 實作**（Stanley 2026-10-22 指定）。Step 5 review 由 Codex 做；HTML 由 Codex 在韌體完成後另做（D8）。
+
+## Branch
+
+Before starting implementation, create and switch to the new branch:
+
+git checkout -b v0.8.8_sensor_package_nor
+
+Base branch: v0.8.7_device_metadata（9af7210）
+
+## 0. 工作模式與決策
+
+採用 comm.md「Hardware bring-up loop」，**測試不做太細**。Stanley 2026-10-22 同意 D1–D8：
+
+| 決策 | 內容 |
+|---|---|
+| D1 範圍 | 只做「sensor package 存到 NOR」；Gateway→Sensor relay（FR3068 當 central 推給 sensor）留到之後 |
+| D2 傳輸 | SMP upload `image: 1` = sensor package；與 ET-100 自身更新共用 SMP server／worker／單一 owner，RS232 與 BLE 都可用；不做 ZVERO／`SOTASTAGE` |
+| D3 格式 | **與 eup_gateway 完全相同**：256 B Relay Header v1＋原始 sensor signed image，完整 package ≤ 225280 B；驗證照 `eup_gateway/src/ota/sensor_ota_package.c`（header、CRC、upload SHA-256、MCUboot TLV hash、長度）。不改 gateway／sensor 契約 |
+| D4 持久狀態 | package 記錄（EMPTY／INVALID／VALID＋generation＋length＋upload SHA-256）存內建 Settings（FlashDB），對應 gateway NVS ID 13。**第一個 chunk 寫入前先提交 INVALID**，全部驗證通過才提交 VALID；與 ET-100 boot state、installer 無關 |
+| D5 續傳 | 不承諾重開機後續傳（重開機從 0 重傳即可）；同一連線內依 `off` 續傳 |
+| D6 指令 | RS232 `BLEGW$GSOTAPKG`、`BLEGW$DSOTAPKG`，**回應格式同 gateway**（`eup_gateway/docs/02_protocol/03_rs232_protocol.md` §9.8） |
+| D7 互斥 | 同一時間一個上傳 session：package 上傳／刪除進行中，ET-100 自身更新回 EBUSY，反之亦然；查詢不受限 |
+| D8 HTML | 韌體完成後由 Codex 在 ET-100 模式加「Sensor 套件」目標（`sensor_ota_package.js` 打包 → SMP `image: 1` → `GSOTAPKG` 比對） |
+
+| Milestone | 內容 | 之後 |
+|---|---|---|
+| M-PKG | Host：package 驗證、狀態機、互斥；EVB：上傳真實 sensor package → VALID → 重開機仍 VALID → 刪除 → EMPTY；ET-100 自身更新不受影響 | 停下，等 Codex review |
+
+授權：燒錄本 branch App（以 SMP serial 部署）；寫入／擦除 NOR **0x420000–0x45FFFF**（sensor 區）與 journal 區；0x08001000 sector 規則不變。
+
+## 1. 現有基礎（v0.8.2 已預留，直接沿用）
+
+- `ota_journal`：已有 `OTA_SENSOR` target，base `0x420000`、上限 `OTA_JOURNAL_SENSOR_MAX` 225280、4 KB bitmap、`finish` 驗 SHA-256。`write_chunk` 只擦寫自己 target 的區域；`cancel` 不擦 payload。
+- installer 的安裝路徑只依 boot state hash 讀 Candidate（0x020000），**不看 journal 的 sensor session**。
+- 因 journal 只保存一個 session，ET-100 新 session 會取代已完成的 sensor session → **VALID 以 FlashDB 記錄為準**（D4），不靠 journal 保存。
+
+## 2. 流程
+
+```text
+SMP upload image=1, off=0, len, sha     → 檢查 len ≤ 225280、boot state CONFIRMED、owner
+                                         → FlashDB 記錄 INVALID（generation+1）
+                                         → journal begin(target=OTA_SENSOR)（不同 manifest 先 cancel 舊 session）
+SMP upload image=1, off=N               → journal write_chunk（0x420000 + off）
+最後一包                                  → journal finish（SHA-256）→ sensor_package_validate（讀 NOR）
+                                         → 通過：FlashDB VALID；失敗：維持 INVALID、回 ECORRUPT
+BLEGW$GSOTAPKG                          → 讀 FlashDB；VALID 時讀 NOR 0x420000 header 取 metadata
+BLEGW$DSOTAPKG                          → worker 擦除 0x420000 區（package 長度向上取 4 KB）→ 記錄 EMPTY → 回應
+```
+
+- upload `image: 0` 行為不變（ET-100 Candidate）；`image` 其他值回 EINVAL。
+- `ota_manager.c` 的 `verify_candidate()`／`image_state()` 必須只處理 `target == OTA_ET100` 的 session，sensor session 不得被當成 slot 1 列出或 test。
+- `upgrade` 旗標對 image 1 不適用（gateway 允許 downgrade）。
+
+## 3. 檔案範圍
+
+| 檔案 | 內容 |
+|---|---|
+| `fw/src/sensor_package.c／.h`（新） | 移植 gateway `sensor_ota_package.c`：header parse／validate；SHA-256 改用 mbedtls、CRC 用既有 IEEE CRC-32；以 read callback 讀 NOR（host 可測） |
+| `fw/src/sensor_store.c／.h`（新） | FlashDB 記錄（EMPTY／INVALID／VALID、generation、length、upload SHA）、查詢、刪除 |
+| `fw/src/ota_manager.c／.h` | `begin()` 依 `image` 選 target；完成時呼叫 package 驗證並更新記錄；ET-100 路徑只認 `OTA_ET100` session |
+| `fw/src/ota_worker.c` | `DSOTAPKG` 擦除在 worker 執行（不阻塞 serial RX），完成後回應 |
+| `fw/src/serial_gchk.c／.h` | `GSOTAPKG`、`DSOTAPKG`（格式同 gateway §9.8） |
+| `fw/tools/evb/smp_serial_ota.py` | `upload --image 1 <package.bin>` |
+| `fw/targets/evb_serial.mk` | 新檔案；版本 0.8.8-dev |
+| `fw/tests/` | package 驗證（正常、> 225280、header CRC 錯、SHA 錯、TLV hash 錯）；記錄狀態機；image 0／1 互斥；sensor session 不出現在 image state；GSOTAPKG／DSOTAPKG 格式 |
+| `fw/docs/02_protocol/04_smp_serial_ota.md` | 新增 image 1 說明 |
+| `fw/docs/04_testing/16_evb_sensor_package.md`（新） | 測試報告（精簡） |
+
+**不做**：Gateway→Sensor relay（`SENSOROTA`、`GSOTAPROBE` 等）、BLE 端 package 查詢、HTML（D8，Codex 另做）、App 修改、SDK 修改。
+
+## 4. 驗收（精簡）
+
+測試 package：Stanley 提供 `eup_aiot/release/v3.6.14/p1_dfu_v3.6.14.zip`（board `p1_nrf52832`、soc `nrf52832`、signed image 167056 B），以 `eup_gateway/tools/sensor_ota_package.py build` 打包成 Relay Header v1 package。
+
+1. Host：§3 測試全部 PASS（ASan／UBSan）。
+2. EVB：`smp_serial_ota.py --baud 115200 upload --image 1 <package>` 完成；`GSOTAPKG` 回 `VALID`，長度、product／board／soc／fw_version、upload SHA-256 與檔案一致。
+3. EVB：重開機後 `GSOTAPKG` 仍 `VALID`；`DSOTAPKG` 後回 `EMPTY`。
+4. EVB：package VALID 後做一次 ET-100 自身更新（image 0），更新成功且 package 仍 `VALID`；B 資訊段不變。
+
+## 5. 交付
+
+> **實作結果（2026-10-23）**：M-PKG PASS，見 [16 報告](docs/04_testing/16_evb_sensor_package.md)。與 D5 的差異：因沿用 v0.8.2 journal，重開機後**也能**從 4 KB commit 位置續傳（比 D5 承諾的多，不需額外程式）。
+
+M-PKG 停下，請 Codex review。Step 7 同步 06（Sensor OTA 分區用途、roadmap §8.1 加 v0.8.8）、REVIEW_REPORT；commit 等 Stanley 說「git commit」。之後交 Codex 做 HTML（D8）。
+
+---
+
+# 歷史施工單 — v0.8.7 裝置端 GET_FW_INFO／GET_DEVICE_ID（App 相容性查詢）
 
 > **Claude 實作**（Stanley 2026-10-22 指定）。Step 5 review 由 Codex 做。
 

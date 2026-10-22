@@ -55,6 +55,25 @@ SMP header 8 bytes（big-endian）：`op/ver(1) | flags(1) | len(2) | group(2) |
 - 需求：目前 boot state 為已確認（有 PENDING 或 TRIAL 時回 EBADSTATE）。
 - **最後一包與第一次 state read 可能需要數秒**（裝置要驗整份檔案 hash、MCUboot TLV、EUPFWV1 metadata）：client timeout 建議 ≥ 30 秒。
 
+### 3.1a Sensor package（`image=1`，v0.8.8）
+
+- 第一包 `image=1`：上傳 **Gateway Relay Header v1 sensor package**（256 B header＋原始 sensor signed image，格式與 `eup_gateway/include/sensor_ota_package.h` 相同），`len` 288 B–225280 B，`sha` 必填；`image` 其他值回 EINVAL；裝置無 Settings KVDB 時回 ENOTSUP。
+- 寫入 NOR `0x420000`（256 KB sensor 區），與 ET-100 Candidate 共用同一套 journal／`off`／續傳規則（重開機後重送第一包可從 4 KB commit 位置續傳）。
+- 第一包時持久記錄改為 **INVALID**（generation+1）；**最後一包**時裝置驗 journal SHA-256、Relay header（magic／CRC／長度／字串）、image SHA-256（header 0x90）、MCUboot SHA-256 TLV（header 0xB0），全過才記 **VALID** 並回 `{"rc":0,"off":len}`；失敗回 ECORRUPT（9），記錄維持 INVALID。最後一包約需 4 秒。
+- sensor package **不會**出現在 image state 的 slot 1，也不能 test／confirm；`upgrade` 旗標不適用（同 gateway 允許降版）。
+- 同時只有一個上傳 session：image 0 與 image 1 互相取代 journal session（已 VALID 的 package 不受影響，以持久記錄為準）；跨 transport 仍是 30 秒單一 owner（EBUSY）。
+- 查詢／刪除用 RS232 `BLEGW$GSOTAPKG`／`BLEGW$DSOTAPKG`，格式與 eup_gateway `03_rs232_protocol.md` §9.8 相同：
+
+```text
+BLEGW$GSOTAPKG;<tok> → AT$PD=BLEGW$GSOTAPKG;1;VALID;<gen>;<pkg_len>;<img_len>;<product>;<board>;<soc>;<fw>;<upload_sha256 64 hex>;<build_id|->;<tok>
+                     → AT$PD=BLEGW$GSOTAPKG;1;EMPTY|INVALID;<gen>;-;-;-;-;-;-;-;-;<tok>
+                     → AT$PD=BLEGW$GSOTAPKG;0;UNSUPPORTED|BUSY|READ_FAILED;<tok>
+BLEGW$DSOTAPKG;<tok> → （擦除完成後，約 2 秒）AT$PD=BLEGW$DSOTAPKG;1;OK;<tok>
+                     → AT$PD=BLEGW$DSOTAPKG;0;BUSY|UNSUPPORTED|DELETE_FAILED;<tok>
+```
+
+刪除期間 `GSOTAPKG` 回 BUSY；刪除後 EMPTY、generation 歸 0（同 gateway）。查詢只讀內建 Settings 的記錄（VALID 時保存驗證過的 256 B header），不讀 NOR。
+
 ### 3.2 Image state
 
 ```text

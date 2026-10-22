@@ -6,6 +6,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "fdb_app.h"
+#include "et100_fdb_keys.h"
 #include <string.h>
 
 static volatile unsigned advertising_started;
@@ -52,8 +53,8 @@ void et100_boot_poll(int storage_ready)
             trial=true;
             if (storage_ready) {
                 uint32_t marker=state.sequence,verify=0;
-                storage_ok=flashdb_set(0x00030004u,(uint8_t *)&marker,4)==FDB_NO_ERR &&
-                    flashdb_get(0x00030004u,(uint8_t *)&verify,4)==4 && verify==marker;
+                storage_ok=flashdb_set(ET100_FDB_BOOT_HEALTH_KEY,(uint8_t *)&marker,4)==FDB_NO_ERR &&
+                    flashdb_get(ET100_FDB_BOOT_HEALTH_KEY,(uint8_t *)&verify,4)==4 && verify==marker;
             }
         }
     }
