@@ -214,7 +214,7 @@
   /* ── main layout ── */
   .workspace {
     display: grid;
-    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-columns: 350px minmax(0, 1fr);
     flex: 1;
     overflow: hidden;
   }
@@ -223,11 +223,14 @@
   .sidebar {
     background: var(--surface);
     border-right: 1px solid var(--border);
-    overflow-y: auto;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 0;
   }
+  .sidebar-body { display: grid; grid-template-columns: 48px minmax(0, 1fr); flex: 1; min-height: 0; }
+  .sidebar-content { min-width: 0; min-height: 0; overflow-y: auto; }
+  .sidebar > .gateway-summary { flex-shrink: 0; }
   .section {
     padding: 14px 14px 12px;
     border-bottom: 1px solid var(--border);
@@ -440,34 +443,24 @@
     flex-shrink: 0;
   }
 
-  /* ── LTE Sidebar Card HUD ── */
-  .lte-status-card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: var(--r);
-    padding: 8px 10px;
-    margin-bottom: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .lte-status-card-hdr {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-family: var(--ui-font);
-    font-size: 11px;
-    color: var(--sub);
-  }
+  /* Compact LTE status rows share the sidebar's typography. */
+  .lte-connection-row { display: grid; grid-template-columns: 76px minmax(0, 1fr) minmax(0, 1fr) 48px; gap: 4px; align-items: center; }
+  .lte-connection-row select { width: 100%; min-width: 0; padding: 7px 3px; font-size: var(--fs-xs); }
+  .lte-channel { min-width: 0; padding: 7px 2px; font-size: var(--fs-xs); white-space: nowrap; text-align: center; }
+  .lte-channel[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
+  #lte-connect-btn { padding: 7px 3px; text-align: center; font-size: var(--fs-xs); }
+  #lte-connect-btn.connected { background: var(--err); color: #fff; }
+  #lte-connect-btn.connected:hover { background: #b91c1c; }
+  .lte-status-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--fs-xs); line-height: 1.4; }
+  .lte-status-table th, .lte-status-table td { padding: 7px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; text-align: left; overflow-wrap: anywhere; }
+  .lte-status-table th { width: 46%; color: var(--sub); font-weight: 400; background: var(--panel); }
   .lte-status-card-val {
     font-family: var(--ui-font);
-    font-size: var(--fs-sm);
-    font-weight: 600;
+    font-size: var(--fs-xs);
+    font-weight: 400;
     color: var(--text);
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
   }
   .lte-status-card-val.val-ok { color: var(--ok); }
   .lte-status-card-val.val-warn { color: var(--warn); }
@@ -475,7 +468,17 @@
   .lte-status-card-val.val-accent { color: var(--accent); }
   .lte-status-card-val.val-sub { color: var(--sub); }
   .dash-page { min-width: 0; min-height: 0; overflow: auto; padding: 14px; letter-spacing: 0; container-type: inline-size; }
-  .dash-topline { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; padding: 6px 12px; border-bottom: 1px solid #C8202F; background: #C8202F; color: #fff; }
+  .dash-sidebar-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
+  .dash-sidebar-heading .section-label { margin-bottom: 0; }
+  .dash-sidebar-refresh { display: grid; place-items: center; width: 28px; height: 28px; padding: 4px; flex: 0 0 28px; }
+  .dash-sidebar-refresh svg { width: 16px; height: 16px; }
+  .dash-sidebar-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--fs-xs); line-height: 1.4; }
+  .dash-sidebar-table th, .dash-sidebar-table td { padding: 7px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+  .dash-sidebar-table th { width: 40%; background: var(--panel); color: var(--sub); font-weight: 400; }
+  .dash-sidebar-table summary { cursor: pointer; }
+  .dash-sidebar-table .dash-mac { display: block; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .dash-topline { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; padding: 6px 12px; border-bottom: 1px solid #363b41; background: #363b41; color: #fff; }
+  .dash-page.et100-system-only :is(.dash-topline, .dash-can-strip, #dash-sensors-heading, #dash-devices) { display: none; }
   .dash-gateway-lockup { display: flex; align-items: center; gap: 12px; flex: 1 1 350px; min-width: 0; }
   .dash-gateway-symbol { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; color: var(--accent); background: var(--can-hdr-bg); border-radius: 6px; }
   .dash-gateway-symbol svg { width: 28px; height: 28px; }
@@ -538,17 +541,30 @@
   .system-status-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   #system-status-refresh { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--accent); font-size: 18px; cursor: pointer; }
   #system-status-refresh:disabled { color: var(--sub); cursor: default; opacity: .5; }
-  .system-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 20px; }
-  .system-status-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: 8px; min-height: 32px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .system-status-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
+  .system-status-title h2 { font-size: 15px; }
+  #system-status-summary { font-size: 13px; }
+  .system-status-overview { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--sub); font-variant-numeric: tabular-nums; }
+  .system-status-overview span { white-space: nowrap; font-size: 12px; }
+  .system-status-grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(11, 52px); grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 20px; }
+  .system-status-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 88px 52px; align-items: center; gap: 6px; height: 52px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .system-status-row:hover { background: color-mix(in srgb, var(--accent) 5%, var(--bg)); }
   .system-status-row > span { overflow-wrap: anywhere; min-width: 0; }
-  .system-status-index { color: var(--sub); font-variant-numeric: tabular-nums; }
-  .system-status-value { text-align: right; font-size: 11px; }
-  .system-status-value[data-kind="ready"] { color: var(--ok); }
-  .system-status-value[data-kind="error"] { color: var(--err); }
-  .system-status-value[data-kind="warning"] { color: var(--warn); }
-  .system-status-value[data-kind="waiting"], .system-status-value[data-kind="unknown"] { color: var(--sub); }
-  @media (max-width: 1100px) { .system-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  @media (max-width: 600px) { .system-status-grid { grid-template-columns: minmax(0, 1fr); } }
+  .system-status-index { color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .system-status-name { line-height: 18px; }
+  .system-status-name-primary, .system-status-name-secondary { display: block; }
+  .system-status-name-secondary { color: var(--sub); font-size: 12px; line-height: 17px; }
+  .system-status-value, .system-status-schematic { display: flex; align-items: center; justify-content: center; height: 40px; padding: 4px; border-radius: 4px; background: color-mix(in srgb, var(--sub) 9%, var(--bg)); color: var(--sub); text-align: center; font-size: 12px; line-height: 16px; overflow: hidden; }
+  .system-status-chip-text { display: block; width: 100%; min-width: 0; max-height: 32px; overflow-wrap: anywhere; white-space: normal; }
+  .system-status-schematic { width: 52px; font-variant-numeric: tabular-nums; }
+  .system-status-pdf { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 4px 8px; text-decoration: none; font-size: 13px; }
+  .system-status-pdf svg { width: 16px; height: 16px; }
+  .system-status-value { width: 88px; }
+  .system-status-value[data-kind="ready"] { color: color-mix(in srgb, var(--ok) 65%, var(--text)); background: color-mix(in srgb, var(--ok) 12%, var(--bg)); }
+  .system-status-value[data-kind="error"] { color: color-mix(in srgb, var(--err) 75%, var(--text)); background: color-mix(in srgb, var(--err) 12%, var(--bg)); }
+  .system-status-value[data-kind="warning"], .system-status-value[data-state="UNKNOWN"], .system-status-value[data-state="UNKNOWN_CODE"] { color: color-mix(in srgb, var(--warn) 60%, var(--text)); background: color-mix(in srgb, var(--warn) 12%, var(--bg)); }
+  @container (max-width: 980px) { .system-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(17, 52px); } }
+  @container (max-width: 640px) { .system-status-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: repeat(33, 52px); } }
   .dash-can-strip { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
   .dash-can-heading h2 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
   .dash-can-heading > span { font-size: 11px; color: var(--sub); overflow-wrap: anywhere; }
@@ -572,7 +588,6 @@
     body:has(.dash-active) #dash-sidebar .section { padding: 8px 16px; }
     body:has(.dash-active) #dash-sidebar .section-label { display: none; }
     body:has(.dash-active) .dash-filter { grid-template-columns: 70px minmax(0, 1fr); align-items: center; }
-    body:has(.dash-active) .tab-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     body:has(.dash-active) .tab-btn { font-size: 12px; letter-spacing: 0; }
     .dash-page { padding: 12px; }
     .dash-stats > div { padding-inline: 8px; }
@@ -921,32 +936,35 @@
   #parsed-t1 .sensor-header-mac { font-weight: 600; }
 
   /* scrollbar */
-  #log::-webkit-scrollbar, .parsed-body::-webkit-scrollbar, .sidebar::-webkit-scrollbar, #can-summary::-webkit-scrollbar, #parsed-t1::-webkit-scrollbar { width: 5px; }
-  #log::-webkit-scrollbar-track, .parsed-body::-webkit-scrollbar-track, .sidebar::-webkit-scrollbar-track, #can-summary::-webkit-scrollbar-track, #parsed-t1::-webkit-scrollbar-track { background: transparent; }
-  #log::-webkit-scrollbar-thumb, .parsed-body::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb, #can-summary::-webkit-scrollbar-thumb, #parsed-t1::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+  #log::-webkit-scrollbar, .parsed-body::-webkit-scrollbar, .sidebar::-webkit-scrollbar, .sidebar-content::-webkit-scrollbar, .tab-bar::-webkit-scrollbar, #can-summary::-webkit-scrollbar, #parsed-t1::-webkit-scrollbar { width: 5px; height: 5px; }
+  #log::-webkit-scrollbar-track, .parsed-body::-webkit-scrollbar-track, .sidebar::-webkit-scrollbar-track, .sidebar-content::-webkit-scrollbar-track, .tab-bar::-webkit-scrollbar-track, #can-summary::-webkit-scrollbar-track, #parsed-t1::-webkit-scrollbar-track { background: transparent; }
+  #log::-webkit-scrollbar-thumb, .parsed-body::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb, .sidebar-content::-webkit-scrollbar-thumb, .tab-bar::-webkit-scrollbar-thumb, #can-summary::-webkit-scrollbar-thumb, #parsed-t1::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
 
   /* ── tab bar ── */
   .tab-bar {
-    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-    border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 4px;
+    border-right: 1px solid var(--border); overflow-y: auto;
     background: var(--surface);
     flex-shrink: 0;
   }
   .tab-btn {
-    flex: 1;
-    padding: 8px 0;
+    flex: 0 0 38px; width: 38px; height: 38px; padding: 9px;
+    display: grid; place-items: center; border-radius: 6px;
     background: transparent;
     color: var(--sub);
     border: none;
     font-family: var(--ui-font);
     font-size: var(--fs-sm);
     font-weight: 600;
-    letter-spacing: 0.08em;
+    letter-spacing: 0;
     cursor: pointer;
     transition: color .15s, background .15s;
   }
   .tab-btn:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-  .tab-btn.active { color: var(--accent-on); background: var(--accent); }
+  .tab-btn.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+  .tab-btn .dash-icon { width: 20px; height: 20px; margin: 0; }
+  .tab-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .nav-tooltip { position: fixed; z-index: 1000; pointer-events: none; padding: 6px 9px; border-radius: 4px; background: var(--text); color: var(--surface); font-size: 12px; white-space: nowrap; box-shadow: 0 2px 8px #0002; }
   .tab-btn:disabled {
     background: transparent;
     color: var(--sub);
@@ -1417,7 +1435,6 @@
     padding-inline: 6px;
   }
   .flash-viz-source.gatt .flash-viz-source-slots .flash-viz-slot-addr { display: none; }
-  .flash-viz-source[data-et100-relay="true"] .flash-viz-slot.target { min-height: 72px; flex-shrink: 0; }
   .flash-viz-pipe {
     position: relative;
     min-height: 80px;
@@ -1491,6 +1508,7 @@
     inset: 0;
     color: #34a853;
   }
+  #flash-viz-ble-stream { color: var(--accent); }
   .flash-viz-ble-stream .flash-viz-ble-dot {
     position: absolute;
     top: 0;
@@ -2411,6 +2429,21 @@
   #et100-nor-map .et100-partition { min-height: min-content; }
   #et100-nor-map .et100-partition[data-name="Installer 結果"] { flex: 0 0 32px; min-height: 0; }
   #et100-nor-map .et100-partition[data-name="Logs／預留"] { flex: 2; }
+  .flash-viz-source[data-et100-relay="true"] .flash-viz-source-header {
+    min-height: calc(39px * var(--nor-scale, 1)); padding: calc(9px * var(--nor-scale, 1)) calc(10px * var(--nor-scale, 1)) calc(7px * var(--nor-scale, 1));
+  }
+  .flash-viz-source[data-et100-relay="true"] .flash-viz-slot {
+    flex: 1; min-height: min-content; padding: calc(4px * var(--nor-scale, 1)) calc(7px * var(--nor-scale, 1));
+    border-bottom: 0; border-top: calc(1px * var(--nor-scale, 1)) solid #d9dee5;
+    grid-template-columns: minmax(0, 1fr) auto; gap: 2px 6px;
+  }
+  .flash-viz-source[data-et100-relay="true"] .flash-viz-slot:is([data-name="Candidate"], [data-name="Rollback"], [data-name="Logs／預留"]) { flex: 2; }
+  .flash-viz-source[data-et100-relay="true"] .flash-viz-slot[data-name="Installer 結果"] { flex: 0 0 calc(32px * var(--nor-scale, 1)); min-height: 0; }
+  .flash-viz-source[data-et100-relay="true"] .flash-viz-slot-name { text-align: center; }
+  .flash-viz-source[data-et100-relay="true"] .flash-viz-slot-size { color: #fff; white-space: nowrap; }
+  @media (min-width: 1101px) {
+    .flash-ota-viz:has(.flash-viz-source[data-et100-relay="true"]) .flash-viz-layout { height: 100%; min-height: 348px; }
+  }
   .et100-partition small[hidden] { display: none !important; }
   .et100-partition[data-name="ROM B 資訊段"] small:last-child { display: block; }
   .et100-partition strong { font-size: var(--fs-sm); font-weight: 400; color: #f8fafc; }
@@ -2467,7 +2500,6 @@
     body:has(#et100-viz:not([hidden])) .main-panel { min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 150px auto; overflow: visible; }
     body:has(#et100-viz:not([hidden])) header { flex-wrap: wrap; height: auto; gap: 6px; padding: 8px; }
     body:has(#et100-viz:not([hidden])) .parsed-panel { overflow: visible; }
-    body:has(#et100-viz:not([hidden])) .tab-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
   .ota-mode button {
     display: inline-flex;
@@ -2738,7 +2770,7 @@
     box-sizing: border-box;
     color: var(--text);
     text-align: left;
-    font-size: var(--fs-sm);
+    font-size: var(--fs-xs);
     font-variant-numeric: tabular-nums;
   }
   .gatt-mac-picker .gatt-field:focus { border-color: transparent; outline: none; }
@@ -2849,17 +2881,19 @@
       </div>
     </div>
 
-    <div class="tab-bar">
-      <button class="tab-btn active" data-tab="ble">BLE 指令</button>
-      <button class="tab-btn" data-tab="can">CAN 指令</button>
-      <button class="tab-btn" data-tab="ota">OTA 更新</button>
-      <button class="tab-btn" data-tab="gatt">GATT 指令</button>
-      <button class="tab-btn" data-tab="dash">Dash 資訊</button>
-      <button class="tab-btn" data-tab="lte">AT 分析</button>
-    </div>
+    <div class="sidebar-body">
+    <nav class="tab-bar" aria-label="功能導覽">
+      <button class="tab-btn active" data-tab="dash" data-nav-icon="layoutDashboard" aria-label="Dash 系統資訊" aria-current="page"></button>
+      <button class="tab-btn" data-tab="ble" data-nav-icon="bluetooth" aria-label="BLE 指令"></button>
+      <button class="tab-btn" data-tab="can" data-nav-icon="cable" aria-label="CAN 指令"></button>
+      <button class="tab-btn" data-tab="ota" data-nav-icon="cloudUpload" aria-label="OTA 韌體更新"></button>
+      <button class="tab-btn" data-tab="gatt" data-nav-icon="radio" aria-label="GATT 連線與指令"></button>
+      <button class="tab-btn" data-tab="lte" data-nav-icon="terminal" aria-label="AT 指令分析"></button>
+    </nav>
+    <div class="sidebar-content">
 
-    <div id="dash-sidebar" hidden>
-      <div class="section">
+    <div id="dash-sidebar">
+      <div class="section" id="dash-device-filters">
         <div class="section-label">裝置篩選</div>
         <label class="dash-filter">裝置類型
           <select id="dash-vendor" onchange="renderDashboard()"><option value="all">全部裝置</option><option value="eup">EUP</option><option value="minew">Minew</option><option value="ligo">LIGO</option></select>
@@ -2867,6 +2901,16 @@
         <label class="dash-filter">資料狀態
           <select id="dash-freshness" onchange="renderDashboard()"><option value="all">全部資料</option><option value="recent">近期收到</option><option value="alarm">警報紀錄</option></select>
         </label>
+      </div>
+      <div id="dash-et100-info" hidden>
+        <div class="section">
+          <div class="dash-sidebar-heading"><div class="section-label">系統資訊</div><button class="qbtn dash-sidebar-refresh" id="dash-system-refresh" title="重新讀取系統資訊" aria-label="重新讀取系統資訊" onclick="queryDashInfo('system')" disabled></button></div>
+          <table class="dash-sidebar-table" aria-label="ET-100 系統資訊"><tbody id="dash-system-rows"></tbody></table>
+        </div>
+        <div class="section">
+          <div class="dash-sidebar-heading"><div class="section-label">Gateway 設定</div><button class="qbtn dash-sidebar-refresh" id="dash-settings-refresh" title="重新讀取 Gateway 設定" aria-label="重新讀取 Gateway 設定" onclick="queryDashInfo('settings')" disabled></button></div>
+          <table class="dash-sidebar-table" aria-label="Gateway 設定"><tbody id="dash-settings-rows"></tbody></table>
+        </div>
       </div>
     </div>
 
@@ -2881,26 +2925,18 @@
               <option value="single">單埠互動除錯 (Direct AT)</option>
             </select>
           </div>
-          <div class="form-row" style="justify-content: space-between;">
-            <label style="font-size: var(--fs-xs); color: var(--sub);">波特率 (Baud)</label>
-            <select id="lte-baud-select" style="max-width: 140px;">
-              <option value="115200" selected>115200 (EG800)</option>
-              <option value="9600">9600</option>
+          <div class="lte-connection-row">
+            <select id="lte-baud-select" aria-label="波特率">
+              <option value="9600" selected>9600</option>
+              <option value="115200">115200</option>
               <option value="57600">57600</option>
               <option value="460800">460800</option>
               <option value="921600">921600</option>
             </select>
+            <button class="qbtn lte-channel" id="lte-channel-tx" title="選擇 GSM_TX 串列埠 (Modem TX)" aria-pressed="false" onclick="lteSelectPort(2)">GSM_TX</button>
+            <button class="qbtn lte-channel" id="lte-channel-rx" title="選擇 GSM_RX 串列埠 (MCU TX / Direct AT)" aria-pressed="false" onclick="lteSelectPort(1)">GSM_RX</button>
+            <button class="sbtn" id="lte-connect-btn" onclick="lteToggleConnection()" disabled>連線</button>
           </div>
-        </div>
-
-        <!-- Port 1 (MCU TX / Main AT) -->
-        <div class="form-row" style="margin-bottom: 6px;">
-          <button class="sbtn" id="lte-p1-btn" style="flex: 1; text-align: center;" onclick="lteTogglePort(1)">🔌 連接 Port 1 (MCU TX)</button>
-        </div>
-
-        <!-- Port 2 (Modem TX for Dual Sniffer) -->
-        <div class="form-row" id="lte-p2-box">
-          <button class="sbtn" id="lte-p2-btn" style="flex: 1; text-align: center;" onclick="lteTogglePort(2)">🔌 連接 Port 2 (Modem TX)</button>
         </div>
       </div>
 
@@ -2910,47 +2946,22 @@
           <button class="mini-btn" onclick="lteResetHud()" title="重設狀態">重設</button>
         </div>
 
-        <div class="lte-status-card">
-          <div class="lte-status-card-hdr"><span>SIM 卡狀態 (CPIN)</span><span>💳</span></div>
-          <div class="lte-status-card-val val-sub" id="lte-hud-sim">未偵測</div>
-        </div>
-
-        <div class="lte-status-card">
-          <div class="lte-status-card-hdr"><span>訊號強度 (CSQ)</span><span>📶</span></div>
-          <div class="lte-status-card-val val-sub" id="lte-hud-csq">未偵測</div>
-        </div>
-
-        <div class="lte-status-card">
-          <div class="lte-status-card-hdr"><span>網路註冊 (CEREG)</span><span>📡</span></div>
-          <div class="lte-status-card-val val-sub" id="lte-hud-reg">未註網</div>
-        </div>
-
-        <div class="lte-status-card">
-          <div class="lte-status-card-hdr"><span>電信業者 (COPS)</span><span>🏢</span></div>
-          <div class="lte-status-card-val val-sub" id="lte-hud-cops">未知</div>
-        </div>
-
-        <div class="lte-status-card">
-          <div class="lte-status-card-hdr"><span>PDP 數據 IP (QIACT)</span><span>🌐</span></div>
-          <div class="lte-status-card-val val-sub" id="lte-hud-ip">未啟用</div>
-        </div>
-
-        <div class="lte-status-card">
-          <div class="lte-status-card-hdr"><span>Socket 連線 (QIOPEN)</span><span>🔌</span></div>
-          <div class="lte-status-card-val val-sub" id="lte-hud-sock">未連線</div>
-        </div>
-
-        <div class="lte-status-card">
-          <div class="lte-status-card-hdr"><span>模組識別資訊</span><span>ℹ️</span></div>
-          <div id="lte-hud-imei" style="font-size: var(--fs-xs); color: var(--sub); margin-top: 3px; font-variant-numeric: tabular-nums;">IMEI: --</div>
-          <div id="lte-hud-iccid" style="font-size: var(--fs-xs); color: var(--sub); margin-top: 2px; font-variant-numeric: tabular-nums;">ICCID: --</div>
-          <div id="lte-hud-fw" style="font-size: var(--fs-xs); color: var(--sub); margin-top: 2px;">韌體: --</div>
-        </div>
+        <table class="lte-status-table" aria-label="4G / LTE 即時狀態"><tbody>
+          <tr><th scope="row">SIM 卡 CPIN</th><td class="lte-status-card-val val-sub" id="lte-hud-sim">未偵測</td></tr>
+          <tr><th scope="row">訊號 CSQ</th><td class="lte-status-card-val val-sub" id="lte-hud-csq">未偵測</td></tr>
+          <tr><th scope="row">網路註冊 CEREG</th><td class="lte-status-card-val val-sub" id="lte-hud-reg">未註網</td></tr>
+          <tr><th scope="row">電信業者 COPS</th><td class="lte-status-card-val val-sub" id="lte-hud-cops">未知</td></tr>
+          <tr><th scope="row">數據 IP QIACT</th><td class="lte-status-card-val val-sub" id="lte-hud-ip">未啟用</td></tr>
+          <tr><th scope="row">Socket QIOPEN</th><td class="lte-status-card-val val-sub" id="lte-hud-sock">未連線</td></tr>
+          <tr><th scope="row">IMEI</th><td class="lte-status-card-val val-sub" id="lte-hud-imei">--</td></tr>
+          <tr><th scope="row">ICCID</th><td class="lte-status-card-val val-sub" id="lte-hud-iccid">--</td></tr>
+          <tr><th scope="row">韌體</th><td class="lte-status-card-val val-sub" id="lte-hud-fw">--</td></tr>
+        </tbody></table>
       </div>
     </div>
 
     <!-- BLE sidebar -->
-    <div id="ble-sidebar">
+    <div id="ble-sidebar" hidden>
       <div class="section">
         <div class="section-label">BLE 查詢指令</div>
         <div class="query-grid">
@@ -3427,10 +3438,12 @@
       </div>
     </div>
 
+    </div>
+    </div>
   </aside>
 
   <!-- ── main panel ── -->
-  <div class="main-panel">
+  <div class="main-panel dash-active">
 
     <header>
       <div class="brand-lockup">
@@ -3451,7 +3464,7 @@
       <button id="theme-btn" title="切換日／夜模式" aria-label="切換日／夜模式">◐</button>
     </header>
 
-    <section class="dash-page" id="dash-page" aria-label="Gateway 即時總覽" hidden>
+    <section class="dash-page" id="dash-page" aria-label="Gateway 即時總覽">
       <div class="dash-topline">
         <div class="dash-gateway-lockup">
           <div class="dash-gateway-symbol" id="dash-gateway-symbol" role="img" aria-label="Gateway 未連線" title="Gateway 未連線"></div>
@@ -3464,8 +3477,9 @@
       </div>
       <section class="system-status-section" id="system-status-section" aria-label="ET-100 系統狀態" hidden>
         <div class="dash-section-heading">
-          <h2>ET-100 系統狀態</h2>
+          <div class="system-status-title"><h2>ET-100 系統狀態</h2><div class="system-status-overview" id="system-status-overview" aria-label="周邊狀態摘要"></div></div>
           <div class="system-status-actions"><span id="system-status-summary">尚未讀取</span>
+            <a id="system-status-pdf" class="qbtn system-status-pdf" href="../docs/03_hardware/QEM800QQA-FYN01AA_MB_SCH_V1.1_20260923_1630.pdf" target="_blank" rel="noopener noreferrer" title="開啟 ET-100 產品主板 V1.1 電路圖 PDF（非 EVB）"><span aria-hidden="true" id="system-status-pdf-icon"></span>電路圖</a>
             <button id="system-status-refresh" type="button" title="重新讀取系統狀態" aria-label="重新讀取系統狀態" onclick="querySystemStatus()">&#8635;</button>
           </div>
         </div>
@@ -3475,7 +3489,7 @@
         <div class="dash-can-heading"><h2><span id="dash-can-icon" aria-hidden="true"></span>CAN 車輛資料</h2><span id="dash-can-age"></span></div>
         <dl class="dash-can" id="dash-can"></dl>
       </div>
-      <div class="dash-section-heading"><h2><span id="dash-sensors-icon" aria-hidden="true"></span>感測裝置</h2><span id="dash-device-count"></span></div>
+      <div class="dash-section-heading" id="dash-sensors-heading"><h2><span id="dash-sensors-icon" aria-hidden="true"></span>感測裝置</h2><span id="dash-device-count"></span></div>
       <div class="dash-grid" id="dash-devices"></div>
     </section>
 
@@ -4170,7 +4184,7 @@ const SLOT_MAX = 8;
 const sensorSlots = new Array(SLOT_MAX).fill(null);
 let bleGtimeMs = 15000;
 let selectedSensorSlot = -1;
-let activeTab = 'ble';
+let activeTab = 'dash';
 const gattEvents = [];
 const gattMetadata = new Map();
 const gattObserved = new Map();
@@ -4330,6 +4344,12 @@ function binaryTransferSpacing(stream, icon='fileText') {
 // slot (right panel), in stage coordinates. The curve is invisible; it only provides the
 // offset-path the Bluetooth icons ride during step 9 (下載韌體至 Flash).
 function flashOtaUpdateCurve() {
+  const norSource = document.getElementById('flash-viz-source');
+  if (norSource?.dataset.et100Relay === 'true') {
+    const frame = document.getElementById('flash-ota-viz');
+    const width = frame.clientWidth - 20, height = frame.clientHeight - 20;
+    norSource.style.setProperty('--nor-scale', String(width > 620 ? Math.min(1, width / Math.max(1440, width), height / 348) : 1));
+  }
   const stage = document.getElementById('flash-viz-stage');
   const svg = document.getElementById('flash-viz-pipe-curve');
   const startSlot = document.querySelector('#flash-viz-source-slots .flash-viz-slot.target');
@@ -4413,7 +4433,7 @@ function renderFlashOtaVisualization() {
   source.dataset.ready = !gattView && otaFileData ? 'true' : 'false';
   document.getElementById('flash-viz-stage').classList.toggle('gatt', gattView);
   document.getElementById('flash-viz-chip').classList.toggle('gatt', gattView);
-  document.getElementById('flash-viz-source-title').textContent = et100Relay ? 'ET-100 · NOR 16 MB（EVB）' : gattView ? 'Gateway' : 'Tracker_168';
+  document.getElementById('flash-viz-source-title').textContent = et100Relay ? '外部 NOR · 16 MB（EVB）' : gattView ? 'Gateway' : 'Tracker_168';
   document.getElementById('flash-viz-source-icon').hidden = gattView;
   const sourceSlots = document.getElementById('flash-viz-source-slots');
   sourceSlots.hidden = !gattView;
@@ -4429,11 +4449,11 @@ function renderFlashOtaVisualization() {
           if (partition.role === 'running') classes.push('running');
           if (partition.role === 'nvs') classes.push('nvs');
           if (isTarget) classes.push('target');
-          return `<div class="${classes.join(' ')}" data-role="${partition.role}" style="--slot-size:${partition.size}">` +
+          return `<div class="${classes.join(' ')}" data-name="${escHtml(partition.name)}" data-role="${partition.role}" style="--slot-size:${partition.size}">` +
             (isTarget ? '<div class="flash-viz-slot-image"></div><div class="flash-viz-slot-unused"></div><div class="flash-viz-slot-fill"></div>' : '') +
             `<span class="flash-viz-slot-addr">${partition.addr}</span>` +
-            `<span class="flash-viz-slot-name">${escHtml(flashOtaPartitionLabel(partition))}</span>` +
-            `<span class="flash-viz-slot-size">${partition.size} KiB</span></div>`;
+            `<span class="flash-viz-slot-name">${escHtml(et100Relay ? et100PartitionNames[partition.name] : flashOtaPartitionLabel(partition))}</span>` +
+            `<span class="flash-viz-slot-size">${et100Relay ? et100Capacity(partition.size*1024) : `${partition.size} KiB`}</span></div>`;
         }).join('') : '<div class="flash-viz-device-state">讀取 GCHK 後顯示 Gateway Flash 配置</div>';
     }
     const sourceTarget = sourceSlots.querySelector('.flash-viz-slot.target');
@@ -4444,7 +4464,7 @@ function renderFlashOtaVisualization() {
       sourceTarget.querySelector('.flash-viz-slot-image').style.width = `${sourceImagePct.toFixed(2)}%`;
       sourceTarget.querySelector('.flash-viz-slot-unused').style.left = `${sourceImagePct.toFixed(2)}%`;
       sourceTarget.querySelector('.flash-viz-slot-fill').style.width = `${sourceImagePct.toFixed(2)}%`;
-      sourceTarget.querySelector('.flash-viz-slot-size').innerHTML = sourceBytes > 0
+      sourceTarget.querySelector('.flash-viz-slot-size').innerHTML = et100Relay ? et100Capacity(sourceCapacity) : sourceBytes > 0
         ? `<span class="flash-viz-size-line">${(sourceBytes / 1024).toFixed(1)} /</span>` +
           `<span class="flash-viz-size-line">${(sourceCapacity / 1024).toFixed(0)} KiB</span>`
         : `${(sourceCapacity / 1024).toFixed(0)} KiB`;
@@ -5158,7 +5178,7 @@ function getStepDetailHtml(stepName, result, ctx) {
 }
 
 const sensorTimelineContainer = document.getElementById('sensor-relay-timeline');
-const sensorTimelineScroller = sensorTimelineContainer.closest('.sidebar');
+const sensorTimelineScroller = sensorTimelineContainer.closest('.sidebar-content');
 const sensorTimelineDetailsToggle = document.getElementById('sensor-timeline-details-toggle');
 let sensorTimelineDetailsExpanded = false;
 
@@ -6096,6 +6116,7 @@ function setConnected(c) {
   bleSbtns.forEach(b => b.disabled = !c);
   canQbtns.forEach(b => b.disabled = !c);
   if (!c) {
+    resetDashInfo();
     gatewayVersionInfo = null;
     flashOtaUpdateBoard('');
     gattReadyMac = null;
@@ -6555,6 +6576,7 @@ async function syncGatewaySettings(serialPort) {
 
 function syncBleQueryFields(name, parts) {
   const values = parts.slice(2, -1);
+  captureDashInfo(name, parts);
   if (name === 'GCID' && values.length === 4) {
     document.querySelectorAll('.cid-hex').forEach((input, index) => {
       input.value = values[index];
@@ -6872,6 +6894,8 @@ function processFrame(raw) {
     return;
   }
   if (raw.startsWith('AT$PD=BLEGW$GSOTAPKG;')) {
+    parseGattReply(raw);
+    captureDashInfo('GSOTAPKG', raw.split(';'));
     addLogTagged('rx', raw, 'tag-ota', 'OTA');
     const fields = raw.split(';');
     const ok = fields[1] === '1';
@@ -6921,6 +6945,9 @@ function processFrame(raw) {
     const fields = raw.split(';');
     const ok = fields[1] === '1';
     if (ok) {
+      dashInfo.fields.GSOTAPKG = {state:'EMPTY'};
+      dashInfo.errors.delete('GSOTAPKG');
+      renderDashSidebar();
       sensorPackageStored = null;
       sensorProbeResetAvailability();
       sensorRelayReset();
@@ -7105,6 +7132,7 @@ function processFrame(raw) {
       renderGatewayVersionInfo();
       updateGatewayFeatureAvailability();
       renderSystemStatus();
+      renderDashSidebar();
       if(activeTab==='dash' && !systemStatus.complete)querySystemStatus();
       renderDfuPackageCard();
       const pseudo = [gchk.imei, gchk.vendor, '', gchk.hwVer, gchk.fwVer, gchk.state].join(';');
@@ -8133,6 +8161,11 @@ function dashboardRecent(entry, nowMs) {
  */
 function dashboardIcon(name) {
   const shapes = {
+    cable: '<path d="M17 9h4v4a4 4 0 0 1-4 4h-2M7 15H3v-4a4 4 0 0 1 4-4h2M17 5v4M21 5v4M3 15v4M7 15v4"/>',
+    cloudUpload: '<path d="M12 13v8m-4-4 4-4 4 4M20 16a4 4 0 0 0 .88-7.9 5 5 0 0 0-9.72-1.6A4 4 0 0 0 4 16"/>',
+    radio: '<circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.48m-8.48 0a6 6 0 0 1 0-8.48m11.31-2.83a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/>',
+    layoutDashboard: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+    terminal: '<path d="m4 17 6-5-6-5m8 12h8"/>',
     bluetooth: '<path d="m7 7 10 10-5 5V2l5 5L7 17"/>',
     fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v6h6M8 13h8M8 17h6"/>',
     listRestart: '<path d="M21 5H3M7 12H3M7 19H3M12 18a5 5 0 0 0 9-3 4.5 4.5 0 0 0-4.5-4.5c-1.33 0-2.54.54-3.41 1.41L11 14M11 10v4h4"/>',
@@ -8148,6 +8181,102 @@ function dashboardIcon(name) {
     signal: '<path d="M2 20h.01M7 20v-4M12 20v-8M17 20V8M22 4v16"/>',
   };
   return shapes[name] ? `<svg class="dash-icon" data-icon="${name}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${shapes[name]}</svg>` : '';
+}
+
+const dashInfo = {fields: {}, errors: new Set(), pending: null, epoch: 0};
+function resetDashInfo() {
+  dashInfo.epoch++;
+  dashInfo.fields = {};
+  dashInfo.errors.clear();
+  dashInfo.pending = null;
+  dashInfo.macsExpanded = false;
+  renderDashSidebar();
+}
+function dashIsEt100() {
+  return systemStatusSeen || /fr3068/i.test(gatewayVersionInfo?.hwVer || '');
+}
+function captureDashInfo(name, parts) {
+  if (!connected || parts[1] !== '1') return false;
+  const values = parts.slice(2, -1);
+  let value;
+  if (name === 'GFWINFO' && values.length === 4 && values.every(Boolean)) {
+    value = {product: values[0], hardware: values[1], firmware: values[2], soc: values[3]};
+  } else if (name === 'GCID' && values.length === 4 && values.every(v => /^(?:[0-9a-f]{4})?$/i.test(v))) {
+    value = values.filter(Boolean);
+  } else if (name === 'GLIST' && values.length === 8 && values.every(v => /^(?:[0-9a-f]{12})?$/i.test(v))) {
+    value = values.filter(Boolean).map(v => v.toUpperCase());
+  } else if (['GGTIME','GMAXRPT'].includes(name) && values.length === 1 && /^\d+$/.test(values[0])) {
+    value = Number(values[0]);
+  } else if (name === 'GSOTAPKG' && values.length === 10 && ['EMPTY','INVALID','VALID'].includes(values[0])) {
+    if (values[0] === 'VALID' && (!/^\d+$/.test(values[3]) || !Number(values[3]) || !values[7] || values[7] === '-')) return false;
+    value = {state: values[0], size: Number(values[3]), firmware: values[7]};
+  } else return false;
+  dashInfo.fields[name] = value;
+  dashInfo.errors.delete(name);
+  renderDashSidebar();
+  return true;
+}
+function renderDashSidebar() {
+  const et100 = dashIsEt100();
+  document.getElementById('dash-device-filters').hidden = et100;
+  document.getElementById('dash-et100-info').hidden = !et100;
+  const locked = !connected || !et100 || systemStatusBusy() || gattExclusiveBusy() || !!dashInfo.pending;
+  for (const group of ['system','settings']) {
+    const button = document.getElementById(`dash-${group}-refresh`);
+    if (!button.firstElementChild) button.innerHTML = dashboardIcon('rotation');
+    button.disabled = locked;
+    button.setAttribute('aria-busy', String(dashInfo.pending === group));
+  }
+  const field = (name, value) => dashInfo.errors.has(name) ? '讀取失敗' : value ?? '—';
+  const info = dashInfo.fields.GFWINFO;
+  const sensor = dashInfo.fields.GSOTAPKG;
+  const sensorText = !sensor ? '—' : sensor.state === 'EMPTY' ? '未儲存' : sensor.state === 'INVALID' ? '無效' :
+    sensor.firmware;
+  const rows = (target, entries) => {
+    document.getElementById(target).innerHTML = entries.map(([label,value,title]) =>
+      `<tr><th scope="row">${escHtml(label)}</th><td${title ? ` title="${escHtml(title)}"` : ''}>${escHtml(String(value))}</td></tr>`).join('');
+  };
+  rows('dash-system-rows', [
+    ['產品', field('GFWINFO',info?.product)], ['硬體', field('GFWINFO',info?.hardware)],
+    ['目前韌體', field('GFWINFO',info?.firmware || gatewayVersionInfo?.fwVer)],
+    ['裝置 ID', field('GCHK',gatewayVersionInfo?.imei)], ['MCU',field('GFWINFO',info?.soc)],
+    ['NOR 新版韌體','—','目前 RS232 協定尚未提供查詢'],
+    ['NOR 舊版備份','—','目前 RS232 協定尚未提供查詢'],
+    ['NOR 感測器韌體',field('GSOTAPKG',sensorText)]
+  ]);
+  const cids = dashInfo.fields.GCID;
+  const macs = dashInfo.fields.GLIST;
+  rows('dash-settings-rows', [
+    ['CID',field('GCID',cids ? cids.join(' / ') || '未設定' : null)],
+    ['MAC 清單',field('GLIST',macs ? `已設定 ${macs.length} 筆` : null)],
+    ['回報週期',field('GGTIME',dashInfo.fields.GGTIME == null ? null : `${dashInfo.fields.GGTIME} s`)],
+    ['最大回報數',field('GMAXRPT',dashInfo.fields.GMAXRPT)]
+  ]);
+  if (macs?.length && !dashInfo.errors.has('GLIST')) {
+    const cell = document.getElementById('dash-settings-rows').rows[1].cells[1];
+    const open = dashInfo.macsExpanded;
+    cell.innerHTML = `<details${open ? ' open' : ''}><summary>已設定 ${macs.length} 筆</summary>${macs.map(mac => `<span class="dash-mac">${escHtml(mac)}</span>`).join('')}</details>`;
+    cell.firstElementChild.addEventListener('toggle', event => {dashInfo.macsExpanded = event.target.open;});
+  }
+}
+async function queryDashInfo(group) {
+  if (!['system','settings'].includes(group) || !connected || !writer || !dashIsEt100() || systemStatusBusy() || gattExclusiveBusy() || dashInfo.pending) return;
+  const epoch = dashInfo.epoch;
+  dashInfo.pending = group;
+  renderDashSidebar();
+  try {
+    const names = group === 'system' ? ['GCHK','GFWINFO','GSOTAPKG'] : ['GCID','GLIST','GGTIME','GMAXRPT'];
+    for (const name of names) {
+      if (!connected || epoch !== dashInfo.epoch || systemStatusBusy() || gattExclusiveBusy()) break;
+      const result = await gattCommand(name,'');
+      if (!connected || epoch !== dashInfo.epoch) return;
+      if (name === 'GCHK' ? !result?.valid : !result?.valid || !captureDashInfo(name,result.parts)) dashInfo.errors.add(name);
+      else dashInfo.errors.delete(name);
+      renderDashSidebar();
+    }
+  } finally {
+    if (epoch === dashInfo.epoch) {dashInfo.pending = null;renderDashSidebar();}
+  }
 }
 
 const systemStatus = new ET100System.State();
@@ -8166,21 +8295,67 @@ function resetSystemStatus(message='尚未讀取') {
   systemStatusPending=null;systemStatus.reset();systemStatusSeen=false;
   systemStatusMessage=message;renderSystemStatus();
 }
+// Product mainboard V1.1 sheet references; not an EVB wiring map.
+const systemStatusSheets = {
+  1:[1], 3:[1], 4:[1], 5:[2], 6:[2,3], 7:[2], 8:[12], 9:[3], 10:[10], 11:[11],
+  12:[5], 13:[5], 14:[5], 15:[5], 16:[11], 17:[11], 18:[11], 19:[11], 20:[11],
+  21:[8], 22:[8], 23:[11], 24:[4], 25:[4], 26:[8], 27:[6,7,8], 29:[1], 30:[1],
+  31:[13], 32:[13], 33:[14]
+};
+const systemStatusLabels = {
+  UNKNOWN:'未知', DISABLED:'已停用', NOT_FITTED:'未裝配', UNSUPPORTED:'未支援', STALE:'資料失效', ERROR:'錯誤', UNKNOWN_CODE:'未知代碼',
+  STARTING:'啟動中', RUNNING:'運行中', SHUTTING_DOWN:'關閉中', INITIALIZING:'初始化中', READY:'就緒',
+  READ_ERROR:'讀取錯誤', INTEGRITY_ERROR:'完整性錯誤', ID_MISMATCH:'識別碼不符', TIMEOUT:'逾時', IO_ERROR:'存取錯誤',
+  IDLE:'待命', SCANNING:'掃描中', ADVERTISING:'廣播中', CONNECTED:'已連線', MULTI_ROLE:'多角色運作',
+  POWERING:'上電中', WAIT_AT:'等待 AT', AT_READY:'AT 就緒', ONLINE:'已上線', RECOVERING:'恢復中',
+  CHECKING:'檢查中', ABSENT:'未偵測到', PIN_REQUIRED:'需要 PIN', SIM_ERROR:'SIM 錯誤', SEARCHING:'搜尋中',
+  REGISTERING:'註冊中', REGISTERED:'已註冊', DATA_CONNECTING:'數據連線中', DATA_CONNECTED:'數據已連線', DENIED:'遭拒絕', NO_SERVICE:'無服務',
+  WAIT_DATA:'等待資料', ACQUIRING:'定位中', FIX_VALID:'定位有效', FIX_LOST:'定位遺失', DATA_TIMEOUT:'資料逾時', INVALID_DATA:'資料無效',
+  SAMPLING:'取樣中', DATA_ERROR:'資料錯誤', WAIT_CARD:'等待卡片', CARD_PRESENT:'已偵測卡片', TRANSACTING:'交易中',
+  CONFIG_ERROR:'設定錯誤', LISTENING:'監聽中', RECEIVING:'接收中', BUS_OFF:'匯流排離線', INIT_ERROR:'初始化錯誤',
+  OPEN:'已開啟', TRANSMITTING:'傳送中', DUPLEX:'雙向通訊', INACTIVE:'未觸發', ACTIVE:'已觸發',
+  COMMANDED_OFF:'已命令關閉', COMMANDED_ON:'已命令開啟', DRIVER_ERROR:'驅動錯誤', VALID:'有效', OUT_OF_RANGE:'超出範圍',
+  NORMAL:'正常', LOW:'偏低', TOO_COLD:'溫度過低', TOO_HOT:'溫度過高', SENSOR_ERROR:'感測器錯誤',
+  DISCOVERING:'搜尋探頭中', NO_PROBE:'無探頭', CRC_ERROR:'CRC 錯誤', PATTERN_ACTIVE:'模式運作中',
+  CHARGING:'充電中', FULL:'已充滿', FAULT:'故障', EXTERNAL:'外部供電', BACKUP:'備援供電', TRANSITION:'切換中', LOW_VOLTAGE:'低電壓',
+  UNSYNCED:'未同步', SYNCING:'同步中', CLOCK_ERROR:'時鐘錯誤', ARMING:'啟用中', ARMED:'已啟用', REFRESHING:'餵狗中',
+  POWER_ON:'電源開機', SOFTWARE:'軟體重啟', WATCHDOG:'看門狗重啟', BROWNOUT:'欠壓重啟', OTHER:'其他',
+  DIAG_PASSED:'診斷通過', DIAG_FAILED:'診斷失敗'
+};
 function renderSystemStatus() {
+  renderDashSidebar();
+  const pdfIcon=document.getElementById('system-status-pdf-icon');
+  if (!pdfIcon.firstElementChild) pdfIcon.innerHTML=dashboardIcon('fileText');
   const section=document.getElementById('system-status-section');
   const et100=systemStatusSeen || /fr3068/i.test(gatewayVersionInfo?.hwVer || '');
   section.hidden=!et100;
+  document.getElementById('dash-page').classList.toggle('et100-system-only',et100);
   const available=connected && (systemStatusSupported() || systemStatusSeen);
   document.getElementById('system-status-refresh').disabled=!available || systemStatusBusy() || !!systemStatusPending;
   document.getElementById('system-status-summary').textContent=!connected ? '離線' :
     !available ? '韌體不支援 SYS' : systemStatusMessage;
   const invalid=!connected || !available || /逾時|異常|失敗/.test(systemStatusMessage);
+  const counts={ready:0,error:0,waiting:0,unknown:0,unsupported:0,disabled:0,notFitted:0,stale:0};
   document.getElementById('system-status-grid').innerHTML=ET100System.registry.map(item=>{
     const code=systemStatus.values[item.index-1];
     const decoded=ET100System.describe(item.index,code);
-    const text=code===null ? 'UNKNOWN' : `${code} · ${decoded.status}`;
-    return `<div class="system-status-row" data-index="${item.index}"><span class="system-status-index">${String(item.index).padStart(2,'0')}</span><span class="system-status-name">${escHtml(item.label)}</span><span class="system-status-value" data-kind="${invalid?'unknown':decoded.kind}">${text}</span></div>`;
+    const status=code===null ? 'UNKNOWN' : invalid ? 'STALE' : decoded.status;
+    const bucket=({UNSUPPORTED:'unsupported',DISABLED:'disabled',NOT_FITTED:'notFitted',STALE:'stale'})[status] ||
+      (status==='UNKNOWN' || status==='UNKNOWN_CODE' ? 'unknown' : decoded.kind==='warning' ? 'error' : decoded.kind);
+    counts[bucket]++;
+    const split=item.label.indexOf(' ');
+    const chinese=item.label.slice(0,split), english=item.label.slice(split+1);
+    const sheets=systemStatusSheets[item.index];
+    const sheetText=sheets ? sheets.join('/') : '—';
+    const sheetTitle=sheets ? `電路圖 Sheet ${sheetText} · ET-100 產品主板 V1.1；非 EVB 接線` : '無對應電路圖頁次';
+    const schematic=`<span class="system-status-schematic" title="${escHtml(sheetTitle)}" aria-label="${escHtml(sheetTitle)}"><span class="system-status-chip-text">${sheetText}</span></span>`;
+    const title=`${String(item.index).padStart(2,'0')} ${item.name} · ${code===null ? '尚未讀取' : `狀態碼 ${code} · ${decoded.status}`}${invalid && code!==null ? ' · 資料失效' : ''}`;
+    return `<div class="system-status-row" data-index="${item.index}"><span class="system-status-index">${String(item.index).padStart(2,'0')}</span><span class="system-status-name"><span class="system-status-name-primary">${escHtml(chinese)}</span><span class="system-status-name-secondary">${escHtml(english)}</span></span><span class="system-status-value" data-kind="${invalid?'unknown':decoded.kind}" data-state="${status}" title="${escHtml(title)}"><span class="system-status-chip-text">${escHtml(systemStatusLabels[status] || '未知代碼')}</span></span>${schematic}</div>`;
   }).join('');
+  document.getElementById('system-status-overview').innerHTML=[['ready','正常'],['error','異常'],['unknown','未知'],['unsupported','未支援'],
+    ['waiting','進行中'],['disabled','已停用'],['notFitted','未裝配'],['stale','資料失效']]
+    .filter(([key],i)=>i<4 || counts[key]>0)
+    .map(([key,label])=>`<span data-count="${key}">${label} ${counts[key]}</span>`).join('');
 }
 async function querySystemStatus() {
   if(!connected || !writer || (!systemStatusSupported() && !systemStatusSeen) || systemStatusBusy() || systemStatusPending)return;
@@ -8221,6 +8396,7 @@ function handleSystemStatus(raw) {
       setTimeout(querySystemStatus,0);return;
     }
   } else if(message.type<8) {
+    resetDashInfo();
     const name=ET100System.types[message.type];
     resetSystemStatus(name);systemStatusSeen=true;
     systemStatus.apply(message);renderSystemStatus();return;
@@ -8254,8 +8430,8 @@ function renderDashboard() {
   const alarms = entries.filter(({entry}) => entry.decoded.vendor === 'minew' && entry.decoded.alarm === true).length;
   document.getElementById('dash-stats').innerHTML = pair('已保留裝置', entries.length)
     + pair('近期收到', recent) + pair('警報紀錄', alarms) + pair('接收訊息', frameCount);
-  const vendor = document.getElementById('dash-vendor').value;
-  const freshness = document.getElementById('dash-freshness').value;
+  const vendor = dashIsEt100() ? 'all' : document.getElementById('dash-vendor').value;
+  const freshness = dashIsEt100() ? 'all' : document.getElementById('dash-freshness').value;
   const visible = entries.filter(({entry}) =>
     (vendor === 'all' || dashboardVendor(entry.decoded) === vendor) &&
     (freshness === 'all' || (freshness === 'recent' ? dashboardRecent(entry, nowMs)
@@ -8436,8 +8612,12 @@ async function send(frame) {
 const sidebarIds = ['ble-sidebar', 'can-sidebar', 'ota-sidebar', 'gatt-sidebar', 'dash-sidebar', 'lte-sidebar'];
 function activateSidebarTab(nextTab, queryOtaState = true) {
   activeTab = nextTab;
-  document.querySelectorAll('.tab-btn').forEach(button =>
-    button.classList.toggle('active', button.dataset.tab === activeTab));
+  document.querySelectorAll('.tab-btn').forEach(button => {
+    const active = button.dataset.tab === activeTab;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
   sidebarIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.hidden = id !== `${activeTab}-sidebar`;
@@ -8460,8 +8640,25 @@ function activateSidebarTab(nextTab, queryOtaState = true) {
   }
 }
 
+const navTooltip = document.createElement('div');
+navTooltip.className = 'nav-tooltip'; navTooltip.id = 'nav-tooltip';
+navTooltip.setAttribute('role', 'tooltip'); navTooltip.hidden = true;
+document.body.append(navTooltip);
 document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.innerHTML = dashboardIcon(btn.dataset.navIcon);
+  btn.setAttribute('aria-describedby', navTooltip.id);
+  const showHint = () => {
+    navTooltip.textContent = btn.getAttribute('aria-label'); navTooltip.hidden = false;
+    const box = btn.getBoundingClientRect();
+    navTooltip.style.left = `${Math.min(box.right + 8, innerWidth - navTooltip.offsetWidth - 8)}px`;
+    navTooltip.style.top = `${Math.max(8, Math.min(box.top + (box.height-navTooltip.offsetHeight)/2, innerHeight-navTooltip.offsetHeight-8))}px`;
+  };
+  const hideHint = () => { navTooltip.hidden = true; };
+  btn.addEventListener('mouseenter', showHint); btn.addEventListener('mouseleave', hideHint);
+  btn.addEventListener('focus', showHint); btn.addEventListener('blur', hideHint);
+  btn.addEventListener('keydown', event => { if (event.key === 'Escape') hideHint(); });
   btn.addEventListener('click', () => {
+    hideHint();
     if (btn.disabled || btn.dataset.tab === activeTab) return;
     activateSidebarTab(btn.dataset.tab);
   });
@@ -9069,6 +9266,11 @@ function et100RelaySupported() {
 }
 function et100RelayView() { return et100SensorTarget() && deviceSubMode==='gatt'; }
 function et100ApplyPackage(value) {
+  if (connected) {
+    dashInfo.fields.GSOTAPKG = {state:value.state, size:value.image_length, firmware:value.firmware};
+    dashInfo.errors.delete('GSOTAPKG');
+    renderDashSidebar();
+  }
   et100StoredPackage=value;
   sensorProbe.packageValid=value.state==='VALID';
   sensorProbe.imageLength=sensorProbe.packageValid?value.image_length:0;
@@ -9417,6 +9619,10 @@ function et100RenderPackage() {
 }
 function et100RenderDevice() {
   const parts = et100Device.line.split(';'), result = et100Device;
+  if (connected && result.fwInfo) {
+    captureDashInfo('GFWINFO',['GFWINFO','1',result.fwInfo.project,result.fwInfo.hardware,
+      result.fwInfo.firmware || parts[5],result.fwInfo.soc,'']);
+  }
   et100Rows('et100-device', [['裝置 ID',parts[2]], ['品牌',parts[3]],
     ['硬體',result.fwInfo?.hardware || parts[4]], ['韌體',result.slot.version],
     ['確認狀態',result.slot.confirmed ? '已確認' : '尚未確認'], ['GCHK 硬體',parts[4]], ['GCHK 韌體',parts[5]],
@@ -9519,6 +9725,7 @@ document.getElementById('et100-package-download').addEventListener('click',()=>{
   link.download=file.displayName.replace(/\.zip$/i,'')+'.sensor-ota.bin'; link.click(); URL.revokeObjectURL(url);
 });
 function et100Controls() {
+  renderDashSidebar();
   document.getElementById('et100-cancel').hidden = !et100Busy;
   et100RenderTransferButton();
   document.getElementById('et100-query').disabled = !connected || et100Busy;
@@ -9583,7 +9790,11 @@ const et100Client = new ET100Smp.Client({
       if(ET100Smp.parseInst(line))addLogTagged('rx',line,'tag-ota','INST');
       return;
     }
-    if (/^AT\$PD=BLEGW\$(GSOTAPKG|DSOTAPKG);/.test(line)) addLogTagged('rx',line,'tag-ota','OTA');
+    if (/^AT\$PD=BLEGW\$(GSOTAPKG|DSOTAPKG);/.test(line)) {
+      parseGattReply(line);
+      if (line.startsWith('AT$PD=BLEGW$GSOTAPKG;')) captureDashInfo('GSOTAPKG',line.split(';'));
+      addLogTagged('rx',line,'tag-ota','OTA');
+    }
     else if (line.trim()) processFrame(line.trim());
   },
   sensorPackage: et100ApplyPackage,
@@ -10886,6 +11097,9 @@ let lteMode = 'dual'; // 'dual' (sniffer) or 'single' (interactive)
 let ltePort1 = null, ltePort2 = null;
 let lteReader1 = null, lteReader2 = null;
 let lteWriter1 = null;
+let lteConnectionBusy = false;
+let lteSelectedPort1 = null, lteSelectedPort2 = null;
+let lteReadTask1 = null, lteReadTask2 = null;
 let lteKeepReading1 = false, lteKeepReading2 = false;
 let lteIsPaused = false;
 let lteActiveFilter = 'all';
@@ -10901,72 +11115,108 @@ let lteCmdHistoryIdx = -1;
 
 function lteSetMode(mode) {
   lteMode = mode;
-  const p1Title = document.getElementById('lte-p1-title');
-  const p2Box = document.getElementById('lte-p2-box');
+  lteUpdateConnectionControls();
+}
 
-  if (mode === 'dual') {
-    if (p1Title) p1Title.textContent = 'Port 1 (MCU TX)';
-    if (p2Box) p2Box.style.display = 'flex';
-  } else {
-    if (p1Title) p1Title.textContent = 'Port 1 (Direct AT / EVB)';
-    if (p2Box) p2Box.style.display = 'none';
+async function lteSelectPort(channel) {
+  if (lteConnectionBusy || ltePort1 || ltePort2) return;
+  if (!('serial' in navigator)) {
+    alert('此瀏覽器不支援 Web Serial API，請使用 Google Chrome 或 Microsoft Edge。');
+    return;
+  }
+  lteConnectionBusy = true;
+  lteUpdateConnectionControls();
+  try {
+    const selectedPort = await navigator.serial.requestPort();
+    const otherPort = channel === 1 ? lteSelectedPort2 : lteSelectedPort1;
+    if (selectedPort === otherPort) throw new Error('兩個通道不可選擇相同串列埠');
+    if (channel === 1) lteSelectedPort1 = selectedPort;
+    else lteSelectedPort2 = selectedPort;
+    lteAddLogEntry('SYS', `${channel === 2 ? 'GSM_TX' : 'GSM_RX'} 已選擇串列埠，尚未連線`, 'tag-sys');
+  } catch (err) {
+    if (err.name !== 'NotFoundError') lteAddLogEntry('ERR', `選擇串列埠失敗: ${err.message}`, 'tag-err');
+  } finally {
+    lteConnectionBusy = false;
+    lteUpdateConnectionControls();
   }
 }
 
-async function lteTogglePort(channel) {
+function lteUpdateConnectionControls() {
+  const connected = !!(ltePort1 || ltePort2);
+  const tx = document.getElementById('lte-channel-tx');
+  const rx = document.getElementById('lte-channel-rx');
+  const btn = document.getElementById('lte-connect-btn');
+  tx.disabled = connected || lteConnectionBusy || lteMode === 'single';
+  rx.disabled = connected || lteConnectionBusy;
+  tx.setAttribute('aria-pressed', String(!!lteSelectedPort2));
+  rx.setAttribute('aria-pressed', String(!!lteSelectedPort1));
+  tx.title = `GSM_TX (Modem TX)：${lteSelectedPort2 ? '已選擇，點擊重選串列埠' : '選擇串列埠'}`;
+  rx.title = `GSM_RX (MCU TX / Direct AT)：${lteSelectedPort1 ? '已選擇，點擊重選串列埠' : '選擇串列埠'}`;
+  document.getElementById('lte-mode-select').disabled = connected || lteConnectionBusy;
+  document.getElementById('lte-baud-select').disabled = connected || lteConnectionBusy;
+  btn.textContent = connected ? '中斷' : '連線';
+  btn.classList.toggle('connected', connected);
+  btn.disabled = lteConnectionBusy || (!connected && !(lteSelectedPort1 || (lteMode === 'dual' && lteSelectedPort2)));
+}
+
+async function lteToggleConnection() {
+  if (lteConnectionBusy) return;
   if (!('serial' in navigator)) {
     alert('此瀏覽器不支援 Web Serial API，請使用 Google Chrome 或 Microsoft Edge。');
     return;
   }
 
-  if (channel === 1) {
-    if (ltePort1) await lteDisconnectPort(1);
-    else await lteConnectPort(1);
-  } else {
-    if (ltePort2) await lteDisconnectPort(2);
-    else await lteConnectPort(2);
+  lteConnectionBusy = true;
+  lteUpdateConnectionControls();
+  try {
+    if (ltePort1 || ltePort2) {
+      await lteDisconnectPort(1);
+      await lteDisconnectPort(2);
+    } else {
+      const channels = [];
+      if (lteMode === 'dual' && lteSelectedPort2) channels.push(2);
+      if (lteSelectedPort1) channels.push(1);
+      for (const channel of channels) {
+        if (!await lteConnectPort(channel)) {
+          await lteDisconnectPort(1);
+          await lteDisconnectPort(2);
+          break;
+        }
+      }
+    }
+  } finally {
+    lteConnectionBusy = false;
+    lteUpdateConnectionControls();
   }
 }
 
 async function lteConnectPort(channel) {
   const baudSelect = document.getElementById('lte-baud-select');
-  const baudRate = baudSelect ? parseInt(baudSelect.value, 10) : 115200;
+  const baudRate = baudSelect ? parseInt(baudSelect.value, 10) : 9600;
 
   try {
-    const selectedPort = await navigator.serial.requestPort();
+    const selectedPort = channel === 1 ? lteSelectedPort1 : lteSelectedPort2;
+    if (!selectedPort) throw new Error('請先選擇串列埠');
+    if (selectedPort === ltePort1 || selectedPort === ltePort2) throw new Error('兩個通道不可選擇相同串列埠');
     await selectedPort.open({ baudRate: baudRate, dataBits: 8, stopBits: 1, parity: 'none' });
 
     if (channel === 1) {
       ltePort1 = selectedPort;
       lteKeepReading1 = true;
-      const btn = document.getElementById('lte-p1-btn');
-      if (btn) {
-        btn.textContent = '❌ 中斷 Port 1';
-        btn.className = 'lte-btn danger';
-      }
-      const dot = document.getElementById('lte-p1-dot');
-      if (dot) dot.classList.add('active');
-
       lteWriter1 = ltePort1.writable.getWriter();
-      lteReadLoop(ltePort1, 1);
+      lteReadTask1 = lteReadLoop(ltePort1, 1);
       lteAddLogEntry('SYS', `Port 1 (MCU/AT) 連線成功 (Baud: ${baudRate})`, 'tag-sys');
     } else {
       ltePort2 = selectedPort;
       lteKeepReading2 = true;
-      const btn = document.getElementById('lte-p2-btn');
-      if (btn) {
-        btn.textContent = '❌ 中斷 Port 2';
-        btn.className = 'lte-btn danger';
-      }
-      const dot = document.getElementById('lte-p2-dot');
-      if (dot) dot.classList.add('active');
-
-      lteReadLoop(ltePort2, 2);
+      lteReadTask2 = lteReadLoop(ltePort2, 2);
       lteAddLogEntry('SYS', `Port 2 (Modem TX) 連線成功 (Baud: ${baudRate})`, 'tag-sys');
     }
+    return true;
   } catch (err) {
     console.error('LTE serial error:', err);
     lteAddLogEntry('ERR', `Port ${channel} 連線失敗: ${err.message}`, 'tag-err');
+    return false;
   }
 }
 
@@ -10976,6 +11226,9 @@ async function lteDisconnectPort(channel) {
     if (lteReader1) {
       try { await lteReader1.cancel(); } catch(e) {}
     }
+    if (lteReadTask1) await lteReadTask1;
+    lteReadTask1 = null;
+    lteReader1 = null;
     if (lteWriter1) {
       try { lteWriter1.releaseLock(); } catch(e) {}
       lteWriter1 = null;
@@ -10983,30 +11236,17 @@ async function lteDisconnectPort(channel) {
     try { await ltePort1.close(); } catch(e) {}
     ltePort1 = null;
 
-    const btn = document.getElementById('lte-p1-btn');
-    if (btn) {
-      btn.textContent = '🔌 連接 Port 1';
-      btn.className = 'lte-btn primary';
-    }
-    const dot = document.getElementById('lte-p1-dot');
-    if (dot) dot.classList.remove('active');
-
     lteAddLogEntry('SYS', 'Port 1 已中斷連線', 'tag-sys');
   } else if (channel === 2 && ltePort2) {
     lteKeepReading2 = false;
     if (lteReader2) {
       try { await lteReader2.cancel(); } catch(e) {}
     }
+    if (lteReadTask2) await lteReadTask2;
+    lteReadTask2 = null;
+    lteReader2 = null;
     try { await ltePort2.close(); } catch(e) {}
     ltePort2 = null;
-
-    const btn = document.getElementById('lte-p2-btn');
-    if (btn) {
-      btn.textContent = '🔌 連接 Port 2';
-      btn.className = 'lte-btn primary';
-    }
-    const dot = document.getElementById('lte-p2-dot');
-    if (dot) dot.classList.remove('active');
 
     lteAddLogEntry('SYS', 'Port 2 已中斷連線', 'tag-sys');
   }
@@ -11014,7 +11254,7 @@ async function lteDisconnectPort(channel) {
 
 async function lteReadLoop(port, channel) {
   const textDecoder = new TextDecoderStream();
-  const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+  const readableStreamClosed = port.readable.pipeTo(textDecoder.writable).catch(() => {});
   const reader = textDecoder.readable.getReader();
   if (channel === 1) lteReader1 = reader;
   else lteReader2 = reader;
@@ -11032,6 +11272,7 @@ async function lteReadLoop(port, channel) {
     console.warn(`LTE Port ${channel} 讀取例外:`, err);
   } finally {
     try { reader.releaseLock(); } catch(e) {}
+    await readableStreamClosed;
   }
 }
 
@@ -11223,7 +11464,7 @@ function lteExportLog() {
 function lteSetHud(id, text, cls = 'val-sub') {
   const el = document.getElementById(id);
   if (!el) return;
-  el.textContent = text;
+  el.textContent = text.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, '').trim();
   el.className = 'lte-status-card-val ' + cls;
 }
 
@@ -11235,11 +11476,11 @@ function lteResetHud() {
   lteSetHud('lte-hud-ip', '未啟用', 'val-sub');
   lteSetHud('lte-hud-sock', '未連線', 'val-sub');
   const elImei = document.getElementById('lte-hud-imei');
-  if (elImei) elImei.textContent = 'IMEI: --';
+  if (elImei) elImei.textContent = '--';
   const elIccid = document.getElementById('lte-hud-iccid');
-  if (elIccid) elIccid.textContent = 'ICCID: --';
+  if (elIccid) elIccid.textContent = '--';
   const elFw = document.getElementById('lte-hud-fw');
-  if (elFw) elFw.textContent = '韌體: --';
+  if (elFw) elFw.textContent = '--';
 }
 
 function lteParseATStatus(text) {
@@ -11315,19 +11556,19 @@ function lteParseATStatus(text) {
   // 7. IMEI (15 digits)
   if (/^\d{15}$/.test(t)) {
     const el = document.getElementById('lte-hud-imei');
-    if (el) el.textContent = 'IMEI: ' + t;
+    if (el) el.textContent = t;
   }
 
   // 8. ICCID
   if (t.startsWith('+QCCID:')) {
     const el = document.getElementById('lte-hud-iccid');
-    if (el) el.textContent = 'ICCID: ' + t.replace('+QCCID:', '').trim();
+    if (el) el.textContent = t.replace('+QCCID:', '').trim();
   }
 
   // 9. Firmware Revision
   if (t.startsWith('EG800') || (t.includes('Revision:') && t.includes('EG800'))) {
     const el = document.getElementById('lte-hud-fw');
-    if (el) el.textContent = '韌體: ' + t.replace('Revision:', '').trim();
+    if (el) el.textContent = t.replace('Revision:', '').trim();
   }
 }
 
@@ -11350,7 +11591,7 @@ function lteSendQuickCommand(cmd) {
 
 async function lteSendCommand(cmd) {
   if (!ltePort1 || !lteWriter1) {
-    alert('Port 1 (MCU/AT) 尚未連線，請先點選左側「🔌 連接 Port 1」');
+    alert('GSM_RX (MCU TX / Direct AT) 尚未連線，請先按 GSM_RX 選擇串列埠，再按「連線」。');
     return;
   }
 
@@ -11385,4 +11626,5 @@ function lteHandleInputKey(event) {
     }
   }
 }
+activateSidebarTab('dash', false);
 </script>

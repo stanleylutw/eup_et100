@@ -583,9 +583,9 @@ const root=path.resolve(__dirname,'../..');
     assert.equal(await page.locator('#et100-panel').isVisible(),false);
     assert.equal(await page.locator('#sensor-probe-panel').isVisible(),false);
     assert.equal(await page.locator('#flash-ota-viz').isVisible(),true);
-    assert.match(await page.locator('#flash-viz-source-title').textContent(),/ET-100.*NOR 16 MB/);
+    assert.equal(await page.locator('#flash-viz-source-title').textContent(),'外部 NOR · 16 MB（EVB）');
     assert.match(await page.locator('#flash-viz-source-slots').textContent(),/0x420000/);
-    assert.match(await page.locator('#flash-viz-source-slots .target .flash-viz-slot-size').textContent(),/256 KiB/);
+    assert.equal(await page.locator('#flash-viz-source-slots .target .flash-viz-slot-size').textContent(),'256 KB');
     assert.ok(await page.locator('#flash-viz-source-slots .target .flash-viz-slot-image').evaluate(el=>parseFloat(el.style.width)>0));
     await page.locator('#sensor-relay-mac').fill('AABBCCDDEEFF');
     await page.locator('#sensor-relay-start').click();
@@ -632,15 +632,15 @@ const root=path.resolve(__dirname,'../..');
     assert.match(await page.locator('#et100-file-info').textContent(),/EUP_ET100/,'self file is preserved separately');
     await page.locator('[data-tab="ble"]').click();
     assert.equal(await page.locator('#et100-viz').isVisible(),false,'ET-100 diagram hidden outside OTA tab');
-    assert.equal(await page.locator('[data-tab="lte"]').textContent(),'AT 分析');
+    assert.equal(await page.locator('[data-tab="lte"]').getAttribute('aria-label'),'AT 指令分析');
     assert.equal(await page.locator('#lte-page').getAttribute('aria-label'),'AT 分析終端');
     for (const width of [1400,1920]) {
       await page.setViewportSize({width,height:1000});
       for (const tab of ['ble','can','gatt','dash','lte']) {
         await page.locator(`[data-tab="${tab}"]`).click();
         const sidebar=await page.locator('.sidebar').boundingBox(),main=await page.locator('.main-panel').boundingBox();
-        assert.equal(sidebar.width,320,`${tab} sidebar fixed at 320px (${width}px viewport)`);
-        assert.equal(main.x,320,`${tab} right panel does not shift`);
+        assert.equal(sidebar.width,350,`${tab} sidebar fixed at 350px (${width}px viewport)`);
+        assert.equal(main.x,350,`${tab} right panel follows sidebar width`);
       }
       assert.equal(await page.locator('#lte-page').isVisible(),true);
       assert.equal(await page.locator('.main-panel > .log-wrap').isVisible(),false,'AT page still hides common log');

@@ -135,10 +135,42 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || '/Users/stanley/.cache
     await route('upload');
     assert.match(await page.evaluate(()=>et100TransferRoute().to),/Sensor OTA/);
     await page.evaluate(()=>et100Flow('stored'));await page.waitForFunction(()=>document.getElementById('et100-transfer-overlay').hidden);
+    const norReference=await page.locator('#et100-nor-map').evaluate(root=>({
+      height:root.getBoundingClientRect().height,
+      rows:[...root.querySelectorAll('.et100-partition')].map(row=>({
+        name:row.dataset.name,label:row.querySelector('strong').textContent,
+        capacity:row.querySelector('.et100-partition-capacity').textContent,
+        height:row.getBoundingClientRect().height,font:parseFloat(getComputedStyle(row.querySelector('strong')).fontSize)*root.closest('.et100-viz-layout').getBoundingClientRect().width/root.closest('.et100-viz-layout').offsetWidth
+      })),log:document.querySelector('.log-wrap').getBoundingClientRect().height
+    }));
     // GATT uses Bluetooth glyphs; wired and internal transfers retain file icons.
     await page.evaluate(()=>{deviceSubMode='gatt';updateOtaModeUi();renderFlashOtaVisualization();});
+    await page.waitForTimeout(100);
+    const gattNor=await page.locator('#flash-viz-source').evaluate(root=>({
+      height:root.getBoundingClientRect().height,
+      rows:[...root.querySelectorAll('.flash-viz-slot')].map(row=>({
+        name:row.dataset.name,label:row.querySelector('.flash-viz-slot-name').textContent,
+        capacity:row.querySelector('.flash-viz-slot-size').textContent,
+        height:row.getBoundingClientRect().height,font:parseFloat(getComputedStyle(row.querySelector('.flash-viz-slot-name')).fontSize)
+      })),log:document.querySelector('.log-wrap').getBoundingClientRect().height
+    }));
+    assert.ok(Math.abs(gattNor.height-norReference.height)<2,JSON.stringify({gattNor,norReference}));
+    assert.equal(gattNor.log,norReference.log);
+    gattNor.rows.forEach((row,i)=>{
+      const expected=norReference.rows[i];
+      assert.equal(row.name,expected.name);assert.equal(row.label,expected.label);
+      assert.equal(row.capacity,expected.capacity);assert.ok(Math.abs(row.font-expected.font)<0.1);
+      assert.ok(Math.abs(row.height-expected.height)<2,JSON.stringify({row,expected}));
+    });
+    await page.screenshot({path:'/tmp/et100_gatt_nor_layout.png'});
     assert.equal(await page.locator('#flash-viz-ble-stream [data-icon="bluetooth"]').count(),4);
     assert.equal(await page.locator('#flash-viz-ble-stream [data-icon="fileText"]').count(),0);
+    assert.deepEqual(await page.locator('#flash-viz-ble-stream [data-icon="bluetooth"]').first().evaluate(el=>{
+      const style=getComputedStyle(el),box=el.getBoundingClientRect();
+      const reference=document.createElement('span');reference.style.color='var(--accent)';
+      document.body.append(reference);const accent=getComputedStyle(reference).color;reference.remove();
+      return {blue:style.color===accent,width:box.width,height:box.height};
+    }),{blue:true,width:16,height:16});
     for(const width of [1920,1400,390]) {
       await page.setViewportSize({width,height:1000});
       await page.evaluate(()=>{deviceSubMode='rs232';updateOtaModeUi();et100Visual.off=60000;et100Flow('upload');et100FitDiagram();});
