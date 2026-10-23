@@ -68,8 +68,18 @@ static int (*idle_hook)(void);
 static unsigned session_running, unreserve_pending, drain_reported;
 static uint32_t drain_started_ms, drain_stop_ms, drain_report_ms;
 static int drain_stop_rc, drain_disconnect_rc;
+static volatile unsigned stop_requested, cancelled_owner;
+static volatile uint32_t connection_end_sequence;
+static uint32_t stop_started_ms, quiet_ms;
+static unsigned quiet_valid;
 
 static uint32_t now_ms(void) { return (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS; }
+/* All entry checks and updates run under the existing session critical section. */
+static int quiet_active(void)
+{
+    if (quiet_valid && (uint32_t)(now_ms() - quiet_ms) >= 2000) quiet_valid = 0;
+    return quiet_valid;
+}
 static void mac_text(const uint8_t mac[6], char out[13])
 {
     snprintf(out, 13, "%02X%02X%02X%02X%02X%02X", mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
@@ -134,7 +144,7 @@ static void report(const char *body, unsigned ready_only)
 }
 static void event(const char *name, const char *data)
 {
-    char body[120], mac[13];
+    char body[160], mac[13];
     mac_text(target, mac);
     snprintf(body, sizeof(body), "G1;8;%s;%s;%s", name, mac, data);
     report(body, !strcmp(name, "AP"));
@@ -404,6 +414,8 @@ static int release_owner(void)
                    xQueueSend(output_queue, &item, 0) == pdPASS;
     if (released) {
         state = IDLE; matched = cancel_requested = output_fault = 0;
+        if (cancelled_owner) { quiet_ms = now_ms(); quiet_valid = 1; }
+        stop_requested = cancelled_owner = 0;
         cooldown_ms = now_ms(); cooldown_valid = 1;
         if (unreserve_pending) { reserved = reserved_cancel = unreserve_pending = 0; }
     }
@@ -421,25 +433,46 @@ static void drain_begin(void)
     drain_stop_rc = drain_disconnect_rc = -1;
 }
 
-/* D9 TODO: keep the initiating-clear rule unchanged until Stanley supplies M0. */
 static int drain_poll(void)
 {
+    taskENTER_CRITICAL();
+    if (stop_requested && !connected && (uint32_t)(now_ms() - stop_started_ms) >= 2000) {
+        initiating = stop_requested = 0;
+    }
+    taskEXIT_CRITICAL();
     if (release_owner()) {
         if (scan_resume_pending) et100_scan_start();
         return 1;
     }
     uint32_t now = now_ms();
     if ((uint32_t)(now - drain_stop_ms) >= 1000) {
-        if (initiating) drain_stop_rc = (int)gap_conn_stop();
+        if (initiating) {
+            taskENTER_CRITICAL();
+            uint32_t before = connection_end_sequence;
+            taskEXIT_CRITICAL();
+            int rc = (int)gap_conn_stop();
+            taskENTER_CRITICAL();
+            drain_stop_rc = rc;
+            if (rc == BLE_API_ERR_NO_ERR) {
+                cancelled_owner = 1;
+                /* A callback may arrive inside the SDK call, before its return value. */
+                if (connection_end_sequence != before) initiating = stop_requested = 0;
+                else if (initiating && !stop_requested) {
+                    stop_started_ms = now_ms(); stop_requested = 1;
+                }
+            }
+            taskEXIT_CRITICAL();
+        }
         if (connected) drain_disconnect_rc = (int)gap_disconnect(conidx);
         drain_stop_ms = now;
     }
     if ((uint32_t)(now - drain_started_ms) >= 6000 &&
         (!drain_reported || (uint32_t)(now - drain_report_ms) >= 10000)) {
-        char reason[112];
+        char reason[128];
         snprintf(reason, sizeof reason,
-                 "disconnect_drain_timeout:i=%u,c=%u,s=%u,stop=%d,disc=%d",
-                 initiating, connected, scan_stop_pending, drain_stop_rc, drain_disconnect_rc);
+                 "disconnect_drain_timeout:i=%u,c=%u,s=%u,stop=%d,disc=%d,e=%u,st=%u,sr=%u",
+                 !!initiating, !!connected, !!scan_stop_pending, drain_stop_rc, drain_disconnect_rc,
+                 !!connection_end_seen, (unsigned)connection_end_status, !!stop_requested);
         event("CF", reason);
         drain_reported = 1; drain_report_ms = now;
     }
@@ -491,6 +524,7 @@ static void session(void)
     params.scan_intv = params.scan_window = 40;
     params.conn_intv_min = 12; params.conn_intv_max = 24;
     params.supervision_to = 500; params.ce_len_max = 2;
+    stop_requested = cancelled_owner = 0;
     initiating = 1; connection_end_seen = 0; connection_end_status = 0;
     if (gap_conn_start(&params) != BLE_API_ERR_NO_ERR) {
         initiating = 0; event("CF", "connect_start"); goto cleanup;
@@ -625,9 +659,12 @@ void et100_gatt_gap(struct gap_event *message)
     if (message->type == GAP_EVT_ADV_START && message->param.adv_start.status == 0) radio_ready = 1;
     if (message->type == GAP_EVT_SCAN_END) { scan_ended = 1; scan_stop_pending = 0; }
     if (message->type == GAP_EVT_CONN_END) {
+        connection_end_sequence++;
         connection_end_seen = 1; connection_end_status = message->param.conn_end_status;
         /* A successful action can precede MASTER_CONNECT; retain its owner. */
-        if (connection_end_status != 0 || connected) initiating = 0;
+        if (stop_requested || connection_end_status != 0 || connected) {
+            initiating = stop_requested = 0;
+        }
     }
     if (message->type == GAP_EVT_CONN_START && message->param.conn_start_status != 0) {
         initiating = 0; connection_end_seen = 1; connection_end_status = message->param.conn_start_status;
@@ -638,7 +675,7 @@ void et100_gatt_gap(struct gap_event *message)
         if (state == IDLE) {
             memcpy(target, mac, 6); session_generation++; drain_begin();
         } else if (memcmp(mac, target, 6)) cancel_requested = 1;
-        connected = 1; initiating = 0;
+        connected = 1; initiating = stop_requested = 0;
         conidx = message->param.connect.conidx; connected_ms = now_ms();
     }
     if (message->type == GAP_EVT_DISCONNECT && connected && message->param.disconnect.conidx == conidx) {
@@ -654,7 +691,8 @@ void et100_gatt_gap(struct gap_event *message)
         for (unsigned i = 0; i < 6; i++) mac[i] = ad->addr.addr.addr[5-i];
         if ((ad->evt_type == GAP_SCAN_EVT_CONN_UNDIR || ad->evt_type == GAP_SCAN_EVT_CONN_DIR) &&
             client_id != 0xff) {
-            if (state == IDLE && !reserved && (!cooldown_valid || (uint32_t)(now_ms()-cooldown_ms) >= 5000)) {
+            if (state == IDLE && !reserved && !quiet_active() &&
+                (!cooldown_valid || (uint32_t)(now_ms()-cooldown_ms) >= 5000)) {
                 for (unsigned i = 0; i < 8; i++) if (memcmp(auto_macs[i], mac, 6) == 0) {
                     memcpy(target, mac, 6); session_generation++; state = WAIT_ADV; manual = 0;
                     matched = cancel_requested = output_fault = 0; break;
@@ -691,7 +729,7 @@ int et100_gatt_uart(const char *cmd, char *params, const char *token)
             char text[13]; mac_text(mac, text);
             snprintf(original, sizeof(original), "1:%s", text);
             taskENTER_CRITICAL();
-            if (state == IDLE && !reserved && client_id != 0xff) {
+            if (state == IDLE && !reserved && !quiet_active() && client_id != 0xff) {
                 memcpy(target,mac,6); session_generation++; manual = 1; matched = cancel_requested = output_fault = 0;
                 state = WAIT_ADV; valid = 1;
             }
@@ -775,7 +813,7 @@ void et100_gatt_set_idle_hook(int (*hook)(void)) { idle_hook = hook; }
 int et100_gatt_reserve(void)
 {
     taskENTER_CRITICAL();
-    int ok = state == IDLE && !reserved && client_id != 0xff;
+    int ok = state == IDLE && !reserved && !quiet_active() && client_id != 0xff;
     if (ok) { reserved = 1; reserved_cancel = 0; }
     taskEXIT_CRITICAL();
     return ok ? 0 : -EBUSY;
@@ -799,7 +837,7 @@ void et100_gatt_cancel(void)
 int et100_gatt_exclusive(const uint8_t mac[6], const struct et100_gatt_exclusive_ops *ops)
 {
     taskENTER_CRITICAL();
-    int ok = state == IDLE && reserved && client_id != 0xff;
+    int ok = state == IDLE && reserved && !quiet_active() && client_id != 0xff;
     if (ok) {
         memcpy(target, mac, 6); session_generation++; manual = 0;
         matched = output_fault = 0; cancel_requested = reserved_cancel;

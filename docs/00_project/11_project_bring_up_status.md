@@ -10,6 +10,8 @@
 
 > **v0.8.10**：MAC 白名單／MAXRPT 指令、FlashDB 保存及 HTML 選檔／圖表完成；host／ARM／DFU／UI 測試 PASS。Stanley 已提供 0.8.10 App OTA confirmed 紀錄，白名單實機與 Claude 獨立 review 仍待完成；沒有由 Codex 執行 EVB 燒錄。本輪文件與程式一併提交，不代表硬體全面驗收。
 
+> **v0.9.2（Claude review PASS；EVB 實機待 Stanley）**：修正取消連線後 GATT ownership 不釋放（M0 證實 CONN_END status 0）；2 s quiet 期防延遲連線。
+
 > **v0.9.1（Claude review PASS；EVB 實機待 Stanley）**：上傳後立即可 GATT OTA；連線失敗不再永久 CONNECTING（清理期限＋背景重試）；D9 待 M0 SWD 取證。
 
 > **v0.8.12（Claude review PASS；EVB 實機待 Stanley）**：修正 GSENSOROTAFLOW `%012llX`（newlib-nano）並加 ARM nano 模擬測試；HTML 減少 port 重開。間歇無回覆／舊 token 根因待實機證據。

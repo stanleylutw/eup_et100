@@ -1,9 +1,11 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.9.1
+Version: v0.9.2
 Last updated: 2026-10-23 Claude
 
 ## Revision History
+
+2026-10-23 v0.9.2（Claude review PASS；EVB 實機待 Stanley）：M0 DAP 唯讀證實取消連線後 SDK 回 `CONN_END` status 0，`initiating` 不清除導致 GATT ownership 永不釋放（需重開機）。修正為取消成功後的 CONN_END 不論 status 皆清除（另 2 s 後備），釋放後 2 s quiet 期防延遲連線；診斷加 e/st/sr。D11 自動復原仍待決。
 
 2026-10-23 v0.9.1（Claude review PASS；EVB 實機待 Stanley）：Sensor relay 啟動改用狀態判斷（SMP 無排隊／處理中、無刪除、無 30 s 內未完成上傳），套件驗證成功後可立即 GATT OTA；連線失敗回 FAILED／CONNECT_FAILED，BLE 清理最多 15 s 後背景重試並保留 ownership，診斷事件帶旗標；HTML BUSY 自動重試、不誤標套件錯誤。`initiating` 清除條件（D9）待 M0 取證；永久清理失敗自動復原（D11）待決策。
 

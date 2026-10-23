@@ -13,6 +13,7 @@ static unsigned queue_head, queue_tail, queue_count;
 static uint8_t durable_auto[100];
 static size_t durable_size;
 static int db_fail, scenario, ready_step, restored, auth_writes, stop_calls;
+static unsigned pending_stop_end, pending_stop_status, stop_end_events, connect_events;
 static unsigned sys_ble_status;
 void et100_sys_set(unsigned index, unsigned status) { assert(index==SYS_BLE);sys_ble_status=status; }
 static jmp_buf worker_exit;
@@ -45,12 +46,18 @@ int flashdb_set(uint32_t key,uint8_t *data,uint32_t length)
 { assert(key==AUTO_KEY && length==100);if(db_fail)return -1;memcpy(durable_auto,data,length);durable_size=length;return 0; }
 
 static void simulate_connect(void)
-{ struct gap_event e={.type=GAP_EVT_MASTER_CONNECT};e.param.connect.conidx=2;
+{ connect_events++;struct gap_event e={.type=GAP_EVT_MASTER_CONNECT};e.param.connect.conidx=2;
   for(unsigned i=0;i<6;i++)e.param.connect.peer_addr.addr.addr[i]=target[5-i];et100_gatt_gap(&e); }
 void vTaskDelay(uint32_t delay)
 {
     ticks+=delay;assert(ticks<60000);drain_output();
     if(state==IDLE)longjmp(worker_exit,1);
+    if(pending_stop_end) {
+        /* SDK call has returned 0; only now deliver CONN_END, never a link. */
+        assert(state==DRAIN && stop_requested && initiating && !connected);
+        pending_stop_end=0;stop_end_events++;
+        struct gap_event e={.type=GAP_EVT_CONN_END};e.param.conn_end_status=(uint8_t)pending_stop_status;et100_gatt_gap(&e);
+    }
     if(state==WAIT_ADV) {
         if(scenario==2)cancel_requested=1;
         else {
@@ -88,10 +95,20 @@ ble_api_err_t gap_scan_stop(void)
 { if(scenario!=5 && scenario!=9) { struct gap_event e={.type=GAP_EVT_SCAN_END};et100_scan_status=0x100;et100_gatt_gap(&e); }
   return 0; }
 ble_api_err_t gap_conn_start(struct gap_conn_param *p)
-{ assert(p->peer_addr.addr.addr[0]==0xff);if(scenario!=3 && scenario!=4 && scenario!=6 && scenario!=7 && scenario!=8)simulate_connect();return 0; }
+{ assert(p->peer_addr.addr.addr[0]==0xff);
+  if(scenario==14) {
+    struct gap_event e={.type=GAP_EVT_CONN_END};e.param.conn_end_status=0;et100_gatt_gap(&e);
+    assert(initiating && !stop_requested && stop_calls==0);simulate_connect();return 0;
+  }
+  if(scenario!=3 && scenario!=4 && scenario!=6 && scenario!=7 && scenario!=8 &&
+     scenario!=12 && scenario!=13 && scenario!=15 && scenario!=16) { simulate_connect(); }
+  return 0; }
 ble_api_err_t gap_conn_stop(void)
 { stop_calls++;if(scenario==3)simulate_connect();
-  if(scenario==7)return BLE_API_ERR_UNKNOWN;
+  if(scenario==7 || scenario==4)return BLE_API_ERR_UNKNOWN;
+  if(scenario==12 || scenario==16) { pending_stop_end=1;pending_stop_status=scenario==16?0x16:0; }
+  if(scenario==15) { struct gap_event e={.type=GAP_EVT_CONN_END};
+    e.param.conn_end_status=0;stop_end_events++;et100_gatt_gap(&e); }
   if(scenario==8) { struct gap_event e={.type=GAP_EVT_CONN_END};e.param.conn_end_status=0x16;et100_gatt_gap(&e); }
   if(scenario==6) { if(stop_calls<3)return BLE_API_ERR_UNKNOWN;
     struct gap_event e={.type=GAP_EVT_CONN_END};e.param.conn_end_status=0x16;et100_gatt_gap(&e); }
@@ -163,6 +180,8 @@ static void reset_test(int mode)
 {
     state=IDLE;connected=initiating=matched=cancel_requested=output_fault=0;
     reserved=reserved_cancel=unreserve_pending=session_running=0;exclusive=NULL;
+    stop_requested=cancelled_owner=quiet_valid=0;stop_started_ms=quiet_ms=connection_end_sequence=0;
+    pending_stop_end=pending_stop_status=stop_end_events=connect_events=0;
     scan_resume_pending=scan_stop_pending=connection_end_seen=radio_ready=0;cooldown_valid=0;request_pending=0;
     scenario=mode;ready_step=restored=auth_writes=stop_calls=0;ticks=0;captured_size=0;captured[0]=0;
     current_task=1;db_fail=0;et100_gatt_init(1);et100_gatt_poll(capture,NULL);et100_gatt_add_profile();
@@ -287,7 +306,7 @@ static void drain_tests(void)
     drain_poll();assert(drain_report_ms==reported_at);
     ticks+=10000;drain_poll();assert(drain_report_ms>reported_at);
     assert(et100_gatt_reserve()==-EBUSY);
-    /* D9 deferred: successful zero-status action alone must retain the owner. */
+    /* With no accepted stop, a zero-status action must still retain the owner. */
     struct gap_event e={.type=GAP_EVT_CONN_END};e.param.conn_end_status=0;et100_gatt_gap(&e);
     assert(initiating && !drain_poll());
     /* A late connection is drained before another owner may start. */
@@ -308,12 +327,80 @@ static void drain_tests(void)
     struct queued_output item={0};while(queue_count<16)assert(xQueueSend(output_queue,&item,0)==pdPASS);
     assert(!release_owner() && state==DRAIN && reserved);
     xQueueReceive(output_queue,&item,0);assert(release_owner() && state==IDLE && !reserved);
-    puts("PASS bounded drain: 15s return, stop errors, deferred D9, late link, scan pending, queue pressure, retained reservation");
+    puts("PASS bounded drain: 15s return, stop errors, no-stop zero status, late link, scan pending, queue pressure, retained reservation");
+}
+
+static void stop_release_tests(void)
+{
+    struct et100_gatt_exclusive_ops ops={5000,matched_fn,stage_fn,run_fn,&stage_count};
+    /* M0: timeout -> stop returns 0 -> later END(0), never MASTER_CONNECT. */
+    reset_test(12);assert(et100_gatt_reserve()==0);
+    assert(exclusive_run(&ops)==-ENOTCONN && state==IDLE && !initiating && !stop_requested);
+    assert(stop_calls==1 && stop_end_events==1 && connect_events==0);
+    assert(connection_end_seen && connection_end_status==0 && ticks<11000);
+    assert(quiet_active() && !strstr(captured,"disconnect_drain_timeout"));
+    unsigned generation=session_generation;
+    assert(exclusive_run(&ops)==-EBUSY && session_generation==generation);
+    et100_gatt_unreserve();assert(!reserved && !unreserve_pending && et100_gatt_reserve()==-EBUSY);
+    char manual_open[]="1;AABBCCDDEEFF";
+    assert(et100_gatt_uart("STYPESWITCH",manual_open,"QUIE"));drain_output();
+    assert(state==IDLE && strstr(captured,"STYPESWITCH;0;1:AABBCCDDEEFF;QUIE"));
+    /* Bypass the older 5s auto cooldown in this fixture to isolate quiet. */
+    memcpy(auto_macs[0],target,6);cooldown_valid=0;
+    struct gap_evt_adv_report ad={0};ad.evt_type=GAP_SCAN_EVT_CONN_UNDIR;
+    for(unsigned i=0;i<6;i++)ad.addr.addr.addr[i]=target[5-i];
+    struct gap_event e={.type=GAP_EVT_ADV_REPORT};e.param.adv_rpt=&ad;et100_gatt_gap(&e);
+    assert(state==IDLE && session_generation==generation);
+    ticks=quiet_ms+1999;assert(et100_gatt_reserve()==-EBUSY);
+    ticks++;assert(et100_gatt_reserve()==0);
+    scenario=2;assert(exclusive_run(&ops)==-ECANCELED);et100_gatt_unreserve();
+    cooldown_valid=0;et100_gatt_gap(&e);assert(state==WAIT_ADV);
+    state=IDLE; /* No worker ran: isolate the manual entry check from auto-connect. */
+    char manual_after[]="1;AABBCCDDEEFF";
+    assert(et100_gatt_uart("STYPESWITCH",manual_after,"AFTR"));drain_output();
+    assert(state==WAIT_ADV && strstr(captured,"STYPESWITCH;1;1:AABBCCDDEEFF;AFTR"));
+    reset_test(16);assert(et100_gatt_reserve()==0);
+    assert(exclusive_run(&ops)==-ENOTCONN && state==IDLE && !initiating && !stop_requested);
+    assert(stop_calls==1 && stop_end_events==1 && connection_end_status==0x16 && !connect_events);
+    assert(quiet_active());et100_gatt_unreserve();
+    /* No event at all: repeated successful stops cannot restart the 2s timer. */
+    reset_test(13);assert(et100_gatt_reserve()==0);
+    assert(exclusive_run(&ops)==-ENOTCONN && state==IDLE && !initiating && !stop_requested);
+    assert(stop_calls==2 && !stop_end_events && !connect_events && !connection_end_seen);
+    assert(ticks>=12000 && ticks<12200 && quiet_active());et100_gatt_unreserve();
+    /* A late MASTER_CONNECT during quiet is disconnected, never authenticated. */
+    simulate_connect();assert(state==DRAIN && connected && et100_gatt_reserve()==-EBUSY);
+    assert(exclusive_run(&ops)==-EBUSY);
+    assert(!drain_poll() && !connected);assert(drain_poll() && state==IDLE && auth_writes==0);
+    /* The SDK may also deliver END(0) synchronously before stop() returns. */
+    reset_test(15);assert(et100_gatt_reserve()==0);
+    assert(exclusive_run(&ops)==-ENOTCONN && state==IDLE && !initiating && !stop_requested);
+    assert(stop_calls==1 && stop_end_events==1 && !connect_events && quiet_active());et100_gatt_unreserve();
+    /* A successful action without stop still waits for/accepts the normal link. */
+    reset_test(14);ready_step=3;stage_count=run_calls=0;run_result=0;memset(cmd_writes,0,sizeof cmd_writes);
+    assert(et100_gatt_reserve()==0 && exclusive_run(&ops)==0);
+    assert(connect_events==1 && !stop_calls && run_calls==1 && state==IDLE && !quiet_active());et100_gatt_unreserve();
+    /* A blocked non-initiator resource can coexist with this diagnostic fixture. */
+    reset_test(13);memcpy(target,(uint8_t[]){0xaa,0xbb,0xcc,0xdd,0xee,0xff},6);
+    ticks=10000;drain_begin();drain_started_ms=ticks-6000;drain_stop_ms=ticks;
+    initiating=stop_requested=cancelled_owner=scan_stop_pending=connection_end_seen=1;
+    connection_end_status=0;stop_started_ms=ticks;drain_stop_rc=0;
+    assert(!drain_poll());drain_output();
+    assert(strstr(captured,"disconnect_drain_timeout:i=1,c=0,s=1,stop=0,disc=-1,e=1,st=0,sr=1*"));
+    /* Boundary arithmetic must remain correct across the millisecond wrap. */
+    reset_test(13);state=DRAIN;initiating=stop_requested=cancelled_owner=1;
+    stop_started_ms=UINT32_MAX-1000;drain_stop_ms=500;drain_started_ms=0;ticks=998;
+    assert(!drain_poll() && initiating);ticks=999;
+    assert(drain_poll() && !initiating && quiet_active());
+    quiet_ms=UINT32_MAX-1000;quiet_valid=1;ticks=998;assert(quiet_active());
+    ticks=999;assert(!quiet_active());
+    puts("PASS D9 M0: stop(0)->END(0) without link, fallback, quiet all entry points, late link, unstopped success, synchronous callback, diagnostics and wrap");
 }
 
 int main(void)
 {
     drain_tests();
+    stop_release_tests();
     /* Public NIST AES-128 known-answer vector, unrelated to project credentials. */
     uint8_t key[16]={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
     uint8_t plain[16]={0,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff};

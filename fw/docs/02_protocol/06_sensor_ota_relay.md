@@ -30,7 +30,7 @@ wire format、state／step／error 名稱及數值沿用 `eup_gateway/docs/02_pr
 4. 最多 3 個 upload session；斷線後同一 job 可依 Sensor offset 續傳。ET-100 重開機即回 IDLE，不續傳 RAM job。
 5. relay 期間 image 0／1 上傳、package 刪除、手動 GATT session 與 auto-connect 受互斥保護。查詢不受限；只有 OTA worker 讀 NOR。
 6. **啟動條件（v0.9.1）**：SMP 沒有排隊或處理中的請求、沒有排隊中的刪除、沒有「未完成且最後一次變更型請求在 30 s 內」的上傳 session，即可開始。Sensor 套件**驗證成功後可立即開始**；唯讀查詢（state／echo／GSOTAPKG）不延長保護期。不符時回既有 `SENSOROTA;0;4;BUSY;tok`（BUSY 代表暫時忙碌，不代表套件錯誤）。
-7. **連線失敗（v0.9.1）**：連線逾時後 job 依既有重試；最後仍失敗回 `FAILED`／`CONNECT_FAILED`，不再永久停在 `CONNECTING`。BLE 資源清理最多在 job 內等待 15 s，之後由 GATT worker 背景重試並**保留 ownership**，期間新的 `SENSOROTA` 回 `BUSY`；清理逾時事件為 `CF;…;disconnect_drain_timeout:i=<initiating>,c=<connected>,s=<scan_stop_pending>,stop=<rc>,disc=<rc>`（v0.9.0 以前只有 `disconnect_drain_timeout`，host 請以前綴比對），之後每 10 s 至多重送一次；SYS BLE 項暫為 ERROR。清理永久失敗的自動復原（BLE／整機 reset）尚未實作，需人工重開機。
+7. **連線失敗（v0.9.1）**：連線逾時後 job 依既有重試；最後仍失敗回 `FAILED`／`CONNECT_FAILED`，不再永久停在 `CONNECTING`。BLE 資源清理最多在 job 內等待 15 s，之後由 GATT worker 背景重試並**保留 ownership**，期間新的 `SENSOROTA` 回 `BUSY`；清理逾時事件為 `CF;…;disconnect_drain_timeout:i=<initiating>,c=<connected>,s=<scan_stop_pending>,stop=<rc>,disc=<rc>`（v0.9.0 以前只有 `disconnect_drain_timeout`，host 請以前綴比對），之後每 10 s 至多重送一次；SYS BLE 項暫為 ERROR。清理永久失敗的自動復原（BLE／整機 reset）尚未實作，需人工重開機。**v0.9.2**：取消連線（`gap_conn_stop()` 成功）後收到的 `CONN_END` 不論 status 都視為取消完成（實機證實 SDK 回 status 0），2 s 內無事件亦視為完成；釋放後有 **2 s quiet 期**，期間不開始新的 relay／手動／自動連線（`SENSOROTA` 回 `BUSY`），遲到的連線一律斷線。診斷 reason 尾端新增 `,e=<conn_end_seen>,st=<conn_end_status>,sr=<stop_requested>`。
 
 `GSENSORINFO` 屬手動 GATT 介面，即使只讀快取，在 relay reservation（含兩個 session 之間）仍回 `AT$PD=BLEGW$GSENSORINFO;0;BUSY;<tok>`；relay 自己讀取 metadata 不受影響。`GSOTAPKG`／`GSENSOROTA*` 查詢照常。reservation 釋放後恢復一般快取查詢。
 
