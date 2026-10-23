@@ -13,6 +13,8 @@ static unsigned queue_head, queue_tail, queue_count;
 static uint8_t durable_auto[100];
 static size_t durable_size;
 static int db_fail, scenario, ready_step, restored, auth_writes, stop_calls;
+static unsigned sys_ble_status;
+void et100_sys_set(unsigned index, unsigned status) { assert(index==SYS_BLE);sys_ble_status=status; }
 static jmp_buf worker_exit;
 volatile unsigned et100_scan_status;
 
@@ -68,6 +70,9 @@ void vTaskDelay(uint32_t delay)
         if(ticks>6500) { struct gap_event e={.type=GAP_EVT_CONN_END};e.param.conn_end_status=0;et100_gatt_gap(&e); }
         if(ticks>7000 && initiating)simulate_connect();
     }
+    if(state==DRAIN && scenario==11 && ticks>26000) {
+        struct gap_event e={.type=GAP_EVT_CONN_END};e.param.conn_end_status=0x16;et100_gatt_gap(&e);
+    }
     if(state==READY) {
         uintptr_t old=current_task;current_task=1;
         if(ready_step==0) { char p[]="AABBCCDDEEFF;7F";assert(et100_gatt_uart("GSENSORCMD",p,"PING"));ready_step++; }
@@ -80,12 +85,14 @@ void vTaskDelay(uint32_t delay)
     }
 }
 ble_api_err_t gap_scan_stop(void)
-{ if(scenario!=5) { struct gap_event e={.type=GAP_EVT_SCAN_END};et100_scan_status=0x100;et100_gatt_gap(&e); }
+{ if(scenario!=5 && scenario!=9) { struct gap_event e={.type=GAP_EVT_SCAN_END};et100_scan_status=0x100;et100_gatt_gap(&e); }
   return 0; }
 ble_api_err_t gap_conn_start(struct gap_conn_param *p)
-{ assert(p->peer_addr.addr.addr[0]==0xff);if(scenario!=3 && scenario!=4 && scenario!=6)simulate_connect();return 0; }
+{ assert(p->peer_addr.addr.addr[0]==0xff);if(scenario!=3 && scenario!=4 && scenario!=6 && scenario!=7 && scenario!=8)simulate_connect();return 0; }
 ble_api_err_t gap_conn_stop(void)
 { stop_calls++;if(scenario==3)simulate_connect();
+  if(scenario==7)return BLE_API_ERR_UNKNOWN;
+  if(scenario==8) { struct gap_event e={.type=GAP_EVT_CONN_END};e.param.conn_end_status=0x16;et100_gatt_gap(&e); }
   if(scenario==6) { if(stop_calls<3)return BLE_API_ERR_UNKNOWN;
     struct gap_event e={.type=GAP_EVT_CONN_END};e.param.conn_end_status=0x16;et100_gatt_gap(&e); }
   return 0; }
@@ -155,6 +162,7 @@ ble_api_err_t gatt_cilent_write_cmd_with_handle(struct gatt_client_write_param_h
 static void reset_test(int mode)
 {
     state=IDLE;connected=initiating=matched=cancel_requested=output_fault=0;
+    reserved=reserved_cancel=unreserve_pending=session_running=0;exclusive=NULL;
     scan_resume_pending=scan_stop_pending=connection_end_seen=radio_ready=0;cooldown_valid=0;request_pending=0;
     scenario=mode;ready_step=restored=auth_writes=stop_calls=0;ticks=0;captured_size=0;captured[0]=0;
     current_task=1;db_fail=0;et100_gatt_init(1);et100_gatt_poll(capture,NULL);et100_gatt_add_profile();
@@ -261,8 +269,51 @@ static void exclusive_tests(void)
     puts("      no manual/auto/STYPESWITCH while reserved, sticky cancel, auth failure, idle hook, OP event");
 }
 
+static void drain_tests(void)
+{
+    struct et100_gatt_exclusive_ops ops={5000,matched_fn,stage_fn,run_fn,&stage_count};
+    reset_test(8);assert(et100_gatt_reserve()==0);
+    assert(exclusive_run(&ops)==-ENOTCONN && state==IDLE);
+    assert(strstr(captured,"connect_timeout") && !connected && !initiating);
+    et100_gatt_unreserve();
+    reset_test(7);assert(et100_gatt_reserve()==0);
+    assert(exclusive_run(&ops)==-ENOTCONN && state==DRAIN && initiating);
+    assert(ticks>=25000 && ticks<25200 && !session_running);
+    assert(sys_ble_status==SYS_ERROR && drain_stop_rc==BLE_API_ERR_UNKNOWN);
+    assert(strstr(captured,"disconnect_drain_timeout:i=1,c=0,s=0,stop="));
+    assert(et100_gatt_reserve()==-EBUSY);
+    et100_gatt_unreserve();assert(reserved && unreserve_pending);
+    uint32_t reported_at=drain_report_ms;
+    drain_poll();assert(drain_report_ms==reported_at);
+    ticks+=10000;drain_poll();assert(drain_report_ms>reported_at);
+    assert(et100_gatt_reserve()==-EBUSY);
+    /* D9 deferred: successful zero-status action alone must retain the owner. */
+    struct gap_event e={.type=GAP_EVT_CONN_END};e.param.conn_end_status=0;et100_gatt_gap(&e);
+    assert(initiating && !drain_poll());
+    /* A late connection is drained before another owner may start. */
+    simulate_connect();assert(connected && state==DRAIN && et100_gatt_reserve()==-EBUSY);
+    ticks+=1000;assert(!drain_poll());assert(!connected);
+    assert(drain_poll() && state==IDLE && !reserved);
+    reset_test(9);assert(et100_gatt_reserve()==0);
+    assert(exclusive_run(&ops)==-ENOTCONN && state==DRAIN && scan_stop_pending);
+    et100_gatt_unreserve();assert(reserved);
+    e.type=GAP_EVT_SCAN_END;et100_gatt_gap(&e);assert(drain_poll() && !reserved);
+    reset_test(7);assert(et100_gatt_reserve()==0);
+    assert(exclusive_run(&ops)==-ENOTCONN && state==DRAIN);
+    et100_gatt_unreserve();scenario=11;current_task=2;
+    if(!setjmp(worker_exit))worker(NULL);
+    current_task=1;assert(state==IDLE && !reserved && !initiating);
+    /* Output backpressure cannot report IDLE until DC is queued. */
+    reset_test(0);state=DRAIN;reserved=1;unreserve_pending=1;
+    struct queued_output item={0};while(queue_count<16)assert(xQueueSend(output_queue,&item,0)==pdPASS);
+    assert(!release_owner() && state==DRAIN && reserved);
+    xQueueReceive(output_queue,&item,0);assert(release_owner() && state==IDLE && !reserved);
+    puts("PASS bounded drain: 15s return, stop errors, deferred D9, late link, scan pending, queue pressure, retained reservation");
+}
+
 int main(void)
 {
+    drain_tests();
     /* Public NIST AES-128 known-answer vector, unrelated to project credentials. */
     uint8_t key[16]={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
     uint8_t plain[16]={0,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff};

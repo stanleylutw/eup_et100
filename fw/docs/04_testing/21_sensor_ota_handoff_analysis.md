@@ -2,7 +2,9 @@
 
 日期：2026-10-23。分支：`v0.9.0_system_status`。
 
-本文件供 Claude 分析及規劃修正；**不是修復完成報告**。Stanley 要求保存目前分支並提交；本輪沒有修改下述互斥、GATT 清理或 HTML 錯誤處理。沒有操作 EVB／UART／SWD，實機由 Stanley 負責。v0.9.0 SYS 與 UI 仍待獨立 review。
+本文件供 Claude 分析及規劃修正；**不是修復完成報告**。
+
+> **處理狀態（2026-10-23）**：§1 BUSY 交接與 HTML 誤標、§2 結果與清理分離／清理期限／診斷事件已於 **v0.9.1** 實作（見 [22 報告](22_relay_handoff.md)）。§2 `initiating` 清除條件（施工單 D9）待 Stanley M0 SWD 取證；清理永久失敗的自動復原（D11）待決策。Stanley 要求保存目前分支並提交；本輪沒有修改下述互斥、GATT 清理或 HTML 錯誤處理。沒有操作 EVB／UART／SWD，實機由 Stanley 負責。v0.9.0 SYS 與 UI 仍待獨立 review。
 
 ## 1. NOR 上傳成功後，啟動 GATT OTA 得到 BUSY
 

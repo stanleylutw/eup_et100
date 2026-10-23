@@ -4613,6 +4613,8 @@ function renderFlashOtaVisualization() {
       summaryEl.classList.toggle('error', relayFailed);
       summaryEl.textContent = sensorRelay.errorName === 'ALREADY_UP_TO_DATE' ? '裝置檔案相同（未更新）' :
         relayFailed ? `${phaseLabel} · ${sensorRelay.errorName}` : phaseLabel;
+      if (sensorRelayStart.cleaning || sensorRelay.errorName === 'BUSY')
+        summaryEl.textContent = sensorRelayStart.cleaning ? 'BLE 清理中' : sensorRelayStart.message || summaryEl.textContent;
       return;
     }
     summaryEl.classList.toggle('error', Boolean(summary && summary.status !== 'OK'));
@@ -4724,6 +4726,48 @@ const sensorRelaySession = {
   generation: 0,
   mac: '',
 };
+const sensorRelayStart = { timer: null, deadline: 0, token: '', retiredToken: '', message: '', cleaning: false };
+function sensorRelayStopStartRetry() {
+  if (sensorRelayStart.timer !== null) clearTimeout(sensorRelayStart.timer);
+  sensorRelayStart.timer = null;
+  sensorRelayStart.deadline = 0;
+  if (sensorRelayStart.token) sensorRelayStart.retiredToken = sensorRelayStart.token;
+  sensorRelayStart.token = '';
+}
+function sensorRelaySendStart() {
+  sensorRelayStart.token = randCode();
+  sensorRelaySession.awaitingStartAck = true;
+  send(`BLEGW$SENSOROTA;${sensorRelaySession.mac};${sensorRelayStart.token}`);
+}
+function sensorRelayBusyStart() {
+  if (sensorRelayStart.timer !== null) clearTimeout(sensorRelayStart.timer);
+  sensorRelayStart.timer = null;
+  if (sensorRelay.pollTimer) clearTimeout(sensorRelay.pollTimer);
+  sensorRelay.pollTimer = null;
+  sensorRelay.error = 4; sensorRelay.errorName = 'BUSY';
+  sensorRelay.workflowStep = 'PACKAGE_CHECK'; sensorRelay.stepResult = 'PENDING';
+  sensorRelay.failedStep = 'NONE';
+  SENSOR_OTA_STEPS.forEach(st => sensorRelay.stepStatuses[st.name] = 'PENDING');
+  if (!sensorRelayStart.deadline || Date.now() >= sensorRelayStart.deadline) {
+    sensorRelayStopStartRetry();
+    sensorRelaySession.awaitingStartAck = false;
+    sensorRelay.state = 'FAILED';
+    sensorRelayStart.message = '裝置忙碌，請稍後再試';
+    addLog('sys', sensorRelayStart.message);
+    renderSensorRelay(); return;
+  }
+  sensorRelay.state = 'WAIT_ADV';
+  sensorRelaySession.awaitingStartAck = true;
+  sensorRelayStart.message = '裝置忙碌，稍後自動重試';
+  sensorRelayStart.timer = setTimeout(() => {
+    sensorRelayStart.timer = null;
+    if (!connected || !sensorRelay.available) {
+      sensorRelayStopStartRetry(); sensorRelaySession.awaitingStartAck = false; return;
+    }
+    if (Date.now() >= sensorRelayStart.deadline) { sensorRelayBusyStart(); return; }
+    sensorRelaySendStart();
+  }, Math.min(2000, sensorRelayStart.deadline - Date.now()));
+}
 const sensorProbe = {
   available: false,
   packageValid: false,
@@ -4739,6 +4783,8 @@ const sensorProbe = {
 };
 
 function sensorRelayReset() {
+  sensorRelayStopStartRetry();
+  sensorRelayStart.message = ''; sensorRelayStart.cleaning = false;
   if (sensorRelay.pollTimer) clearTimeout(sensorRelay.pollTimer);
   sensorRelay.available = false;
   sensorRelay.state = 'IDLE';
@@ -4973,6 +5019,7 @@ function getStepDetailHtml(stepName, result, ctx) {
 
   switch (stepName) {
     case 'PACKAGE_CHECK':
+      if (sensorRelayStart.message && sensorRelay.errorName === 'BUSY') return sensorRelayStart.message;
       if (result === 'PASS') {
         const prod = pkg.product || 'EUP Sensor';
         const fw = pkg.firmware || '';
@@ -4990,9 +5037,10 @@ function getStepDetailHtml(stepName, result, ctx) {
       return `等待目標 ${formatGattMac(targetMac)} 廣播`;
 
     case 'CONNECTING':
+      if (sensorRelayStart.message && sensorRelayStart.cleaning) return sensorRelayStart.message;
       if (result === 'PASS') return 'BLE 點對點連線建立成功';
       if (result === 'ACTIVE') return '發起 BLE Direct Connect 連線...';
-      if (result === 'FAIL') return 'BLE 連線建立失敗 (CONNECT_FAILED)';
+      if (result === 'FAIL') return 'BLE 連線失敗 (CONNECT_FAILED)';
       return '建立 BLE 實體連線';
 
     case 'CONNECTED':
@@ -5152,9 +5200,11 @@ function renderSensorRelayTimeline() {
       result = 'FAIL';
     } else if (sensorRelay.workflowStep === st.name) {
       result = sensorRelay.stepResult || 'ACTIVE';
-    } else if (activeStepIdx > idx && result === 'PENDING' && sensorRelay.failedStep === 'NONE') {
+    } else if (activeStepIdx > idx && result === 'PENDING' && sensorRelay.failedStep === 'NONE' &&
+        (sensorRelaySession.accepted || sensorRelay.error === 0)) {
       result = 'PASS';
     }
+    if (sensorRelayStart.cleaning && st.name === 'CONNECTING') result = 'FAIL';
 
     let sym = '';
     if (result === 'PASS') sym = '✓';
@@ -5171,6 +5221,8 @@ function renderSensorRelayTimeline() {
       etaText,
     });
     const detailVisible = sensorTimelineDetailsExpanded ||
+      (st.name === 'PACKAGE_CHECK' && sensorRelay.errorName === 'BUSY') ||
+      (st.name === 'CONNECTING' && (sensorRelayStart.cleaning || sensorRelay.errorName === 'CONNECT_FAILED')) ||
       (st.name === 'UPLOADING' && ['ACTIVE', 'FAIL'].includes(result));
 
     let titleHtml = escHtml(st.title);
@@ -5308,7 +5360,8 @@ function renderSensorRelay() {
   actionButton.textContent = active ? '取消' : '開始';
   actionButton.title = active ? '取消當前 Sensor OTA 流程' : '開始 Sensor OTA';
   actionButton.disabled = !connected || (active ? !sensorRelay.available :
-    otaState !== OTA_STATE.IDLE || !macValid || SENSOR_PROBE_ACTIVE_STATES.has(sensorProbe.state));
+    sensorRelayStart.cleaning || otaState !== OTA_STATE.IDLE || !macValid || SENSOR_PROBE_ACTIVE_STATES.has(sensorProbe.state));
+  if (sensorRelayStart.cleaning) actionButton.title = 'BLE 清理中';
   document.getElementById('sensor-relay-query').disabled = !connected;
   input.disabled = active;
   const totalTimeEl = document.getElementById('sensor-timeline-total-time');
@@ -5503,6 +5556,14 @@ function handleSensorRelayReply(raw) {
       addLog('sys', `Sensor OTA 終止：${sensorRelay.state} (錯誤 ${sensorRelay.error} ${sensorRelay.errorName})`);
     }
     if (SENSOR_RELAY_TERMINAL_STATES.has(sensorRelay.state)) {
+      SENSOR_OTA_STEPS.forEach(st => {
+        if (sensorRelay.stepStatuses[st.name] === 'ACTIVE') sensorRelay.stepStatuses[st.name] = 'PENDING';
+      });
+      if (sensorRelay.errorName === 'CONNECT_FAILED') {
+        const failed = sensorRelay.workflowStep === 'RECONNECTING' ? 'RECONNECTING' : 'CONNECTING';
+        sensorRelay.stepStatuses[failed] = 'FAIL'; sensorRelay.failedStep = failed;
+        sensorRelay.workflowStep = 'RESULT'; sensorRelay.stepResult = 'FAIL';
+      }
       if (sensorRelay.mac && gattReadyMac === sensorRelay.mac) {
         gattReadyMac = null;
         const session = gattSessionStates.get(sensorRelay.mac);
@@ -5516,8 +5577,11 @@ function handleSensorRelayReply(raw) {
     }
     sensorRelaySchedulePoll();
   } else if (name === 'SENSOROTA') {
+    if (!sensorRelayStart.token && fields[fields.length - 1] === sensorRelayStart.retiredToken) return;
+    if (sensorRelayStart.token && fields[fields.length - 1] !== sensorRelayStart.token) return;
     sensorRelaySession.awaitingStartAck = false;
     if (ok) {
+      sensorRelayStopStartRetry(); sensorRelayStart.message = ''; sensorRelayStart.cleaning = false;
       if (sensorRelay.waitAdvDeadline === null) sensorRelay.waitAdvDeadline = Date.now() + 180000;
       sensorRelay.state = 'WAIT_ADV';
       sensorRelay.mac = fields[2] || '';
@@ -5540,13 +5604,20 @@ function handleSensorRelayReply(raw) {
       addLog('sys', `Sensor OTA 已啟動：目標 ${sensorRelay.mac}，等待廣播中...`);
       sensorRelaySchedulePoll(500);
     } else {
+      if (fields[3] === 'BUSY') {
+        sensorRelayBusyStart(); renderSensorRelay(); return;
+      }
+      sensorRelayStopStartRetry(); sensorRelayStart.message = '';
       if (sensorRelay.pollTimer) clearTimeout(sensorRelay.pollTimer);
       sensorRelay.pollTimer = null;
       sensorRelay.state = 'FAILED';
       sensorRelay.error = Number(fields[2]) || 20;
       sensorRelay.errorName = fields[3] || 'INTERNAL';
-      sensorRelay.stepStatuses['PACKAGE_CHECK'] = 'FAIL';
-      sensorRelay.failedStep = 'PACKAGE_CHECK';
+      SENSOR_OTA_STEPS.forEach(st => sensorRelay.stepStatuses[st.name] = 'PENDING');
+      const packageError = ['PACKAGE_INVALID', 'NO_PACKAGE', 'TARGET_MISMATCH'].includes(sensorRelay.errorName);
+      sensorRelay.stepStatuses['PACKAGE_CHECK'] = packageError ? 'FAIL' : 'PENDING';
+      sensorRelay.failedStep = packageError ? 'PACKAGE_CHECK' : 'NONE';
+      sensorRelay.workflowStep = 'RESULT'; sensorRelay.stepResult = 'FAIL';
       addLog('sys', `啟動 Sensor OTA 失敗：${sensorRelay.error} (${sensorRelay.errorName})`);
     }
   } else if (name === 'CSENSOROTA' && ok) {
@@ -6695,6 +6766,21 @@ function parseGattType8(fields) {
       !/^[0-9A-Fa-f]{12}$/.test(p[1])) return;
   const event = p[0], mac = p[1].toUpperCase();
   const data = p.slice(2).join(';');
+  const relayTarget = sensorRelaySession.accepted && !sensorRelaySession.awaitingStartAck &&
+    sensorRelaySession.mac === mac && sensorRelay.mac === mac &&
+    (SENSOR_RELAY_ACTIVE_STATES.has(sensorRelay.state) || sensorRelayStart.cleaning);
+  if (relayTarget && event === 'CF' &&
+      (data.startsWith('connect_timeout') || data.startsWith('disconnect_drain_timeout'))) {
+    sensorRelayStart.cleaning = true;
+    sensorRelayStart.message = data.startsWith('disconnect_drain_timeout') ?
+      '連線失敗，BLE 清理中（清理逾時）' : '連線逾時，BLE 清理中';
+    sensorRelay.stepStatuses.CONNECTING = 'FAIL';
+    renderSensorRelay();
+  }
+  if (relayTarget && event === 'DC') {
+    sensorRelayStart.cleaning = false; sensorRelayStart.message = '';
+    renderSensorRelay();
+  }
   const selected = selectedGattMac();
   const matchesTarget = !selected || selected === mac;
   const stateLabels = {
@@ -10288,12 +10374,19 @@ document.getElementById('sensor-relay-mac').addEventListener('input', event => {
 document.getElementById('sensor-relay-start').addEventListener('click', () => {
   if (et100SensorTarget() && (!et100RelaySupported() || et100Busy)) return;
   if (SENSOR_RELAY_ACTIVE_STATES.has(sensorRelay.state)) {
+    if (sensorRelayStart.deadline) {
+      if (sensorRelaySession.awaitingStartAck && sensorRelayStart.timer === null && connected)
+        send(`BLEGW$CSENSOROTA;${randCode()}`);
+      sensorRelayStopStartRetry(); sensorRelaySession.awaitingStartAck = false;
+      sensorRelay.state = 'IDLE'; sensorRelayStart.message = ''; renderSensorRelay(); return;
+    }
     if (connected && sensorRelay.available) {
       send(`BLEGW$CSENSOROTA;${randCode()}`);
     }
     return;
   }
   if (!connected || !sensorRelay.available || !sensorProbe.packageValid ||
+      sensorRelayStart.cleaning ||
       otaState !== OTA_STATE.IDLE || SENSOR_RELAY_ACTIVE_STATES.has(sensorRelay.state) ||
       SENSOR_PROBE_ACTIVE_STATES.has(sensorProbe.state)) return;
   const mac = document.getElementById('sensor-relay-mac').value.trim().toUpperCase();
@@ -10333,8 +10426,11 @@ document.getElementById('sensor-relay-start').addEventListener('click', () => {
     sensorRelay.stepStatuses[st.name] = st.name === 'PACKAGE_CHECK' ? 'PASS' : (st.name === 'WAIT_ADV' ? 'ACTIVE' : 'PENDING');
   });
   addLog('sys', `開始 Sensor OTA：目標 MAC ${mac}...`);
+  sensorRelayStopStartRetry();
+  sensorRelayStart.deadline = Date.now() + 30000;
+  sensorRelayStart.message = '';
   renderSensorRelay();
-  send(`BLEGW$SENSOROTA;${mac};${randCode()}`);
+  sensorRelaySendStart();
   sensorRelaySchedulePoll(1000);
 });
 

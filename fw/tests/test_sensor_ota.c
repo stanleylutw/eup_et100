@@ -27,6 +27,7 @@ int ota_worker_sensor_read(uint32_t off, void *data, size_t n)
 
 /* ---- fake Sensor ---- */
 static struct {
+    int connect_fail, drain_stuck;
     int advertising, auth_fail, smp_missing, boot_fail, reset_silent, bad_seq, bad_state;
     unsigned drop_after_chunks, cancel_after_chunks, chunks, erases, resets;
     char project[25], fw[33];
@@ -214,6 +215,11 @@ int et100_gatt_exclusive(const uint8_t mac[6], const struct et100_gatt_exclusive
     if (!sensor.advertising) { ticks += ops->wait_ms; return -ETIMEDOUT; }
     ticks += 100;
     ops->matched(ops->ctx);
+    if (sensor.connect_fail) {
+        ticks+=10000;
+        if (sensor.drain_stuck) { ticks+=15000;gatt_busy=1; }
+        return -ENOTCONN;
+    }
     link_up = 1;
     ops->stage(ET100_GATT_CONNECTED, 0, ops->ctx);
     ops->stage(ET100_GATT_AUTHENTICATING, 0, ops->ctx);
@@ -343,6 +349,16 @@ static void test_resume_after_drop(void)
 
 static void test_failures(void)
 {
+    reset();sensor.connect_fail=1;sensor.drain_stuck=1;
+    run();expect(SENSOR_OTA_JOB_FAILED,SENSOR_OTA_ERROR_CONNECT_FAILED);
+    assert(sessions==1 && gatt_busy && !relay_active);
+    assert(step(SENSOR_OTA_STEP_CONNECTING)==SENSOR_OTA_STEP_FAIL);
+    assert(strstr(uart("SENSOROTA","AABBCCDDEEFF"),";0;4;BUSY;"));
+
+    reset();sensor.connect_fail=1;
+    run();expect(SENSOR_OTA_JOB_FAILED,SENSOR_OTA_ERROR_CONNECT_FAILED);
+    assert(sessions==SENSOR_OTA_MAX_SESSIONS && !gatt_busy);
+
     reset(); sensor.bad_state = 1;
     run();
     expect(SENSOR_OTA_JOB_FAILED, SENSOR_OTA_ERROR_LINK_BUDGET);

@@ -55,6 +55,8 @@ int ota_manager_sensor_delete(struct ota_manager *m);
 /* v0.8.9 relay: while set, every mutating SMP request and the delete get SMP_EBUSY,
  * so the package cannot change under a running relay. */
 void ota_manager_set_relay(struct ota_manager *m, bool active);
+/* Manager task only; completed Sensor packages close their upload session. */
+bool ota_manager_upload_open(const struct ota_manager *m);
 /* Read bytes of the VALID package (offset 0 = header). Manager task only. */
 int ota_manager_sensor_read(struct ota_manager *m, uint32_t offset, void *data, size_t length);
 #endif

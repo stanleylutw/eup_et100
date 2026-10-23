@@ -654,6 +654,8 @@ static void test_sensor(const char *path)
     /* good package -> VALID; never listed as slot 1 */
     size_t len = make_package(pkg, 20000, "v3.6.14");
     assert(pkg_upload(pkg, len, 0) == 0);
+    assert(!ota_manager_upload_open(&mgr));
+    uint32_t last_change = mgr.owner_ms;
     struct sensor_store_status st;
     ota_manager_sensor_status(&mgr, &st);
     assert(st.state == SENSOR_STORE_VALID && st.generation == 1 && st.info.package_length == len);
@@ -663,6 +665,7 @@ static void test_sensor(const char *path)
     const uint8_t empty[] = { 0xa0 };
     struct cbor_value v;
     const uint8_t *m = call(SMP_OP_READ, SMP_GROUP_IMG, 0, empty, 1, NULL);
+    assert(!ota_manager_upload_open(&mgr) && mgr.owner_ms == last_change);
     assert(!cbor_map_find(m, rsp_len - 8, "images", &v) && v.u == 1);
 
     /* VALID survives a reset (record only; queries never read the NOR) */

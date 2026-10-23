@@ -8,6 +8,7 @@
 #include "gatt_api.h"
 #include "fdb_app.h"
 #include "et100_fdb_keys.h"
+#include "system_status.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -64,6 +65,9 @@ static volatile unsigned reserved, reserved_cancel, discovering_smp;
 static uint16_t smp_start, smp_end, smp_handle, smp_char_end, smp_ccc;
 static void (*volatile smp_sink)(const uint8_t *, size_t);
 static int (*idle_hook)(void);
+static unsigned session_running, unreserve_pending, drain_reported;
+static uint32_t drain_started_ms, drain_stop_ms, drain_report_ms;
+static int drain_stop_rc, drain_disconnect_rc;
 
 static uint32_t now_ms(void) { return (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS; }
 static void mac_text(const uint8_t mac[6], char out[13])
@@ -401,9 +405,46 @@ static int release_owner(void)
     if (released) {
         state = IDLE; matched = cancel_requested = output_fault = 0;
         cooldown_ms = now_ms(); cooldown_valid = 1;
+        if (unreserve_pending) { reserved = reserved_cancel = unreserve_pending = 0; }
     }
     taskEXIT_CRITICAL();
     return released;
+}
+
+static void drain_begin(void)
+{
+    state = DRAIN;
+    drain_started_ms = now_ms();
+    drain_stop_ms = drain_started_ms - 1000;
+    drain_report_ms = drain_started_ms;
+    drain_reported = 0;
+    drain_stop_rc = drain_disconnect_rc = -1;
+}
+
+/* D9 TODO: keep the initiating-clear rule unchanged until Stanley supplies M0. */
+static int drain_poll(void)
+{
+    if (release_owner()) {
+        if (scan_resume_pending) et100_scan_start();
+        return 1;
+    }
+    uint32_t now = now_ms();
+    if ((uint32_t)(now - drain_stop_ms) >= 1000) {
+        if (initiating) drain_stop_rc = (int)gap_conn_stop();
+        if (connected) drain_disconnect_rc = (int)gap_disconnect(conidx);
+        drain_stop_ms = now;
+    }
+    if ((uint32_t)(now - drain_started_ms) >= 6000 &&
+        (!drain_reported || (uint32_t)(now - drain_report_ms) >= 10000)) {
+        char reason[112];
+        snprintf(reason, sizeof reason,
+                 "disconnect_drain_timeout:i=%u,c=%u,s=%u,stop=%d,disc=%d",
+                 initiating, connected, scan_stop_pending, drain_stop_rc, drain_disconnect_rc);
+        event("CF", reason);
+        drain_reported = 1; drain_report_ms = now;
+    }
+    if (drain_reported) et100_sys_set(SYS_BLE, SYS_ERROR);
+    return 0;
 }
 
 static void stage(enum et100_gatt_stage value, int result)
@@ -417,7 +458,7 @@ static void stage(enum et100_gatt_stage value, int result)
 static void session(void)
 {
     int result = -EIO;
-    if (state == DRAIN) goto cleanup;
+    session_running = 1;
     uint32_t start = now_ms(), wait_ms = exclusive ? exclusive->wait_ms : 90000;
     if (manual) event("WS", "manual");
     while (state == WAIT_ADV && !matched && !cancel_requested &&
@@ -507,33 +548,27 @@ static void session(void)
     if (output_fault) event("CF", "uart_backpressure");
     else if (!cancel_requested && connected) event("TO", "idle");
 cleanup:
-    state = DRAIN;
+    drain_begin();
     discovering_smp = 0; smp_sink = NULL; smp_handle = 0;
     if (request_pending) complete_request(0);
-    unsigned fault_reported = 0;
-    uint32_t stop_attempt_ms = now_ms() - 1000;
-    start = now_ms();
-    /* Retain owner until the SDK confirms no initiator/link remains. */
-    for (;;) {
-        if (release_owner()) break;
-        if ((uint32_t)(now_ms() - stop_attempt_ms) >= 1000) {
-            if (initiating) (void)gap_conn_stop();
-            if (connected) (void)gap_disconnect(conidx);
-            stop_attempt_ms = now_ms();
-        }
-        if ((uint32_t)(now_ms()-start) >= 6000 && !fault_reported) {
-            event("CF", "disconnect_drain_timeout"); fault_reported = 1;
-        }
+    /* Bounded wait; DRAIN keeps ownership and the worker retries in background. */
+    while (!drain_poll() && (uint32_t)(now_ms() - drain_started_ms) < 15000) {
         vTaskDelay(pdMS_TO_TICKS(20));
     }
-    if (scan_resume_pending) et100_scan_start();
+    if (state == DRAIN && result == 0) result = -ENOTCONN;
     exclusive_result = result;
+    session_running = 0;
 }
 
 static void worker(void *argument)
 {
     (void)argument;
     for (;;) {
+        if (state == DRAIN && !session_running) {
+            drain_poll();
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
         if (state == IDLE) {
             if (idle_hook && idle_hook()) continue;
             if (radio_ready) {
@@ -601,7 +636,7 @@ void et100_gatt_gap(struct gap_event *message)
         uint8_t mac[6];
         for (unsigned i = 0; i < 6; i++) mac[i] = message->param.connect.peer_addr.addr.addr[5-i];
         if (state == IDLE) {
-            memcpy(target, mac, 6); session_generation++; state = DRAIN;
+            memcpy(target, mac, 6); session_generation++; drain_begin();
         } else if (memcmp(mac, target, 6)) cancel_requested = 1;
         connected = 1; initiating = 0;
         conidx = message->param.connect.conidx; connected_ms = now_ms();
@@ -745,7 +780,13 @@ int et100_gatt_reserve(void)
     taskEXIT_CRITICAL();
     return ok ? 0 : -EBUSY;
 }
-void et100_gatt_unreserve(void) { reserved_cancel = 0; reserved = 0; }
+void et100_gatt_unreserve(void)
+{
+    taskENTER_CRITICAL();
+    if (state == DRAIN) unreserve_pending = 1;
+    else reserved_cancel = reserved = 0;
+    taskEXIT_CRITICAL();
+}
 /* Sticky while reserved: a cancel between two relay sessions stops the next one. */
 void et100_gatt_cancel(void)
 {

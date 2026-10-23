@@ -1,9 +1,11 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.9.0
-Last updated: 2026-10-23 Codex（Stanley 授權）
+Version: v0.9.1
+Last updated: 2026-10-23 Claude
 
 ## Revision History
+
+2026-10-23 v0.9.1（Claude review PASS；EVB 實機待 Stanley）：Sensor relay 啟動改用狀態判斷（SMP 無排隊／處理中、無刪除、無 30 s 內未完成上傳），套件驗證成功後可立即 GATT OTA；連線失敗回 FAILED／CONNECT_FAILED，BLE 清理最多 15 s 後背景重試並保留 ownership，診斷事件帶旗標；HTML BUSY 自動重試、不誤標套件錯誤。`initiating` 清除條件（D9）待 M0 取證；永久清理失敗自動復原（D11）待決策。
 
 2026-10-23 v0.9.0（待獨立 review／Stanley 實機）：新增 SYS Type＋Index,Status 狀態介面、33 項 registry、GSYSSTAT RAM 快照、CRC 與主動通知；接入既有 SYSTEM／FlashDB／NOR prepare／BLE GAP／UART／WDT 證據，其他 UNKNOWN／UNSUPPORTED，不新增產品周邊驅動。HTML Dash 新增完整狀態表、查詢與錯誤／離線處理，保留 OTA 圖與共用 Log。首版 boot 僅確證 TRIAL 送 2，其他送 UNKNOWN，不猜測 rollback/reset。未改 Installer／SDK／NVS／B-info，未操作硬體；見 [08 協定](../02_protocol/08_system_status.md)與 [20 報告](../04_testing/20_system_status.md)。
 

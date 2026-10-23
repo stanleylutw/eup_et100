@@ -29,6 +29,8 @@ static struct smp_ops ops;
 static uint8_t response[SMP_SERIAL_MAX_PACKET];
 static volatile TickType_t last_activity;
 static volatile bool seen;
+static bool smp_in_flight, upload_open;
+static uint32_t upload_changed_ms;
 static struct sensor_store sensor;
 static volatile bool delete_queued;
 static volatile int delete_result = -1;
@@ -92,6 +94,15 @@ static void lock(void) { taskENTER_CRITICAL(); }
 static void unlock(void) { taskEXIT_CRITICAL(); }
 static uint32_t now_ms(void) { return (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS; }
 
+/* Only the worker reads manager internals; readers use this published snapshot. */
+static void publish_upload(void)
+{
+    taskENTER_CRITICAL();
+    upload_open = ota_manager_upload_open(&ota);
+    upload_changed_ms = ota.owner_ms;
+    taskEXIT_CRITICAL();
+}
+
 bool ota_worker_active(void)
 {
     return seen && (TickType_t)(xTaskGetTickCount() - last_activity) < pdMS_TO_TICKS(ACTIVE_MS);
@@ -126,7 +137,10 @@ bool ota_worker_relay_begin(void)
     bool ok = false;
     if (!worker || !ota_manager_sensor_supported(&ota)) return false;
     taskENTER_CRITICAL();
-    if (!delete_queued && !ota_worker_active()) {
+    bool pending = smp_in_flight;
+    for (unsigned t = 0; t < OTA_TRANSPORT_COUNT; t++) pending |= slots[t].full;
+    bool held = upload_open && (uint32_t)(now_ms() - upload_changed_ms) < OTA_OWNER_HOLD_MS;
+    if (!delete_queued && !pending && !held && !ota.relay) {
         ota_manager_set_relay(&ota, true);
         ok = true;
     }
@@ -220,6 +234,7 @@ static void worker_task(void *argument)
             ota_manager_set_source(&ota, OTA_RS232);
             int rc = ota_manager_sensor_delete(&ota);
             delete_result = rc < 0 ? SMP_EUNKNOWN : rc;
+            publish_upload();
             __DMB();
             delete_queued = false;
             stack_check();
@@ -227,12 +242,17 @@ static void worker_task(void *argument)
         for (unsigned t = 0; t < OTA_TRANSPORT_COUNT; t++) {
             struct slot *s = &slots[t];
             if (!s->full) continue;
+            taskENTER_CRITICAL();smp_in_flight = true;taskEXIT_CRITICAL();
             bool reset = false;
             ota_manager_set_source(&ota, t == OTA_TRANSPORT_BLE ? OTA_BLE : OTA_RS232);
             size_t n = smp_server_process(&ops, s->data, s->length, response, sizeof response, &reset);
             et100_boot_refresh();
+            publish_upload();
+            taskENTER_CRITICAL();
             s->full = false;
+            smp_in_flight = false;
             last_activity = xTaskGetTickCount();
+            taskEXIT_CRITICAL();
             if (n && senders[t]) senders[t](response, n, s->tag);
             stack_check();
             if (reset) {
