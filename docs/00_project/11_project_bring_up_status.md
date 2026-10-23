@@ -8,6 +8,8 @@
 
 > **v0.8.10**：MAC 白名單／MAXRPT 指令、FlashDB 保存及 HTML 選檔／圖表完成；host／ARM／DFU／UI 測試 PASS。Stanley 已提供 0.8.10 App OTA confirmed 紀錄，白名單實機與 Claude 獨立 review 仍待完成；沒有由 Codex 執行 EVB 燒錄。本輪文件與程式一併提交，不代表硬體全面驗收。
 
+> **v0.8.12（Claude review PASS；EVB 實機待 Stanley）**：修正 GSENSOROTAFLOW `%012llX`（newlib-nano）並加 ARM nano 模擬測試；HTML 減少 port 重開。間歇無回覆／舊 token 根因待實機證據。
+
 > **v0.8.11（Claude review PASS；EVB 實機待 Stanley）**：Installer 狀態／結果記錄、三次中斷策略、安裝期 WDT、App 120 s 試運行期限、GOTASTAT／BLE 0x09、HTML INST 接收與鮑率交接已實作。NOR 結果區獨立 8 KB，boot record／B-info 保持不變；測試用 Installer／App 與四項 Stanley 實機步驟見 [18 報告](../../fw/docs/04_testing/18_installer_status.md)。不宣稱已在板上運行。
 
 > **2026-10-02 規格同步**：FR3068E-C 原廠 v0.4.9 為 2 MB Flash、512 KB SRAM、QFN80、2 組 CAN、AEC-Q100「否」；BT core 是 32-bit RISC @48 MHz。現有 SDK linker 配置另計，host build 不代表已在硬體上運行。來源：[FR306x 開發參考](../03_hardware/fr306x_reference/README.md)。

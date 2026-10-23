@@ -1,4 +1,55 @@
-# REVIEW_REPORT — v0.8.11 交付 Claude review
+# REVIEW_REPORT — v0.8.12
+
+## Step 5 Claude review（2026-10-23）— 結論：**PASS**（M1 已於 Step 6 修正並複驗：`grep -q` 版本在一般 bash 下 PASS）
+
+**Claude 自行重跑**：`test_evb_serial_host.sh`、`test_inst_status_host.sh`、`tools/tests/test_et100_{smp,ui,sensor}.cjs` 全部 PASS；App 獨立重 build PASS（僅既有 RWX warning），二進位不再含 `%012llX`；交付 ZIP 內 image 含新格式 `%04lX%08lX`。
+
+**韌體修正正確**：`(step_results>>32)&0xFFFF` → `%04lX`、低 32 bit → `%08lX`，仍為 12 位大寫 hex，欄位數與 token 不變（未改協定）。
+
+**ARM newlib-nano 測試有效（含負向對照）**：以 `grep -q` 取代 `rg -q` 後執行，修正後 PASS；**同一測試改用 HEAD 舊碼（`%012llX`）→ `nano emulation failed … Invalid memory read (UC_ERR_READ_UNMAPPED)`**，證明舊碼在 nano 下會把錯位參數當指標解參考。（模擬器記憶體配置≠FR3068，**不等於證明 EVB 上曾 HardFault**，但確認該 bug 有 fault 的可能，而不只是亂碼。）
+
+### Major
+
+| # | 問題 | 修正建議 |
+|---|---|---|
+| M1 | `fw/tools/test_sensorflow_nano.sh` 用 `rg -q` 檢查 map；非互動 bash 下 `rg` 不在 PATH（本機即如此）→ 腳本誤報 `nano libc was not linked` 並失敗，主要回歸測試在一般環境不可用 | 改用 `grep -q 'libc_nano.a'`（或先檢查工具存在並給明確錯誤） |
+
+### Minor
+
+| # | 問題 | 建議 |
+|---|---|---|
+| m1 | `et100Reopen()` 在 baud 相同時直接 return，但呼叫端仍無條件 `decoder.reset()`，可能丟棄正在接收中的半行 | 可接受；或只在真正 reopen 時 reset |
+| m2 | reopen 後立即送 `\r\n`：若裝置尚未切到同一 baud，該 CRLF 會變成雜訊 byte，使 ASCII parser 進入 discard 直到下一個 `\n`，可能吃掉下一筆 ASCII 查詢（SMP 不受影響，因 SMP 解碼器先處理） | 目前 OTABAUD ACK 後裝置即切速、HTML close/open 需數十 ms，風險低；記錄觀察 |
+| m3 | 流程：plan／REVIEW_REPORT／19 報告由 Codex 撰寫（Stanley 授權，因 Claude token 不足） | 已知例外，Step 7 由 Claude 重讀確認 |
+| m4 | 異常一（無回覆）、異常三（舊 token）根因仍未證實；本版只修已確認的格式問題並降低 reopen | 實機重測時保留完整 log；再發生無回覆時先以 SWD 讀 PC／CFSR／HFSR，不要先重連 |
+
+---
+
+
+## v0.8.12 Step 4 Codex 交付
+
+Branch `v0.8.12_sensorflow_format`，base `1015337`。Stanley 因 Claude token 不足授權 Codex 代寫 plan／實作；**未經獨立 review、尚未實機驗收、未 commit／merge／push**。v0.8.11 review 原文保留於下方，並非本版 PASS。
+
+- 已修：production FLOW `%012llX` → `%04lX%08lX`（高 16／低 32 unsigned long），12 uppercase hex／token／欄位數不變；App 0.8.12-dev。
+- HTML：同一 port／baud 且 streams 完整時不 reopen；真正 reopen 後 CRLF 清 ASCII 殘留；新接線與既有 Gateway 切 baud 只記錄 baud。這是減少交接的緩解，不宣稱確認所有舊 token／無回覆根因。
+- Host、ARM 真 nano printf 執行、HTML mock Serial、SMP、ARM App／DFU PASS；只有既有 RWX warning。Unicorn 2.1.4／pyelftools 0.32 已依授權裝在專案 venv，無系統 Python／SDK 變更。
+- Nano 測試連入 production `sensor_ota_job.c`，執行零／高位／全 48-bit、mask、token／截斷及 fake Sensor relay suite；不是只對 PC libc 測同一字串。沒有 EVB／UART／SWD 操作。
+- 新增測試工具、完整證據／指紋與 Stanley 步驟見 [19 報告](docs/04_testing/19_sensorflow_serial.md)。`fw/build_serial/output/dfu_application.zip` 為本版 0.8.12；Installer 未重建，0.8.11 測試產物報告為歷史紀錄。
+
+### 請獨立 reviewer 重點檢查
+
+1. 12 位 hex 精確長度、高位遮罩、ABI 型別與 token；nano runner 確實執行相同 production UART formatter／assertions，沒有用 PC libc 代替。
+2. HTML baud cache 在首次 open、其他 Gateway 切 baud、reopen 失敗／重新連線時是否正確；same-baud 不丟 reader／writer，reset 後仍立即回 9600。
+3. CRLF 只在真 reopen 送出，不當根因證明；保留 token 驗證、套件 SHA／metadata 驗證及既有 timeout，沒有假報成功。
+4. 兩份 HTML 檔包含先前 Stanley 核准的未提交 UI 改動，本輪原樣保留並加測；Review／後續 commit 要區分 UI 與 UART 修正。
+
+### 未解問題
+
+上傳後第一筆查詢偶發無回覆、舊 token／通用失敗回覆仍未取得實機原因。HardFault、bridge 重送、接收殘留、parser 黏接都不能寫成既定事實。待 Stanley 用新版重測後判定，不能把 60 s timeout 當 NOR 寫入速度。
+
+---
+
+# v0.8.11 原 review（歷史）
 
 ## Step 5 Claude review（2026-10-23）— 結論：**PASS**（M1 已於 Step 6 修正並複驗）
 

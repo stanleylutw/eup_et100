@@ -1,9 +1,11 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.8.11
-Last updated: 2026-10-23 Codex
+Version: v0.8.12
+Last updated: 2026-10-23 Claude
 
 ## Revision History
+
+2026-10-23 v0.8.12（Claude review PASS；EVB 實機待 Stanley）：修正 `GSENSOROTAFLOW` 的 `%012llX`（newlib-nano 不支援 `ll`，導致欄位錯誤、token 遺失，且錯位參數被當指標解參考，可能 fault）→ `%04lX%08lX`，協定格式不變；新增 ARM newlib-nano 模擬測試（unicorn）。HTML 同 baud 不再重開 port，真正重開後送 CRLF 重新同步。上傳後間歇無回覆／舊 token 的根因仍未證實。
 
 2026-10-23 v0.8.11（Claude review PASS；EVB 實機待 Stanley）：新增 Installer INST v1 狀態行、10% 節流、115200→9600 BOOT 交接、共用結果／三次中斷計數（NOR 0x460000–0x461FFF），不改 boot record v2。Installer 安裝期依進度餵 8 s WDT；App 新增 120 s 試運行期限、GOTASTAT 與 BLE 0x09 快照，NOR 存取仍只有 OTA worker。HTML 支援 INST／舊版回退，仍以 SMP 完整 hash、版本與 confirmed 判成功，Log 高度不變。實作與驗收範圍見 [07](../02_protocol/07_installer_status.md)、[18](../04_testing/18_installer_status.md)。實機全部交 Stanley，不能以 host 或 build PASS 代替 EVB PASS。 App `APP` 行只在試運行或有未回報的還原／放棄結果時送一次（S4，FlashDB 0x00030008 記已回報 txn）。
 

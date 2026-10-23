@@ -308,8 +308,8 @@ static void test_success(uint16_t mtu, uint16_t notify)
     uint64_t all_pass = 0;
     for (unsigned s = 0; s < 15; s++) all_pass |= (uint64_t)SENSOR_OTA_STEP_PASS << (3 * s);
     char expected[160];
-    snprintf(expected, sizeof expected, "AT$PD=BLEGW$GSENSOROTAFLOW;1;SUCCESS;RESULT;PASS;NONE;000003FF;%012llX;T001\r\n",
-             (unsigned long long)all_pass);
+    assert(all_pass == 0x092492492492ull);
+    snprintf(expected, sizeof expected, "AT$PD=BLEGW$GSENSOROTAFLOW;1;SUCCESS;RESULT;PASS;NONE;000003FF;092492492492;T001\r\n");
     assert(!strcmp(uart("GSENSOROTAFLOW", ""), expected));
     snprintf(expected, sizeof expected, "AT$PD=BLEGW$GSENSOROTAMETA;1;AABBCCDDEEFF;EUP_AIoT_P1;P1_HW_1.0.0;v3.6.15;"
              "20261017223216;nrf52832;p1_nrf52832;AABBCCDDEEFF;%08lX;00;NONE;T001\r\n", (unsigned long)EUP_AIOT_REQUIRED_CAPS);
@@ -444,11 +444,35 @@ static void test_smp_client(void)
     sensor_smp_client_end();
 }
 
+static void test_flow_hex(void)
+{
+    static const struct { uint64_t bits; const char *hex; } cases[] = {
+        {0, "000000000000"}, {1, "000000000001"}, {0xffffffffull, "0000FFFFFFFF"},
+        {0x100000000ull, "000100000000"}, {0xabcd12345678ull, "ABCD12345678"},
+        {UINT64_MAX, "FFFFFFFFFFFF"}
+    };
+    for (unsigned i=0;i<sizeof cases/sizeof cases[0];i++) {
+        memset(&job_status,0,sizeof job_status);job_status.step_results=cases[i].bits;
+        char expected[160],out[160];
+        int n=snprintf(expected,sizeof expected,"AT$PD=BLEGW$GSENSOROTAFLOW;1;IDLE;NONE;PENDING;NONE;00000000;%s;Z9Q1\r\n",cases[i].hex);
+        assert(sensor_ota_job_uart("GSENSOROTAFLOW","","Z9Q1",out,sizeof out)==n);
+        assert(!strcmp(out,expected));
+        for (size_t cap=1;cap<=(size_t)n;cap++) {
+            unsigned char guarded[162];memset(guarded,0xa5,sizeof guarded);
+            assert(sensor_ota_job_uart("GSENSOROTAFLOW","","Z9Q1",(char *)guarded+1,cap)==0);
+            assert(guarded[0]==0xa5 && guarded[cap+1]==0xa5 && guarded[cap]==0);
+        }
+    }
+    memset(&job_status,0,sizeof job_status);
+    puts("PASS FLOW: 12 uppercase hex digits, high 16/low 32, token, bounded truncation");
+}
+
 int main(void)
 {
     for (uint32_t i = 0; i < IMG_LEN; i++) image[i] = (uint8_t)(i * 31 + 7);
     sensor_ota_job_init();
     assert(hook == sensor_ota_job_poll);
+    test_flow_hex();
     test_smp_client();
     test_start_errors();
     test_success(247, 0);

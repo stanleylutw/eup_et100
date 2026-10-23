@@ -2375,39 +2375,39 @@
   #et100-viz[hidden] { display: none !important; }
   #et100-viz { container-type: inline-size; }
   .et100-fit-frame { position: relative; width: 100%; height: 100%; overflow: hidden; }
-  .et100-viz-layout { position: absolute; top: 0; left: 0; transform-origin: top left; display: grid; grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr); gap: 10px; height: 460px; align-items: stretch; }
-  .et100-diagram { display: grid; grid-template-columns: minmax(85px, .55fr) 40px minmax(0, 1.2fr) 62px minmax(0, 1.2fr); gap: 6px; align-items: stretch; min-width: 0; min-height: 0; }
+  .et100-viz-layout { position: absolute; top: 0; left: 0; transform-origin: top left; display: grid; grid-template-columns: minmax(0, 7fr) minmax(260px, 3fr); gap: 10px; height: 348px; align-items: stretch; }
+  .et100-viz-layout { --fs-xs: calc(12px * var(--et100-type-compensation, 1)); --fs-sm: calc(13px * var(--et100-type-compensation, 1)); --fs-md: calc(15px * var(--et100-type-compensation, 1)); }
+  .et100-diagram { display: grid; grid-template-columns: minmax(120px, .65fr) 48px minmax(0, 1.2fr) 64px minmax(0, 1.2fr); gap: 10px; align-items: stretch; min-width: 0; min-height: 0; }
   .et100-memory { min-width: 0; min-height: 0; background: #353a42; border: 1px solid #111318; border-radius: 4px; overflow: hidden; color: #fff; display: flex; flex-direction: column; }
-  .et100-memory h4 { margin: 0; padding: 9px 8px; background: #111318; font-size: var(--fs-xs); min-height: 40px; overflow-wrap: anywhere; }
+  .et100-memory h4 { margin: 0; padding: 9px 10px 7px; background: #111318; font-size: var(--fs-md); font-weight: 600; min-height: 39px; display: flex; align-items: center; overflow-wrap: anywhere; }
   .et100-partitions { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  #et100-flash-map .et100-partitions { display: grid; grid-template-rows: repeat(3, minmax(56px, 1fr)) minmax(72px, 1.6fr) repeat(2, minmax(56px, 1fr)); }
-  .et100-partition { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: center; gap: 3px 6px; padding: 5px 7px; border-top: 1px solid #d9dee5; min-height: 52px; flex: 1; line-height: 1.2; overflow-wrap: anywhere; }
-  .et100-partition[data-name="Candidate"], .et100-partition[data-name="Rollback"], .et100-partition[data-name="App"] { flex: 2; min-height: 60px; }
+  #et100-flash-map .et100-partitions { display: grid; grid-template-rows: repeat(3, minmax(40px, 1fr)) minmax(56px, 1.6fr) repeat(2, minmax(40px, 1fr)); }
+  .et100-partition { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: center; gap: 2px 6px; padding: 4px 7px; border-top: 1px solid #d9dee5; min-height: 40px; flex: 1; font-size: var(--fs-sm); line-height: 1.25; overflow-wrap: anywhere; }
+  .et100-partition[data-name="Candidate"], .et100-partition[data-name="Rollback"], .et100-partition[data-name="App"] { flex: 2; min-height: 48px; }
   .et100-partition[data-name="ROM B 資訊段"] { border-left: 4px solid var(--err); }
-  .et100-partition small { color: #c1cbd6; font-size: 11px; }
+  .et100-partition small { color: #aeb7c4; font-size: calc(11px * var(--et100-type-compensation, 1)); }
   .et100-partition > small { grid-column: 1; }
-  .et100-partition-title { grid-column: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; min-width: 0; }
+  .et100-partition-title { grid-column: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; min-width: 0; }
   .et100-partition-title small { white-space: nowrap; }
   .et100-partition-capacity { grid-column: 2; grid-row: 1 / 4; align-self: center; text-align: right; white-space: nowrap; }
+  #et100-nor-map .et100-partition { min-height: min-content; }
   .et100-partition small[hidden] { display: none !important; }
-  .et100-partition:has(#et100-sensor-state:not([hidden])) { min-height: 60px; flex: 2; }
+  .et100-partition:has(#et100-sensor-state:not([hidden])) { min-height: 56px; flex: 2; }
   .et100-partition[data-name="ROM B 資訊段"] small:last-child { display: block; }
-  .et100-partition strong { font-size: var(--fs-sm); font-weight: 500; }
+  .et100-partition strong { font-size: var(--fs-sm); font-weight: 400; color: #f8fafc; }
   .et100-slot-image, .et100-slot-committed { position: absolute; left: 0; top: 0; bottom: 0; z-index: -1; }
   .et100-slot-image { background: #586370; }
   .et100-slot-committed { background: #176f54; }
   .et100-partition[data-active="true"] { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .et100-route { display: flex; flex-direction: column; justify-content: center; gap: 8px; text-align: center; color: var(--sub); font-size: 11px; overflow-wrap: anywhere; }
+  .et100-route { display: flex; flex-direction: column; justify-content: center; gap: 8px; text-align: center; color: var(--sub); font-size: var(--fs-sm); overflow-wrap: anywhere; }
   .et100-route b { font-size: 26px; font-weight: 400; line-height: 1; }
+  #et100-route-upload b { width: calc(100% + 20px); height: 18px; margin-inline: -10px; background: #111111; font-size: 0; }
   .et100-route[data-active="true"] { color: var(--accent); }
   .et100-route[data-waiting="true"] { color: var(--warn); }
   #et100-source { min-width: 0; }
-  #et100-source .flash-viz-source-header { font-size: var(--fs-xs); }
-  #et100-source .flash-viz-source-note { font-size: var(--fs-xs); }
   #et100-stats .flash-viz-info-header { flex-shrink: 0; }
   #et100-stats .flash-viz-info-table { grid-template-rows: none; grid-auto-rows: minmax(min-content, 1fr); min-height: 0; }
-  #et100-stats .flash-viz-info-row { grid-template-columns: 76px minmax(0, 1fr); min-height: 0; }
-  #et100-stats .flash-viz-info-label, #et100-stats .flash-viz-info-value { padding: 3px 6px; font-size: var(--fs-xs); }
+  #et100-stats .flash-viz-info-row { min-height: 29px; }
   @container (max-width: 620px) {
     .et100-fit-frame { height: auto; overflow: visible; }
     .et100-viz-layout { position: static; grid-template-columns: minmax(0, 1fr); height: auto; }
@@ -2415,6 +2415,7 @@
     .et100-memory { min-height: 300px; }
     .et100-route { padding: 10px 0; }
     .et100-route b { transform: rotate(90deg); }
+    #et100-route-upload b { width: 18px; height: 36px; margin: 0; align-self: center; transform: none; }
     #et100-source { min-height: 140px; }
   }
   @media (max-width: 720px) {
@@ -4104,6 +4105,7 @@ function fmtTime(s) {
 
 // ── state ──
 let port = null, reader = null, writer = null;
+const serialPortBauds = new WeakMap();
 let connected = false;
 let frameCount = 0;
 let rxBuf = '';
@@ -5908,6 +5910,7 @@ async function openSerialPort(selectedPort, restored = false) {
   port = selectedPort;
   try {
     await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+    serialPortBauds.set(port,9600);
     writer = port.writable.getWriter();
     rxBuf = '';
     setConnected(true);
@@ -8869,13 +8872,14 @@ function et100StoragePartitions(profile) {
     ['Download journal', 0, 128*1024, '#738295', '保存下載進度，支援斷點續傳'],
     ['Candidate', 0x020000, 2*1024*1024, '#0F7AE5', '接收並驗證待更新韌體'],
     ['Rollback', 0x220000, 2*1024*1024, '#238B78', '更新失敗時還原'],
-    ['Sensor OTA', 0x420000, 256*1024, '#9B69AC', '套件上限 225,280 B'],
+    ['Sensor OTA', 0x420000, 256*1024, '#9B69AC', ''],
     ['Installer 結果', 0x460000, 8192, '#738295', '安裝結果與中斷計數'],
     ['Logs／預留', 0x462000, total-0x462000, '#B5BEC9', '預留供後續功能使用']
   ];
 }
 function et100Capacity(bytes) {
-  return bytes >= 2*1024*1024 ? `${bytes/(1024*1024)} MB` : `${bytes/1024} KB`;
+  const mb = bytes/(1024*1024);
+  return bytes >= 2*1024*1024 ? `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB` : `${bytes/1024} KB`;
 }
 function et100RenderStorage() {
   for (const [id, title, partitions] of [
@@ -8890,7 +8894,7 @@ function et100RenderStorage() {
       const title = document.createElement('div'); title.className = 'et100-partition-title';
       const label = document.createElement('strong'); label.textContent = et100PartitionNames[name];
       const capacity = document.createElement('span'); capacity.className = 'et100-partition-capacity'; capacity.textContent = et100Capacity(bytes);
-      const description = document.createElement('small'); description.textContent = note; row.title = note;
+      const description = document.createElement('small'); description.textContent = note; description.hidden = !note; row.title = note;
       const state = document.createElement('small');
       const startLabel = document.createElement('small'); startLabel.textContent = '0x'+start.toString(16).toUpperCase().padStart(8,'0');
       if (name === 'Candidate' || name === 'Sensor OTA') {
@@ -8925,6 +8929,15 @@ function et100RefreshVisual() {
     const state = row.querySelector('small:last-child');
     state.hidden = !selected;
     state.textContent = off === null ? '已提交未知' : `已提交 ${off.toLocaleString()} / ${bytes.toLocaleString()} B`;
+    const uploading = selected && off !== null && ['upload','sensor-verify'].includes(et100Visual.stage);
+    if (name === 'Sensor OTA' && et100StoredPackage && !uploading) {
+      const stored = et100StoredPackage;
+      const valid = stored.state === 'VALID';
+      const storedBytes = valid ? stored.package_length : 0;
+      row.querySelector('.et100-slot-committed').style.width = `${storedBytes/(256*1024)*100}%`;
+      state.textContent = valid ? `${stored.firmware}（${storedBytes.toLocaleString()} B）` : '';
+      state.hidden = !selected || !valid;
+    }
   }
   document.getElementById('et100-app-state').textContent = et100Device ?
     `${et100Device.slot.version} · ${et100Device.slot.confirmed ? '已確認' : '未確認'}` : '尚未查詢';
@@ -8942,7 +8955,7 @@ function et100RefreshVisual() {
     ['平均上傳速度', et100Visual.base === null ? '未知' : `${(et100Visual.speed/1024).toFixed(2)} KB/s`],
     ['經過時間', `${et100Visual.elapsed.toFixed(1)} s`], ['檔案大小', bytes ? `${bytes.toLocaleString()} B` : '尚未載入'],
     [sensor ? '感測器更新套件' : '新版韌體暫存', sensor ? '256 KB' : '2 MB'], ['檔案放入餘量', bytes ? `${(slotSize-bytes).toLocaleString()} B` : '未知'],
-    [sensor ? '套件上限' : 'App 上限', sensor ? '225,280 B' : '1792 KB'],
+    ...(!sensor ? [['App 上限', '1792 KB']] : []),
     [sensor ? 'NOR 狀態' : '安裝／備份進度', sensor ? (et100StoredPackage?.state || '尚未查詢') :
       et100Visual.inst ? `${et100Visual.inst.event} · ${et100Visual.inst.fields.join(' / ')}` : '裝置未回報']
   ];
@@ -8969,15 +8982,19 @@ function et100FitDiagram() {
   const layout = frame.firstElementChild;
   const width = frame.clientWidth, height = frame.clientHeight;
   if (width <= 620) {
-    layout.style.width = layout.style.transform = layout.style.left = '';
+    layout.style.width = layout.style.height = layout.style.transform = layout.style.left = '';
+    layout.style.removeProperty('--et100-type-compensation');
     return;
   }
   if (!width || !height) return;
-  const baseWidth = Math.max(1000, width);
-  const scale = Math.min(1, width / baseWidth, height / 460);
+  const baseWidth = Math.max(1440, width);
+  const scale = Math.min(1, width / baseWidth, height / 348);
+  layout.style.setProperty('--et100-type-compensation', String(1 / scale));
   layout.style.width = `${baseWidth}px`;
+  // Distribute spare height among partitions without enlarging the type.
+  layout.style.height = `${height / scale}px`;
   layout.style.transform = `scale(${scale})`;
-  layout.style.left = `${(width - baseWidth * scale) / 2}px`;
+  layout.style.left = '0px';
 }
 new ResizeObserver(et100FitDiagram).observe(document.querySelector('.et100-fit-frame'));
 function et100Rows(id, rows) {
@@ -9174,14 +9191,19 @@ function et100RenderTransferButton() {
 }
 async function et100Reopen(baud) {
   if (!port || !connected) throw Error('Serial 未連線');
+  if (serialPortBauds.get(port) === baud && port.readable && port.writable && reader && writer) return;
   const selected = port, generation = ++et100PortGeneration;
   if (reader) await reader.cancel();
   if (readLoopPromise) { await readLoopPromise; readLoopPromise = null; }
   if (writer) { writer.releaseLock(); writer = null; }
-  await selected.close();
+  if (selected.readable || selected.writable) await selected.close();
+  serialPortBauds.delete(selected);
   if (!connected || port !== selected || generation !== et100PortGeneration) throw Error('Serial 連線已變更');
   await selected.open({baudRate:baud, dataBits:8, stopBits:1, parity:'none'});
+  serialPortBauds.set(selected,baud);
   writer = selected.writable.getWriter(); rxBuf = ''; readLoopPromise = readLoop();
+  // Resynchronize the device's ASCII parser after a real port transition only.
+  await writer.write(new TextEncoder().encode('\r\n'));
   addLog('sys', `ET-100 Serial ${baud} bps`);
 }
 const et100Client = new ET100Smp.Client({
@@ -10370,6 +10392,7 @@ async function otaSwitchBaudAndWait(rate) {
     if (readLoopPromise) { await readLoopPromise; readLoopPromise = null; }
     await port.close();
     await port.open({ baudRate: rate, dataBits: 8, stopBits: 1, parity: 'none' });
+    serialPortBauds.set(port,rate);
     writer = port.writable.getWriter();
     rxBuf = '';
     readLoopPromise = readLoop();

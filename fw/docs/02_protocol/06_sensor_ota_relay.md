@@ -16,7 +16,7 @@ wire format、state／step／error 名稱及數值沿用 `eup_gateway/docs/02_pr
 |---|---|
 | `SENSOROTA;<mac>;<tok>` | `SENSOROTA;1;<mac>;<generation>;<image_length>;<tok>`，只代表已接受，非更新完成 |
 | `GSENSOROTA;<tok>` | `GSENSOROTA;1;<state>;<mac>;<generation>;<bytes>;<image_length>;<elapsed_ms>;<error>;<error_name>;<tok>` |
-| `GSENSOROTAFLOW;<tok>` | `GSENSOROTAFLOW;1;<state>;<step>;<result>;<failed_step>;<match_mask_8hex>;<step_results_12hex>;<tok>` |
+| `GSENSOROTAFLOW;<tok>` | `GSENSOROTAFLOW;1;<state>;<step>;<result>;<failed_step>;<match_mask_8hex>;<step_results_12hex>;<tok>`（**已知問題**：0.8.9–0.8.11 韌體因 newlib-nano 不支援 `%llX`，`step_results` 欄位輸出錯誤且 token 遺失；0.8.12 起修正，格式不變） |
 | `GSENSOROTAMETA;<tok>` | `GSENSOROTAMETA;1;<mac>;<project>;<hardware>;<firmware>;<build_id>;<soc>;<board>;<device_id>;<capabilities_8hex>;<role_2hex>;<mismatch>;<tok>`；尚未取得時 `0;NOT_READY;<tok>` |
 | `CSENSOROTA;<tok>` | `CSENSOROTA;1;OK;<tok>`，等待狀態變成 CANCELLED 才算完成；無 job 時 `0;NOT_ACTIVE;<tok>` |
 

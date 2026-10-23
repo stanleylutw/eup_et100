@@ -722,11 +722,13 @@ int sensor_ota_job_uart(const char *cmd, const char *params, const char *token, 
                      (unsigned)st.error, detail, token);
     } else if (!strcmp(cmd, "GSENSOROTAFLOW")) {
         sensor_ota_job_get_status(&st);
-        n = snprintf(out, capacity, "AT$PD=BLEGW$GSENSOROTAFLOW;1;%s;%s;%s;%s;%08lX;%012llX;%s\r\n",
+        /* newlib-nano does not consume ll conversions; keep the 48-bit wire field. */
+        n = snprintf(out, capacity, "AT$PD=BLEGW$GSENSOROTAFLOW;1;%s;%s;%s;%s;%08lX;%04lX%08lX;%s\r\n",
                      sensor_ota_job_state_name(st.state), sensor_ota_workflow_step_name(st.workflow_step),
                      sensor_ota_step_result_name(st.step_result), sensor_ota_workflow_step_name(st.failed_step),
                      (unsigned long)st.target.match_mask,
-                     (unsigned long long)(st.step_results & 0xffffffffffffull), token);
+                     (unsigned long)((st.step_results >> 32) & 0xffffu),
+                     (unsigned long)(st.step_results & 0xffffffffu), token);
     } else if (!strcmp(cmd, "GSENSOROTAMETA")) {
         sensor_ota_job_get_status(&st);
         if (!st.target.valid) {

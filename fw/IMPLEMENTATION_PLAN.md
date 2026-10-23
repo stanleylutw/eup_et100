@@ -1,4 +1,32 @@
-# IMPLEMENTATION_PLAN
+# IMPLEMENTATION_PLAN — v0.8.12 Sensor flow／Serial 交接修正
+
+## 本輪授權與分支
+
+Stanley 授權 Codex 代寫施工單並實作；branch `v0.8.12_sensorflow_format`，base `v0.8.11_installer_status`（1015337）。不 merge、不 commit、不燒錄、不 SWD、不改 SDK／linker／Installer／boot record／B-info。
+
+兩份既有未提交檔案 `tools/rs232_tester.html`、`tools/tests/test_et100_ui.cjs` 含 Stanley 核准的圖表 UI 修改，原樣保留；本輪只在其上增加 Serial 修正／測試，交付時明記兩類 diff。v0.8.11 原施工單保留於下方，並非本輪擴大授權。
+
+## 已知與未證實
+
+- GSENSOROTAFLOW 的 `%012llX` 與實際 nano printf 不相容：改為 `%04lX%08lX`，高 16／低 32 bit，仍為 12 個 uppercase hex，token 不變。
+- 上傳後查詢無回覆、舊 token 回覆的根因尚未證實；9600 恢復不證明曾重開機，USB 時間戳不能證明 DAPLink 重送。
+- 同鮑率重開 port 是可減少的交接，不宣稱修正所有間歇故障。真正 reopen 後先送 CRLF 是清 parser 的緩解，不是根因證據；不延長 timeout、不跳過套件驗證。
+
+## 本輪檔案範圍
+
+1. `fw/src/sensor_ota_job.c`、`fw/tests/test_sensor_ota.c`：單點格式修正；零／高位／全 48-bit／token 與截斷測試，既有 relay regression。
+2. `fw/targets/evb_serial.mk`：版本 0.8.12-dev；不改 SDK Makefile，不重建 Installer。
+3. `fw/tests/nano_test_support.c`、`fw/tools/test_sensorflow_nano.sh`、`fw/tools/run_nano_test.py`、`fw/tools/requirements-nano-test.txt`：ARM nano 真實 libc 測試 ELF，以 Unicorn 執行 production UART formatter／fake Sensor host suite；依賴只安裝在 `fw/.venv`（Stanley 已核准），記錄固定版本；不改系統 Python／sudo。
+4. `tools/rs232_tester.html`、`tools/tests/test_et100_ui.cjs`、必要時 `test_et100_smp.cjs`：依實際開啟的 port／baud／reader／writer 決定是否需 reopen；同 baud 不重開，真正 reopen 才送 CRLF；reset 後仍必須立即回 9600，失敗恢復仍可操作。不改 Gateway／Sensor 協定與既有 UI。
+5. 本施工單、`fw/REVIEW_REPORT.md`、新增 `fw/docs/04_testing/19_sensorflow_serial.md`：host／nano／ARM／DFU 證據、log 與指紋、未解假設及 Stanley 的最小實機步驟。不替 v0.8.11 補填未做的 EVB 測試。
+
+## 驗收與停止點
+
+Host relay／SMP／serial 全通過；nano 執行測試驗證 12 位輸出與尾端 token；HTML mock 驗證重複查詢不 reopen、9600→115200→9600 真正切換、CRLF 不被當指令、上傳後查詢及既有 UI regression；ARM App／DFU build PASS，保留既有 RWX warning 說明。交付 `fw/build_serial/output/dfu_application.zip`／fingerprint，由 Stanley 實機部署與留完整 log；本輪完成即停待 review，不碰硬體。
+
+---
+
+# v0.8.11 原施工單（歷史參考）
 
 ## Branch
 
