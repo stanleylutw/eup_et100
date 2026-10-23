@@ -1,9 +1,11 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.8
-Last updated: 2026-10-21 Codex
+Version: v0.8.10
+Last updated: 2026-10-23 Codex
 
 ## Revision History
+
+2026-10-23 v0.8.10：新增 GLIST／SLIST（八筆 MAC）與 GMAXRPT／SMAXRPT（預設 3），CID／MAC 採 OR；FlashDB 新增獨立 key，GTIME 與回報筆數連動。HTML 新增 ET-100 固定 build 路徑選單、隔離選檔記憶及中文 Flash／NOR 圖表，自行縮放而不改共用 Log。Host／ARM／DFU／UI PASS；白名單實機驗收與獨立 review 尚待完成。後續實機由 Stanley、review 由 Claude 負責；本次 merge 不替代驗收。
 
 2026-10-23 增補（本次接手範圍）：v0.8.9 新增 UART Sensor relay 指令及 GATT exclusive owner／OTA worker NOR 讀取，host／ARM／DFU 已通過、硬體待 Stanley 驗收。未新增 Kconfig／預設值；改變 firmware session／互斥行為與 OTA 對外指令，故補此平台紀錄。細節以 [06 relay 協定](../02_protocol/06_sensor_ota_relay.md)及 [17 報告](../04_testing/17_evb_sensor_ota_relay.md)為準；下方歷史 baseline／板況不是本次重新實測。
 
@@ -89,7 +91,7 @@ Last updated: 2026-10-21 Codex
 
 DEV1.4 已新增專案自有 UART3 serial target：`bash fw/tools/build_evb_serial.sh`，獨立產物在 `fw/build_serial/output/`。透過 build overlay 替換 example main／AT／BLE source，不修改 SDK。UART3 使用 9600/8N1，GCC vendor printf 被丟棄；原 SDK target 保留 921600 log。GCHK 回覆 EVB 板型與 SDK-derived BLE identity；state 0 為此相容層 idle。GTIME 沿用 key `0x00030002`（預設 15，1-1800 秒）；0.5.0-dev 新增 CID key `0x00030003`（四欄、預設 0639），均以 FlashDB 寫入與讀回確認後才更新 RAM。Stanley 已確認前版 GTIME 保存可用。
 
-0.5.0-dev 使用 general discovery active scan（LE 1M、25 ms interval／18.75 ms window），只處理 legacy ADV。以 CID/UUID 過濾 0xFF／0x16，快取 32 個 address type＋MAC，依 GTIME 及 RSSI 回報最多 min(GTIME,15) 筆 Type 1、每筆間隔一秒，支援 EUP v1/v2 1500 ms burst 去重。原 peripheral profile 保留，radio 並行仍待 EVB 驗收。未實作 MAC whitelist、MAXRPT setting、GATT central session、realtime XYZ batch 或 OTA。規格見 [serial 協定](../02_protocol/01_evb_serial_gchk.md)，最新證據見 [CID／scan 測試紀錄](../04_testing/04_evb_cid_ble_scan.md)。
+0.5.0-dev 建立 general discovery active scan（LE 1M、25 ms interval／18.75 ms window），只處理 legacy ADV。現行 v0.8.10 以 CID/UUID 或 MAC 過濾 0xFF／0x16，快取 32 個 address type＋MAC，依 GTIME 及 RSSI 回報最多 MAXRPT 筆 Type 1、每筆間隔一秒，支援 EUP v1/v2 1500 ms burst 去重。白名單／MAXRPT 實機驗收仍待 Stanley；realtime XYZ batch 尚未移植。GATT、OTA 以本文件後續版本紀錄為準。規格見 [serial 協定](../02_protocol/01_evb_serial_gchk.md)，早期 scan 證據見 [CID／scan 測試紀錄](../04_testing/04_evb_cid_ble_scan.md)。
 
 - **Compiler**：ARM GNU Toolchain `arm-none-eabi-gcc` 13+
 - **Build**：CMake + Ninja（可相容 SDK 原生 Makefile）

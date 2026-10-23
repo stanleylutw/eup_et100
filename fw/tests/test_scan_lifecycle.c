@@ -29,6 +29,14 @@ static void ended(void)
 }
 int main(void)
 {
+    const uint16_t cids[4] = {0x0639};
+    uint8_t macs[8][6] = {{0xaa,0xbb,0xcc,0xdd,0xee,0xff}};
+    et100_scan_configure(cids, 15, macs, 8, 1);
+    assert(reporter.maxrpt == 8 && !memcmp(reporter.macs, macs, sizeof macs));
+    et100_scan_configure(cids, 10, macs, 8, 0);
+    assert(reporter.gtime == 10 && reporter.maxrpt == 8);
+    et100_scan_configure(cids, 10, macs, 4, 1);
+    assert(reporter.maxrpt == 4 && !memcmp(reporter.macs, macs, sizeof macs));
     et100_scan_start(); assert(calls == 1 && et100_scan_status == 0);
     et100_scan_start(); assert(calls == 1);
     ended(); ticks = 1000; mode = 3;

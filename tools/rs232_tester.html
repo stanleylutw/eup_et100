@@ -2374,18 +2374,21 @@
   .et100-storage { font-size: var(--fs-xs); }
   #et100-viz[hidden] { display: none !important; }
   #et100-viz { container-type: inline-size; }
-  .et100-viz-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(260px, 1fr); gap: 10px; height: 348px; align-items: stretch; }
+  .et100-fit-frame { position: relative; width: 100%; height: 100%; overflow: hidden; }
+  .et100-viz-layout { position: absolute; top: 0; left: 0; transform-origin: top left; display: grid; grid-template-columns: minmax(0, 3fr) minmax(220px, 1fr); gap: 10px; height: 460px; align-items: stretch; }
   .et100-diagram { display: grid; grid-template-columns: minmax(85px, .55fr) 40px minmax(0, 1.2fr) 62px minmax(0, 1.2fr); gap: 6px; align-items: stretch; min-width: 0; min-height: 0; }
   .et100-memory { min-width: 0; min-height: 0; background: #353a42; border: 1px solid #111318; border-radius: 4px; overflow: hidden; color: #fff; display: flex; flex-direction: column; }
   .et100-memory h4 { margin: 0; padding: 9px 8px; background: #111318; font-size: var(--fs-xs); min-height: 40px; overflow-wrap: anywhere; }
   .et100-partitions { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  .et100-partition { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: center; gap: 3px 6px; padding: 5px 7px; border-top: 1px solid #d9dee5; min-height: 44px; flex: 1; line-height: 1.2; overflow-wrap: anywhere; }
+  #et100-flash-map .et100-partitions { display: grid; grid-template-rows: repeat(3, minmax(56px, 1fr)) minmax(72px, 1.6fr) repeat(2, minmax(56px, 1fr)); }
+  .et100-partition { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: center; gap: 3px 6px; padding: 5px 7px; border-top: 1px solid #d9dee5; min-height: 52px; flex: 1; line-height: 1.2; overflow-wrap: anywhere; }
   .et100-partition[data-name="Candidate"], .et100-partition[data-name="Rollback"], .et100-partition[data-name="App"] { flex: 2; min-height: 60px; }
-  .et100-partition[data-name="ROM B 資訊段"] { border-left: 4px solid var(--err); min-height: 60px; }
+  .et100-partition[data-name="ROM B 資訊段"] { border-left: 4px solid var(--err); }
   .et100-partition small { color: #c1cbd6; font-size: 11px; }
-  .et100-partition small { grid-column: 1 / -1; }
-  .et100-partition small:last-child { display: none; }
-  .et100-partition #et100-candidate-state, .et100-partition #et100-sensor-state, .et100-partition #et100-app-state { display: block; }
+  .et100-partition > small { grid-column: 1; }
+  .et100-partition-title { grid-column: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; min-width: 0; }
+  .et100-partition-title small { white-space: nowrap; }
+  .et100-partition-capacity { grid-column: 2; grid-row: 1 / 4; align-self: center; text-align: right; white-space: nowrap; }
   .et100-partition small[hidden] { display: none !important; }
   .et100-partition:has(#et100-sensor-state:not([hidden])) { min-height: 60px; flex: 2; }
   .et100-partition[data-name="ROM B 資訊段"] small:last-child { display: block; }
@@ -2405,11 +2408,9 @@
   #et100-stats .flash-viz-info-table { grid-template-rows: none; grid-auto-rows: minmax(min-content, 1fr); min-height: 0; }
   #et100-stats .flash-viz-info-row { grid-template-columns: 76px minmax(0, 1fr); min-height: 0; }
   #et100-stats .flash-viz-info-label, #et100-stats .flash-viz-info-value { padding: 3px 6px; font-size: var(--fs-xs); }
-  @container (max-width: 950px) {
-    .et100-viz-layout { grid-template-columns: minmax(0, 1fr); height: auto; }
-    .et100-diagram { height: 348px; }
-  }
   @container (max-width: 620px) {
+    .et100-fit-frame { height: auto; overflow: visible; }
+    .et100-viz-layout { position: static; grid-template-columns: minmax(0, 1fr); height: auto; }
     .et100-diagram { grid-template-columns: minmax(0, 1fr); height: auto; }
     .et100-memory { min-height: 300px; }
     .et100-route { padding: 10px 0; }
@@ -3026,7 +3027,11 @@
           <input id="et100-file" type="file" accept=".zip,.bin" aria-label="ET-100 韌體 ZIP 或 BIN" hidden />
           <div class="ota-file-row" id="et100-file-row">
             <div class="ota-file-picker">
-              <button type="button" class="qbtn" id="et100-pick-file">載入 ZIP / BIN 檔案</button>
+              <button type="button" class="qbtn" id="et100-pick-file" aria-haspopup="menu" aria-expanded="false">選擇 ET-100 DFU ZIP ▾</button>
+              <div class="gateway-bin-menu" id="et100-build-menu" role="menu" hidden>
+                <button type="button" role="menuitem" data-et100-build="build" title="fw/build_serial/output/dfu_application.zip"><span>ET-100</span><small>fw/build_serial/output</small></button>
+                <button type="button" role="menuitem" class="gateway-bin-local" data-et100-build="local"><span>本機檔案…</span><small>選擇其他 ZIP / BIN</small></button>
+              </div>
               <div class="gateway-bin-menu" id="et100-sensor-menu" role="menu" hidden>
                 <button type="button" role="menuitem" data-et100-sensor="p1"><span>P1</span><small>build_p1_ota</small></button>
                 <button type="button" role="menuitem" data-et100-sensor="e9"><span>E9</span><small>build_e9_ota</small></button>
@@ -3471,6 +3476,7 @@
 
     <div class="parsed-panel">
       <section id="et100-viz" class="flash-ota-viz et100-storage" aria-label="ET-100 Flash 與 NOR OTA 視覺化" hidden>
+        <div class="et100-fit-frame">
         <div class="et100-viz-layout">
           <div class="et100-diagram">
             <div id="et100-source" class="flash-viz-source" data-ready="false">
@@ -3491,6 +3497,7 @@
             <div class="flash-viz-info-header">ET-100 OTA 更新狀態</div>
             <div id="et100-stat-rows" class="flash-viz-info-table"></div>
           </div>
+        </div>
         </div>
       </section>
       <section id="flash-ota-viz" class="flash-ota-viz" aria-label="Flash OTA 視覺化" hidden>
@@ -4100,6 +4107,9 @@ const SENSOR_DFU_PATHS = {
 };
 const SENSOR_BUILD_ROOT_KEY = 'eup-aiot-root';
 let sensorBuildRootHandle = null;
+const ET100_BUILD_ROOT_KEY = 'eup-et100-root';
+const ET100_DFU_PATH = ['fw', 'build_serial', 'output', 'dfu_application.zip'];
+let et100BuildRootHandle = null;
 const FLASH_PARTITION_MAP = JSON.parse(document.getElementById('flash-partition-map').textContent);
 const flashOtaViz = {
   boardKey: null,
@@ -8771,21 +8781,28 @@ async function et100RefreshRelayPackage() {
 const et100Sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const et100Visual = {stage:'idle', off:null, base:null, firstAck:0, speed:0, elapsed:0, logBucket:-1, stateLog:''};
 const et100FlashPartitions = [
-  ['ROM A 資訊段', 0x08000000, 4096, '#738295', '使用量未知'],
+  ['ROM A 資訊段', 0x08000000, 4096, '#738295', '僅更新 Installer 時寫入'],
   ['ROM B 資訊段', 0x08001000, 4096, '#D95C5C', '禁止擦除／寫入'],
-  ['Installer', 0x08002000, 120*1024, '#997640', '使用量未知'],
-  ['App', 0x08020000, 1792*1024, '#0F7AE5', '使用量未知'],
-  ['Settings／KV', 0x081E0000, 112*1024, '#238B78', '使用量未知'],
-  ['Boot state', 0x081FC000, 16*1024, '#9B69AC', '使用量未知']
+  ['Installer', 0x08002000, 120*1024, '#997640', '驗證、安裝與失敗復原'],
+  ['App', 0x08020000, 1792*1024, '#0F7AE5', '目前執行的韌體'],
+  ['Settings／KV', 0x081E0000, 112*1024, '#238B78', '保存裝置設定'],
+  ['Boot state', 0x081FC000, 16*1024, '#9B69AC', '記錄安裝、試運行與確認狀態']
 ];
+// Stable internal keys keep progress routing independent of translated labels.
+const et100PartitionNames = {
+  'ROM A 資訊段':'開機資訊', 'ROM B 資訊段':'原廠 OTA 資訊',
+  Installer:'韌體安裝程式', App:'主程式', 'Settings／KV':'系統設定', 'Boot state':'更新狀態',
+  'Download journal':'下載紀錄', Candidate:'新版韌體暫存', Rollback:'舊版韌體備份',
+  'Sensor OTA':'感測器更新套件', 'Logs／預留':'日誌與預留空間'
+};
 function et100StoragePartitions(profile) {
   const total = (profile === 'product' ? 32 : 16)*1024*1024;
   return [
-    ['Download journal', 0, 128*1024, '#738295', '使用量未知'],
-    ['Candidate', 0x020000, 2*1024*1024, '#0F7AE5', '待更新映像；使用量未知'],
-    ['Rollback', 0x220000, 2*1024*1024, '#238B78', '已確認 App 備份；使用量未知'],
-    ['Sensor OTA', 0x420000, 256*1024, '#9B69AC', 'Package 上限 225,280 B；使用量未知'],
-    ['Logs／預留', 0x460000, total-0x460000, '#B5BEC9', '使用量未知']
+    ['Download journal', 0, 128*1024, '#738295', '保存下載進度，支援斷點續傳'],
+    ['Candidate', 0x020000, 2*1024*1024, '#0F7AE5', '接收並驗證待更新韌體'],
+    ['Rollback', 0x220000, 2*1024*1024, '#238B78', '更新失敗時還原'],
+    ['Sensor OTA', 0x420000, 256*1024, '#9B69AC', '套件上限 225,280 B'],
+    ['Logs／預留', 0x460000, total-0x460000, '#B5BEC9', '預留供後續功能使用']
   ];
 }
 function et100Capacity(bytes) {
@@ -8801,9 +8818,11 @@ function et100RenderStorage() {
     const legend = document.createElement('div'); legend.className = 'et100-partitions';
     for (const [name, start, bytes, color, note] of partitions) {
       const row = document.createElement('div'); row.className = 'et100-partition'; row.dataset.name = name;
-      const label = document.createElement('strong'); label.textContent = name;
-      const capacity = document.createElement('span'); capacity.textContent = et100Capacity(bytes);
-      const state = document.createElement('small'); state.textContent = note; row.title = note;
+      const title = document.createElement('div'); title.className = 'et100-partition-title';
+      const label = document.createElement('strong'); label.textContent = et100PartitionNames[name];
+      const capacity = document.createElement('span'); capacity.className = 'et100-partition-capacity'; capacity.textContent = et100Capacity(bytes);
+      const description = document.createElement('small'); description.textContent = note; row.title = note;
+      const state = document.createElement('small');
       const startLabel = document.createElement('small'); startLabel.textContent = '0x'+start.toString(16).toUpperCase().padStart(8,'0');
       if (name === 'Candidate' || name === 'Sensor OTA') {
         for (const className of ['et100-slot-image','et100-slot-committed']) {
@@ -8812,7 +8831,10 @@ function et100RenderStorage() {
         state.id = name === 'Candidate' ? 'et100-candidate-state' : 'et100-sensor-state';
       }
       if (name === 'App') state.id = 'et100-app-state';
-      row.append(startLabel, label, capacity, state); legend.append(row);
+      title.append(startLabel, label);
+      row.append(title, capacity, description);
+      if (state.id) row.append(state);
+      legend.append(row);
     }
     root.append(heading, legend);
   }
@@ -8849,7 +8871,7 @@ function et100RefreshVisual() {
     ['已提交進度', off === null ? '未知' : `${off.toLocaleString()} / ${bytes.toLocaleString()} B (${bytes ? (off/bytes*100).toFixed(1) : '0.0'}%)`],
     ['平均上傳速度', et100Visual.base === null ? '未知' : `${(et100Visual.speed/1024).toFixed(2)} KB/s`],
     ['經過時間', `${et100Visual.elapsed.toFixed(1)} s`], ['檔案大小', bytes ? `${bytes.toLocaleString()} B` : '尚未載入'],
-    [sensor ? 'Sensor 區' : 'Candidate', sensor ? '256 KB' : '2 MB'], ['檔案放入餘量', bytes ? `${(slotSize-bytes).toLocaleString()} B` : '未知'],
+    [sensor ? '感測器更新套件' : '新版韌體暫存', sensor ? '256 KB' : '2 MB'], ['檔案放入餘量', bytes ? `${(slotSize-bytes).toLocaleString()} B` : '未知'],
     [sensor ? '套件上限' : 'App 上限', sensor ? '225,280 B' : '1792 KB'],
     [sensor ? 'NOR 狀態' : '安裝／備份進度', sensor ? (et100StoredPackage?.state || '尚未查詢') : '裝置未回報']
   ];
@@ -8867,6 +8889,26 @@ function et100Flow(stage) {
   et100RefreshVisual();
 }
 et100RenderStorage();
+
+// Fit only the visualization; never change the shared log/panel grid tracks.
+function et100FitDiagram() {
+  const viz = document.getElementById('et100-viz');
+  if (viz.hidden) return;
+  const frame = viz.querySelector('.et100-fit-frame');
+  const layout = frame.firstElementChild;
+  const width = frame.clientWidth, height = frame.clientHeight;
+  if (width <= 620) {
+    layout.style.width = layout.style.transform = layout.style.left = '';
+    return;
+  }
+  if (!width || !height) return;
+  const baseWidth = Math.max(1000, width);
+  const scale = Math.min(1, width / baseWidth, height / 460);
+  layout.style.width = `${baseWidth}px`;
+  layout.style.transform = `scale(${scale})`;
+  layout.style.left = `${(width - baseWidth * scale) / 2}px`;
+}
+new ResizeObserver(et100FitDiagram).observe(document.querySelector('.et100-fit-frame'));
 function et100Rows(id, rows) {
   const content = document.getElementById(id);
   const labels = id === 'et100-file-info' ?
@@ -8941,21 +8983,73 @@ for (const prefix of ['et100-device','et100-file','et100-package']) {
   };
   document.getElementById(prefix+'-header').addEventListener('click',toggle);
 }
+// The browser remembers a separate last-used directory for each picker ID.
+// A filesystem path cannot be supplied as startIn without a user-granted handle.
+async function chooseOtaLocalFile(target, inputId, load, isCurrent = () => true) {
+  const input = document.getElementById(inputId);
+  if (typeof window.showOpenFilePicker !== 'function') {
+    input.value = '';
+    input.click();
+    return;
+  }
+  const accept = target === 'gateway' ? {'application/octet-stream':['.bin']} :
+    target === 'sensor' ? {'application/zip':['.zip']} :
+    {'application/zip':['.zip'],'application/octet-stream':['.bin']};
+  try {
+    const [handle] = await window.showOpenFilePicker({
+      id: `${target}-dfu`, multiple: false,
+      types: [{description: 'DFU', accept}]
+    });
+    const file = await handle.getFile();
+    if (isCurrent()) await load(file);
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    if (err.name === 'SecurityError' && isCurrent()) {
+      input.value = '';
+      input.click();
+      return;
+    }
+    console.warn('DFU file selection failed', err);
+  }
+}
+function chooseEt100LocalFile() {
+  const sensor = et100SensorTarget(), generation = et100FileGeneration;
+  return chooseOtaLocalFile(sensor ? 'sensor' : 'et100', 'et100-file', et100LoadFile,
+    () => !et100Busy && sensor === et100SensorTarget() && generation === et100FileGeneration);
+}
+function chooseGatewayLocalFile(target) {
+  const mode = otaMode;
+  return chooseOtaLocalFile(target, 'ota-file-input', loadOtaSelectedFile, () => otaMode === mode);
+}
 document.getElementById('et100-pick-file').addEventListener('click',()=>{
-  if (!et100SensorTarget()) { document.getElementById('et100-file').click(); return; }
-  const menu=document.getElementById('et100-sensor-menu');
+  const menu=document.getElementById(et100SensorTarget() ? 'et100-sensor-menu' : 'et100-build-menu');
   menu.hidden=!menu.hidden;
   document.getElementById('et100-pick-file').setAttribute('aria-expanded',String(!menu.hidden));
 });
 function et100CloseFileMenu() {
   document.getElementById('et100-sensor-menu').hidden=true;
+  document.getElementById('et100-build-menu').hidden=true;
   document.getElementById('et100-pick-file').setAttribute('aria-expanded','false');
 }
+document.getElementById('et100-build-menu').addEventListener('click',async event=>{
+  const option=event.target.closest('[data-et100-build]');
+  if (!option || et100Busy || et100SensorTarget()) return;
+  et100CloseFileMenu();
+  if (option.dataset.et100Build==='local') { await chooseEt100LocalFile(); return; }
+  const generation=et100FileGeneration;
+  try {
+    const file=await getEt100DfuFile();
+    if (!et100Busy && !et100SensorTarget() && generation===et100FileGeneration) await et100LoadFile(file);
+  } catch(err) {
+    if (err.name!=='AbortError' && !et100SensorTarget() && generation===et100FileGeneration)
+      et100Rows('et100-file-info',[['讀取檔案失敗',err.message]]);
+  }
+});
 document.getElementById('et100-sensor-menu').addEventListener('click',async event=>{
   const option=event.target.closest('[data-et100-sensor]');
   if (!option || et100Busy || !et100SensorTarget()) return;
   et100CloseFileMenu();
-  if (option.dataset.et100Sensor==='local') { document.getElementById('et100-file').click(); return; }
+  if (option.dataset.et100Sensor==='local') { await chooseEt100LocalFile(); return; }
   const generation=et100FileGeneration;
   try {
     const file=await getSensorDfuFile(option.dataset.et100Sensor);
@@ -9226,8 +9320,8 @@ function updateOtaModeUi() {
     document.getElementById('et100-package-download').hidden=!sensorTarget;
     document.getElementById('et100-start').textContent=sensorTarget?'儲存到 ET-100':'開始 OTA';
     const picker=document.getElementById('et100-pick-file');
-    picker.textContent=sensorTarget?'選擇 Sensor DFU ZIP ▾':'載入 ZIP / BIN 檔案';
-    if(sensorTarget) picker.setAttribute('aria-haspopup','menu'); else picker.removeAttribute('aria-haspopup');
+    picker.textContent=sensorTarget?'選擇 Sensor DFU ZIP ▾':'選擇 ET-100 DFU ZIP ▾';
+    picker.setAttribute('aria-haspopup','menu');
     et100CloseFileMenu();
     document.getElementById('et100-file').accept=sensorTarget?'.zip':'.zip,.bin';
     et100RefreshVisual(); et100RenderPackage();
@@ -9590,6 +9684,48 @@ async function getSensorBuildRootHandle() {
   return handle;
 }
 
+async function et100RootRecord(action, handle) {
+  const db = await openGatewayBuildRootDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(GATEWAY_BUILD_ROOT_STORE, action === 'get' ? 'readonly' : 'readwrite');
+      const store = tx.objectStore(GATEWAY_BUILD_ROOT_STORE);
+      const request = action === 'get' ? store.get(ET100_BUILD_ROOT_KEY) :
+        action === 'put' ? store.put(handle, ET100_BUILD_ROOT_KEY) : store.delete(ET100_BUILD_ROOT_KEY);
+      tx.oncomplete = () => resolve(request.result || null);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('無法保存 ET-100 資料夾'));
+    });
+  } finally { db.close(); }
+}
+
+async function getEt100DfuFile() {
+  if (!window.showDirectoryPicker)
+    throw new Error('此瀏覽器不支援固定 Build 目錄，請使用「本機檔案…」');
+  let root = et100BuildRootHandle;
+  if (!root) root = await et100RootRecord('get').catch(() => null);
+  if (root) {
+    let permission = await root.queryPermission({mode:'read'});
+    if (permission === 'prompt') permission = await root.requestPermission({mode:'read'});
+    if (permission !== 'granted') root = null;
+  }
+  if (!root) {
+    root = await window.showDirectoryPicker({id:ET100_BUILD_ROOT_KEY,mode:'read'});
+    await et100RootRecord('put', root).catch(() => {});
+  }
+  et100BuildRootHandle = root;
+  try {
+    let directory = root;
+    for (const segment of ET100_DFU_PATH.slice(0,-1))
+      directory = await directory.getDirectoryHandle(segment);
+    return await (await directory.getFileHandle(ET100_DFU_PATH.at(-1))).getFile();
+  } catch (err) {
+    et100BuildRootHandle = null;
+    await et100RootRecord('delete').catch(() => {});
+    throw new Error('找不到 fw/build_serial/output/dfu_application.zip，請重新選擇 eup_et100 專案根目錄');
+  }
+}
+
 async function getSensorDfuFile(target) {
   const path = SENSOR_DFU_PATHS[target];
   if (!path) throw new Error('未知的 Sensor DFU target');
@@ -9690,7 +9826,7 @@ document.getElementById('gateway-bin-menu').addEventListener('click', async even
   menu.hidden = true;
   document.getElementById('ota-pick-file').setAttribute('aria-expanded', 'false');
   if (target === 'local') {
-    document.getElementById('ota-file-input').click();
+    await chooseGatewayLocalFile('gateway');
     return;
   }
   try {
@@ -9712,7 +9848,7 @@ document.getElementById('sensor-dfu-menu').addEventListener('click', async event
   menu.hidden = true;
   document.getElementById('ota-pick-file').setAttribute('aria-expanded', 'false');
   if (target === 'local') {
-    document.getElementById('ota-file-input').click();
+    await chooseGatewayLocalFile('sensor');
     return;
   }
   try {

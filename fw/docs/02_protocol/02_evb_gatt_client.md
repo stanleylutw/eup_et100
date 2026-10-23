@@ -6,7 +6,7 @@ Version: v0.2
 
 ## 範圍
 
-UART3 維持 9600/8N1、ASCII CRLF 與四字元 token。支援單一 central session、手動／自動連線、EUP AES challenge 認證、metadata 讀取與設定。不是完整 Gateway 移植；沒有 Sensor OTA、MCUmgr、package staging、GLIST、MAXRPT 或 MAC whitelist。SDK 新增 patch 0；採專案 source 與 build overlay。
+本節描述 v0.6 baseline：UART3 為 9600/8N1、ASCII CRLF 與四字元 token，支援單一 central session、手動／自動連線、EUP AES challenge 認證、metadata 讀取與設定。當時沒有 Sensor OTA、MCUmgr、package staging、GLIST 或 MAXRPT。現行 v0.8.10 的 GLIST／SLIST、GMAXRPT／SMAXRPT 見 [serial 協定](01_evb_serial_gchk.md)，後續 OTA 見各專用協定；本節不是現行功能缺口清單。SDK 新增 patch 0；採專案 source 與 build overlay。
 
 ## 命令
 

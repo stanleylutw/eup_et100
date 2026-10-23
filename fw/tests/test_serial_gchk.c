@@ -11,6 +11,16 @@ static uint16_t durable_gtime = ET100_GTIME_DEFAULT;
 static int save_fails;
 static unsigned save_calls;
 static uint16_t durable_cids[4] = {0x0639};
+static uint8_t durable_controls[ET100_REPORT_CONTROLS_SIZE];
+static unsigned controls_saves;
+static int save_controls(const struct et100_report_controls *c, void *context)
+{
+    (void)context;
+    controls_saves++;
+    if (save_fails) return -1;
+    et100_controls_encode(c, durable_controls);
+    return 0;
+}
 static int save_cids(const uint16_t cids[4], void *context)
 {
     (void)context;
@@ -75,7 +85,7 @@ int main(void)
     assert(strcmp(output, expected) == 0);
     used = 0;
     feed(&p, "BLEGW$GMAXRPT;Ab12\r\nBLEGW$GCHK;A1b2\r\n");
-    assert(strstr(output, "AT$PD=BLEGW$GMAXRPT;0;Ab12\r\n") == output);
+    assert(strstr(output, "AT$PD=BLEGW$GMAXRPT;0;3;Ab12\r\n") == output);
     assert(strstr(output, expected));
     used = 0;
     feed(&p, "BLEGW$GCHK;A1b2\nBLEGW$GCHK;abc\r\n");
@@ -116,6 +126,9 @@ int main(void)
         assert(p.gtime == 30 && durable_gtime == 30 && save_calls == calls);
     }
     expect(&p, "BLEGW$SGTIME;MISS\r\n", "AT$PD=BLEGW$SGTIME;0;;MISS\r\n");
+    expect(&p, "BLEGW$SGTIME;1;MIN1\r\n", "AT$PD=BLEGW$SGTIME;0;1;MIN1\r\n");
+    p.save_controls = save_controls;
+    expect(&p, "BLEGW$SMAXRPT;1;MIN2\r\n", "AT$PD=BLEGW$SMAXRPT;1;1;MIN2\r\n");
     expect(&p, "BLEGW$SGTIME;1;MIN1\r\n", "AT$PD=BLEGW$SGTIME;1;1;MIN1\r\n");
     expect(&p, "BLEGW$SGTIME;1800;MAX1\r\n", "AT$PD=BLEGW$SGTIME;1;1800;MAX1\r\n");
     save_fails = 1;
@@ -219,5 +232,59 @@ int main(void)
     assert(p.cids[0] == 0 && p.cids[1] == 0);
     expect(&p, "BLEGW$SCID;0000;;;;ZERO\r\n", "AT$PD=BLEGW$SCID;1;;;;;ZERO\r\n");
     puts("PASS: CID defaults, fixed fields, normalization, empty filters, mock reload/failure");
+
+    p.save_controls = save_controls;
+    expect(&p, "BLEGW$GMAXRPT;R001\r\n", "AT$PD=BLEGW$GMAXRPT;1;3;R001\r\n");
+    expect(&p, "BLEGW$GLIST;R002\r\n", "AT$PD=BLEGW$GLIST;1;;;;;;;;;R002\r\n");
+    expect(&p, "BLEGW$SLIST;aabbccddeeff;R003\r\n",
+           "AT$PD=BLEGW$SLIST;1;AABBCCDDEEFF;;;;;;;;R003\r\n");
+    assert(p.controls.macs[0][0] == 0xaa);
+    struct et100_report_controls reloaded = {0};
+    assert(et100_controls_decode(&reloaded, durable_controls, p.gtime));
+    assert(!memcmp(&reloaded, &p.controls, sizeof reloaded));
+    for (unsigned i = 0; i < sizeof durable_controls; i++) {
+        durable_controls[i] ^= 1;
+        assert(!et100_controls_decode(&reloaded, durable_controls, p.gtime));
+        durable_controls[i] ^= 1;
+    }
+    unsigned saved = controls_saves;
+    const char *bad_counts[] = {"0", "16", "1800", "256", "-1", "+1", "1;2", "", "999999999999999"};
+    for (unsigned i = 0; i < sizeof bad_counts / sizeof bad_counts[0]; i++) {
+        char req[100], rsp[120];
+        snprintf(req, sizeof req, "BLEGW$SMAXRPT;%s;FAIL\r\n", bad_counts[i]);
+        snprintf(rsp, sizeof rsp, "AT$PD=BLEGW$SMAXRPT;0;%s;FAIL\r\n", bad_counts[i]);
+        expect(&p, req, rsp);
+    }
+    const char *bad_lists[] = {"AABBCCDDEEF", "AABBCCDDEEFG", ";;;;;;;;", "AABBCCDDEEFF;1"};
+    for (unsigned i = 0; i < sizeof bad_lists / sizeof bad_lists[0]; i++) {
+        char req[150];
+        snprintf(req, sizeof req, "BLEGW$SLIST;%s;FAIL\r\n", bad_lists[i]);
+        expect(&p, req, "AT$PD=BLEGW$SLIST;0;;;;;;;;;FAIL\r\n");
+    }
+    assert(controls_saves == saved && p.controls.maxrpt == 3 && p.controls.macs[0][0] == 0xaa);
+    expect(&p, "BLEGW$SMAXRPT;15;R004\r\n", "AT$PD=BLEGW$SMAXRPT;1;15;R004\r\n");
+    expect(&p, "BLEGW$SLIST;000000000001;000000000002;000000000003;000000000004;000000000005;000000000006;000000000007;000000000008;R005\r\n",
+           "AT$PD=BLEGW$SLIST;1;000000000001;000000000002;000000000003;000000000004;000000000005;000000000006;000000000007;000000000008;R005\r\n");
+    expect(&p, "BLEGW$SMAXRPT;7;R006\r\n", "AT$PD=BLEGW$SMAXRPT;0;7;R006\r\n");
+    expect(&p, "BLEGW$SGTIME;14;R007\r\n", "AT$PD=BLEGW$SGTIME;0;14;R007\r\n");
+    save_fails = 1;
+    expect(&p, "BLEGW$SLIST;;FAIL\r\n", "AT$PD=BLEGW$SLIST;0;;;;;;;;;FAIL\r\n");
+    expect(&p, "BLEGW$SMAXRPT;8;FAIL\r\n", "AT$PD=BLEGW$SMAXRPT;0;8;FAIL\r\n");
+    assert(p.controls.maxrpt == 15 && p.controls.macs[7][5] == 8);
+    save_fails = 0;
+    expect(&p, "BLEGW$SLIST;;;;;;;;;R008\r\n", "AT$PD=BLEGW$SLIST;1;;;;;;;;;R008\r\n");
+    expect(&p, "BLEGW$SMAXRPT;1;R009\r\n", "AT$PD=BLEGW$SMAXRPT;1;1;R009\r\n");
+    expect(&p, "BLEGW$SGTIME;1;R010\r\n", "AT$PD=BLEGW$SGTIME;1;1;R010\r\n");
+    expect(&p, "BLEGW$SMAXRPT;2;R011\r\n", "AT$PD=BLEGW$SMAXRPT;0;2;R011\r\n");
+    et100_serial_init(&p, "C00102030405", capture, NULL);
+    et100_serial_set_storage(&p, 1, durable_gtime, save_setting, NULL);
+    assert(et100_controls_decode(&p.controls, durable_controls, p.gtime));
+    expect(&p, "BLEGW$GMAXRPT;BOOT\r\n", "AT$PD=BLEGW$GMAXRPT;1;1;BOOT\r\n");
+    p.storage_ready = 0;
+    p.save_controls = save_controls;
+    saved = controls_saves;
+    expect(&p, "BLEGW$SMAXRPT;1;FAIL\r\n", "AT$PD=BLEGW$SMAXRPT;0;1;FAIL\r\n");
+    assert(saved == controls_saves);
+    puts("PASS: whitelist/MAXRPT commands, 8 slots, normalization, constraints, persistence codec corruption/reload/failure");
     return 0;
 }

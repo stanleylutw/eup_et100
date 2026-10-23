@@ -7,4 +7,5 @@
 #define ET100_FDB_AUTO_LIST_KEY   0x00030004U /* gatt_client.c auto list, 100 bytes */
 #define ET100_FDB_SENSOR_PKG_KEY  0x00030005U /* ota_worker.c sensor package record */
 #define ET100_FDB_BOOT_HEALTH_KEY 0x00030006U /* boot_health.c TRIAL probe, 4 bytes */
+#define ET100_FDB_REPORT_KEY      0x00030007U /* serial_gchk.c whitelist/MAXRPT, 102 bytes */
 #endif

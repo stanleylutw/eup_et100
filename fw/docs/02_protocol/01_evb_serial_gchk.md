@@ -1,6 +1,6 @@
 # DEV1.4 UART3 — Gateway 查詢、CID 與 BLE 回報子集
 
-Version: v0.5
+Version: v0.8.10
 日期：2026-10-21
 狀態：GCHK、基本 BLE scan／Type 1、CID 切換對照與 CID／GTIME 手動 RST 後保存已由 Stanley 驗證；詳細證據及限制見測試紀錄
 
@@ -48,7 +48,19 @@ FlashDB 沿用 SDK `FlashEnv`：internal Flash offset `0xC8000`（800 KiB）、�
 
 FlashDB init 失敗時 GTIME query/set 皆回覆 valid=0；query 仍列出 default 15。缺少、不合法或不支援 schema 的 record 使用 default 15，但不在開機時自行改寫；下一次有效 SGTIME 可保存。保存經 `flashdb_set` 成功且讀回完全一致，才更新 RAM 並回覆 1；相同 durable record 不重寫以減少磨耗。若 Flash 操作中途出錯，保留最後確認的 RAM 值，但不保證下次 boot 一定取回舊值。突然斷電及 FlashDB GC／故障恢復仍待硬體測試。
 
-0.4.0-dev 的 GTIME 只保存設定；從 0.5.0-dev 開始，GTIME 控制 Type 1 snapshot 周期，成功改值後從當下重新計時。Gateway 完整協定還要求 GTIME ≥ MAXRPT；本版未實作 MAXRPT setting，改採每周期上限 min(GTIME,15)，保留 1-1800 範圍驗證。
+0.4.0-dev 的 GTIME 只保存設定；從 0.5.0-dev 開始，GTIME 控制 Type 1 snapshot 周期，成功改值後從當下重新計時。v0.8.10 新增 MAXRPT，要求 GTIME ≥ MAXRPT；GTIME 範圍仍為 1–1800 秒。
+
+### v0.8.10 白名單與回報限制
+
+- `BLEGW$GLIST;<token>` 回 `AT$PD=BLEGW$GLIST;<valid>;<MAC1>;…;<MAC8>;<token>`。
+- `BLEGW$SLIST;<MAC1>;…;<MAC8>;<token>` 設定最多八筆顯示順序 MAC（12 位 hex），回應八個正規化大寫欄位；空欄／全零表示空位，尾端空位可省略，多餘欄位拒絕。
+- `BLEGW$GMAXRPT;<token>` 回 `AT$PD=BLEGW$GMAXRPT;<valid>;<count>;<token>`。
+- `BLEGW$SMAXRPT;<count>;<token>` 回 `AT$PD=BLEGW$SMAXRPT;<valid>;<count>;<token>`。
+- 必須符合 `非空白名單筆數 ≤ MAXRPT ≤ min(GTIME,15)`，MAXRPT 最小 1、預設 3；舊 GTIME 小於 3 時預設配合降至 GTIME。
+- 與 Gateway 相同：CID 或 MAC 命中即可；兩份清單都空才不過濾。匹配 CID 的 payload 優先於僅匹配 MAC 的 payload。
+- 設定經 FlashDB `0x00030007` 保存為 102-byte 版本／互補值記錄，寫入及讀回成功才更新執行中設定；設定與 BLE callback 原子同步。舊 key 不變；損毀或不存在則使用預設。
+- HTML 沿用既有指令控制；新增三類獨立選檔記憶、ET-100 build 下拉讀檔及中文記憶體圖。圖表自行等比例縮放，不更動共用 Log 高度。
+- Host／ARM／DFU／瀏覽器模擬測試通過；白名單與 MAXRPT 的 EVB 保存／過濾仍待 Stanley 驗收。
 
 ## GCID／SCID（0.5.0-dev）
 
@@ -111,7 +123,7 @@ cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
 python3 fw/tools/evb/fr3068_flash.py --image fw/build_serial/output/Project_burn.bin
 ```
 
-HTML 使用 sibling Gateway 的 `tools/rs232_tester.html`，連接 DAPLink VCOM，baud 固定 9600。GCHK、GTIME、CID 與 Type 1 沿用；0.6.0-dev 新增 GAUTOLIST／GATT 操作，見 [GATT 規格](02_evb_gatt_client.md)。GLIST、GMAXRPT、Gateway OTA／Sensor OTA 仍未支援；新板型不屬於 nRF OTA allowlist。
+HTML 使用本 repo 的 `tools/rs232_tester.html`，一般指令為 9600；SMP 上傳可切 115200。v0.8.10 支援 GLIST／SLIST、GMAXRPT／SMAXRPT；GATT、App SMP 與 Sensor relay 分別見其協定文件。ET-100 不使用 nRF Gateway 的更新方式。
 
 Stanley 已使用 HTML 確認 GCHK 與 5 個未支援命令的失敗回覆，見 [實測紀錄](../04_testing/02_evb_serial_gchk.md)。擴充驗收仍包含：GCHK token 100 次一致、長時間輸出無 vendor log、reset 後可重連、BLE 原有廣播／連線不退化。Host tests 不代替這些硬體結果。依 Stanley 指示，UART／HTML 後續測試由 Stanley 操作，Codex 未執行自動 UART script。
 
