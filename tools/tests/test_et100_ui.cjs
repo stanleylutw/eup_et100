@@ -10,19 +10,21 @@ const root=path.resolve(__dirname,'../..');
     const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
     page.on('pageerror',e=>errors.push(e.message));
     await page.addInitScript(()=>{
-      window.mockSerial={opens:[],requests:[],uploaded:0,oldVersion:'0.1.0.0',polls:0,clock:0};
+      window.mockSerial={opens:[],closes:0,resyncs:0,requests:[],uploaded:0,oldVersion:'0.1.0.0',polls:0,clock:0};
       const mock=window.mockSerial;
       const port={
         async open({baudRate}) {
+          if(mock.failOpen) {mock.failOpen=false;throw Error('mock port open failure');}
           mock.opens.push(baudRate);mock.baud=baudRate;
           this.readable=new ReadableStream({start:c=>{mock.controller=c;}});
           this.writable=new WritableStream({write:bytes=>mock.write(bytes)});
         },
-        async close() {if(this.readable.locked||this.writable.locked)throw Error('port close with locked streams');this.readable=null;this.writable=null;}
+        async close() {if(this.readable.locked||this.writable.locked)throw Error('port close with locked streams');mock.closes++;this.readable=null;this.writable=null;}
       };
       Object.defineProperty(navigator,'serial',{value:{getPorts:async()=>[],requestPort:async()=>port}});
       mock.write=bytes=>{
         const text=new TextDecoder().decode(bytes);
+        if(text==='\r\n') {mock.resyncs++;return;}
         if(text.startsWith('BLEGW$')) {
           mock.requests.push(text.trim());const fields=text.trim().split(';');
           if(fields[0]==='BLEGW$GCHK')mock.controller.enqueue(new TextEncoder().encode(`AT$PD=BLEGW$GCHK;1;C03232325903;Freqchip;DEV1.4_fr3068ep-c;${mock.version || '0.8.6-dev'};0;${fields[1]}\r\n`));
@@ -83,6 +85,14 @@ const root=path.resolve(__dirname,'../..');
           } else if(key==='2/0/5')mock.reset=true;
           else throw Error('unexpected request '+key);
           mock.controller.enqueue(ET100Smp.frame(ET100Smp.packet((p[0]&7)+1,p[4]*256+p[5],p[7],p[6],response)));
+          if(key==='2/0/5'&&mock.instProtocol) {
+            const txn=Array.from(mock.file.sha.slice(0,4),v=>v.toString(16).padStart(2,'0')).join('').toUpperCase();
+            for(const [event,fields] of [['HELLO','0.8.11;PENDING'],['BACKUP','SKIP'],['WRITE',`${mock.file.bytes.length};${mock.file.bytes.length}`],['BOOT','TRIAL;9600']]) {
+              const raw=`ET100$INST;1;L;${event};${txn};${fields}`;
+              const crc=ET100Smp.crc16(new TextEncoder().encode(raw)).toString(16).toUpperCase().padStart(4,'0');
+              mock.controller.enqueue(new TextEncoder().encode(`${raw}*${crc}\r\n`));
+            }
+          }
         });
         mock.decoder.feed(bytes);
       };
@@ -191,14 +201,16 @@ const root=path.resolve(__dirname,'../..');
     assert.equal(await page.locator('#flash-ota-viz').isVisible(),false);
     assert.match(await page.locator('#et100-flash-map').textContent(),/MCU 內建 Flash · 2 MB/);
     assert.match(await page.locator('#et100-flash-map').textContent(),/禁止擦除／寫入/);
-    assert.equal(await page.locator('#et100-flash-map [data-name="ROM B 資訊段"] small:last-child').isVisible(),true);
+    assert.equal(await page.locator('#et100-flash-map [data-name="ROM B 資訊段"] small:last-child').isVisible(),false);
     assert.match(await page.locator('#et100-flash-map').textContent(),/1792 KB/);
     assert.match(await page.locator('#et100-nor-map').textContent(),/16 MB（EVB）/);
-    assert.match(await page.locator('#et100-nor-map').textContent(),/11.625 MB/);
+    assert.match(await page.locator('#et100-nor-map').textContent(),/11\.6 MB/);
+    assert.equal(await page.evaluate(()=>et100Capacity(32*1024*1024-0x462000)),'27.6 MB');
+    assert.equal(await page.evaluate(()=>et100Capacity(2*1024*1024)),'2 MB');
     assert.deepEqual(await page.locator('#et100-flash-map .et100-partition strong').allTextContents(),
-      ['開機資訊','原廠 OTA 資訊','韌體安裝程式','主程式','系統設定','更新狀態']);
+      ['開機資訊','原廠 OTA 資訊','Bootloader','主程式','系統設定','更新狀態']);
     assert.deepEqual(await page.locator('#et100-nor-map .et100-partition strong').allTextContents(),
-      ['下載紀錄','新版韌體暫存','舊版韌體備份','感測器更新套件','日誌與預留空間']);
+      ['下載紀錄','新版韌體暫存','舊版韌體備份','感測器更新套件','安裝結果紀錄','日誌與預留空間']);
     assert.match(await page.locator('#et100-flash-map [data-name="ROM A 資訊段"]').textContent(),/僅更新 Installer 時寫入/);
     assert.equal(await page.locator('#et100-viz select, #et100-viz details, #et100-viz ol, #et100-viz p').count(),0,'no extra selector, explanations or workflow list');
     const layouts=await page.evaluate(()=>[et100FlashPartitions,et100StoragePartitions('evb'),et100StoragePartitions('product')]);
@@ -208,6 +220,15 @@ const root=path.resolve(__dirname,'../..');
     }
     await page.locator('#et100-query').click();
     await page.waitForFunction(()=>document.querySelector('#et100-device').textContent.includes('0.1.0.0'));
+    const sameBaud=await page.evaluate(async()=>{
+      const before={opens:mockSerial.opens.length,closes:mockSerial.closes,resyncs:mockSerial.resyncs};
+      const currentReader=reader,currentWriter=writer;
+      for(let i=0;i<50;i++)await et100Reopen(9600);
+      return {before,after:{opens:mockSerial.opens.length,closes:mockSerial.closes,resyncs:mockSerial.resyncs},
+        streamsSame:reader===currentReader&&writer===currentWriter};
+    });
+    assert.deepEqual(sameBaud.after,sameBaud.before,'50 same-baud requests keep the port open without sending CRLF');
+    assert.equal(sameBaud.streamsSame,true,'same-baud reader/writer are preserved');
     assert.equal(await page.locator('#et100-device .ota-meta-row:not(.ota-meta-extra)').count(),4,'same four-row device summary as Gateway');
     assert.equal(await page.locator('#et100-device-toggle').getAttribute('aria-expanded'),'false');
     assert.equal(await page.locator('#et100-device [data-field="確認狀態"]').isVisible(),false);
@@ -273,14 +294,42 @@ const root=path.resolve(__dirname,'../..');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'320px horizontal page overflow');
     await page.setViewportSize({width:1440,height:1000});
     await page.evaluate(()=>et100Client.io.stage('安裝中'));
+    await page.waitForFunction(()=>Math.abs(document.querySelector('.et100-viz-layout').getBoundingClientRect().height-
+      document.querySelector('.et100-fit-frame').getBoundingClientRect().height)<1);
     for (const id of ['et100-flash-map','et100-nor-map']) {
-      assert.equal(await page.locator('#'+id).evaluate(el=>el.lastElementChild.lastElementChild.getBoundingClientRect().bottom>el.getBoundingClientRect().bottom+1),false,`${id} final partition must not be clipped`);
+      const clip=await page.locator('#'+id).evaluate(el=>({clipped:el.lastElementChild.lastElementChild.getBoundingClientRect().bottom>el.getBoundingClientRect().bottom+1,
+        rows:[...el.lastElementChild.children].map(row=>[row.dataset.name,row.clientHeight,row.scrollHeight]),height:el.clientHeight}));
+      assert.equal(clip.clipped,false,`${id} final partition must not be clipped: ${JSON.stringify(clip)}`);
     }
     await page.locator('#et100-flash-map').scrollIntoViewIfNeeded();
     await page.screenshot({path:'/tmp/et100_memory_desktop.png'});
     await page.setViewportSize({width:1920,height:1200});
-    assert.ok((await page.locator('.et100-viz-layout').boundingBox()).height<=460,'desktop diagram stays compact');
-    assert.ok((await page.locator('.et100-diagram').boundingBox()).height<=461,'diagram must not grow past fixed frame');
+    await page.waitForFunction(()=>Math.abs(document.querySelector('.et100-viz-layout').getBoundingClientRect().height-
+      document.querySelector('.et100-fit-frame').getBoundingClientRect().height)<1);
+    const visualStyle=await page.evaluate(()=>{
+      // The standard map is empty until GCHK identifies an nRF board.
+      const reference=document.createElement('div');reference.className='flash-viz-slot';
+      reference.innerHTML='<span class="flash-viz-slot-name">Reference</span>';
+      document.querySelector('#flash-viz-slots').append(reference);
+      const style=selector=>getComputedStyle(document.querySelector(selector));
+      const pairs=[
+        ['.et100-memory h4','.flash-viz-chip-name',['fontSize','fontWeight']],
+        ['#et100-source .flash-viz-source-header','#flash-viz-source-title',['fontSize','fontWeight','padding']],
+        ['#et100-source .flash-viz-source-note','#flash-viz-source-note',['fontSize']],
+        ['.et100-partition strong','.flash-viz-slot-name',['fontSize','fontWeight']],
+        ['#et100-stats .flash-viz-info-label','#flash-ota-viz .flash-viz-info-label',['fontSize','padding']],
+        ['#et100-stats .flash-viz-info-value','#flash-ota-viz .flash-viz-info-value',['fontSize','padding']]
+      ];
+      const renderedFont=selector=>{
+        const el=document.querySelector(selector),layout=el.closest('.et100-viz-layout');
+        const scale=layout?layout.getBoundingClientRect().width/layout.offsetWidth:1;
+        return parseFloat(style(selector).fontSize)*scale;
+      };
+      const result=pairs.flatMap(([a,b,props])=>props.map(prop=>({a,b,prop,
+        same:prop==='fontSize'?Math.abs(renderedFont(a)-renderedFont(b))<0.1:style(a)[prop]===style(b)[prop]})));
+      reference.remove();return result;
+    });
+    assert.deepEqual(visualStyle.filter(check=>!check.same),[],'ET-100 uses shared Device GATT OTA typography and table spacing');
     assert.equal(await page.locator('#et100-viz').evaluate(el=>el.scrollHeight>el.clientHeight+1),false,'desktop diagram fits visualization panel');
     for (const id of ['et100-flash-map','et100-nor-map','et100-stats']) {
       assert.equal(await page.locator('#'+id).evaluate(el=>el.scrollHeight>el.clientHeight+1),false,`${id} contents fit compact frame`);
@@ -288,10 +337,18 @@ const root=path.resolve(__dirname,'../..');
     const positions=await page.evaluate(()=>['et100-source','et100-nor-map','et100-flash-map','et100-stats'].map(id=>document.getElementById(id).getBoundingClientRect().left));
     const partitionLayout=await page.locator('.et100-partition').evaluateAll(rows=>rows.map(row=>{
       const box=row.getBoundingClientRect(), capacity=row.querySelector('.et100-partition-capacity').getBoundingClientRect();
+      const title=row.querySelector('.et100-partition-title').getBoundingClientRect();
+      const details=[...row.querySelectorAll(':scope > small:not([hidden])')].filter(el=>getComputedStyle(el).display!=='none').map(el=>el.getBoundingClientRect());
+      const bottom=Math.max(title.bottom,...details.map(el=>el.bottom));
       return {center:Math.abs((capacity.top+capacity.bottom-box.top-box.bottom)/2),
+        contentCenter:Math.abs((title.top+bottom-box.top-box.bottom)/2),
         right:box.right-capacity.right, fits:row.scrollHeight<=row.clientHeight+1};
     }));
-    assert.ok(partitionLayout.every(row=>row.center<2&&row.right<12&&row.fits),'capacities right-aligned and vertically centered; no clipped details');
+    assert.ok(partitionLayout.every(row=>row.center<2&&row.contentCenter<3&&row.right<12&&row.fits),'partition content and capacities vertically centered like GATT OTA; no clipped details');
+    assert.ok(await page.locator('.et100-partition').evaluateAll(rows=>rows.every(row=>
+      [...row.querySelectorAll('small')].every(el=>getComputedStyle(el).display==='none') &&
+      getComputedStyle(row.querySelector('.et100-partition-title')).justifyContent==='center')),
+      'ET-100 Flash/NOR maps show centered section names and right-side capacities only');
     assert.ok(positions.every((x,i)=>i===0||x>positions[i-1]),'desktop: file → NOR → MCU → status');
     await page.locator('.et100-viz-layout').screenshot({path:'/tmp/et100_memory_diagram.png'});
     for (const [width,height] of [[1920,900],[1440,900],[1366,768],[1280,800]]) {
@@ -299,7 +356,7 @@ const root=path.resolve(__dirname,'../..');
       await page.waitForFunction(()=>{
         const frame=document.querySelector('.et100-fit-frame').getBoundingClientRect();
         const diagram=document.querySelector('.et100-viz-layout').getBoundingClientRect();
-        return diagram.width>0&&diagram.bottom<=frame.bottom+1&&diagram.right<=frame.right+1;
+        return diagram.width>0&&Math.abs(diagram.height-frame.height)<1&&diagram.bottom<=frame.bottom+1&&diagram.right<=frame.right+1;
       });
       const fit=await page.evaluate(()=>{
         const viz=document.getElementById('et100-viz');
@@ -313,13 +370,34 @@ const root=path.resolve(__dirname,'../..');
         const a=document.querySelector('[data-name="ROM A 資訊段"]').getBoundingClientRect();
         const b=document.querySelector('[data-name="ROM B 資訊段"]').getBoundingClientRect();
         return {overflow:viz.scrollHeight>viz.clientHeight+1,a:a.height,b:b.height,currentLog,sharedLog,
+          bodyFont:parseFloat(getComputedStyle(viz.querySelector('.et100-partition-capacity')).fontSize)*diagram.width/viz.querySelector('.et100-viz-layout').offsetWidth,
+          detailFont:parseFloat(getComputedStyle(viz.querySelector('.et100-partition small')).fontSize)*diagram.width/viz.querySelector('.et100-viz-layout').offsetWidth,
+          detailColor:getComputedStyle(viz.querySelector('.et100-partition small')).color,
+          fills:Math.abs(diagram.height-frame.height)<1,
           fits:diagram.top>=frame.top-1&&diagram.left>=frame.left-1&&diagram.bottom<=frame.bottom+1&&diagram.right<=frame.right+1,
           clipped:[...viz.querySelectorAll('.et100-partition')].filter(row=>row.scrollHeight>row.clientHeight+1).map(row=>row.dataset.name)};
       });
       assert.equal(fit.overflow,false,`${width}x${height}: complete diagram fits available panel`);
       assert.ok(Math.abs(fit.currentLog-fit.sharedLog)<1,`${width}x${height}: shared log height must not change for ET-100`);
       assert.equal(fit.fits,true,`${width}x${height}: scaled diagram stays inside its frame`);
+      assert.equal(fit.fills,true,`${width}x${height}: diagram fills the available Flash UI height`);
+      assert.ok(Math.abs(fit.bodyFont-13)<0.1,`${width}x${height}: rendered body type remains 13px like GATT OTA`);
+      assert.ok(Math.abs(fit.detailFont-11)<0.1,`${width}x${height}: addresses and details use 11px type`);
+      assert.equal(fit.detailColor,'rgb(174, 183, 196)','addresses and details use muted gray');
+      assert.ok(await page.evaluate(()=>Math.abs(document.querySelector('.et100-viz-layout').getBoundingClientRect().left-
+        document.querySelector('.et100-fit-frame').getBoundingClientRect().left)<1),`${width}x${height}: diagram starts at the standard left edge`);
       assert.ok(Math.abs(fit.a-fit.b)<1,`${width}x${height}: A/B info sections have equal height`);
+      assert.ok(fit.a<40 && fit.b<40,`${width}x${height}: both 4 KB sections stay compact`);
+      assert.ok(await page.evaluate(()=>{
+        const height=name=>document.querySelector(`#et100-flash-map [data-name="${name}"]`).getBoundingClientRect().height;
+        return Math.abs(height('Boot state')-height('ROM A 資訊段'))<1;
+      }),`${width}x${height}: 16 KB boot state uses the same compact height as 4 KB info`);
+      assert.ok(await page.evaluate(()=>{
+        const result=document.querySelector('#et100-nor-map [data-name="Installer 結果"]').getBoundingClientRect();
+        const info=document.querySelector('#et100-flash-map [data-name="ROM A 資訊段"]').getBoundingClientRect();
+        const logs=document.querySelector('#et100-nor-map [data-name="Logs／預留"]').getBoundingClientRect();
+        return Math.abs(result.height-info.height)<1 && logs.height>result.height;
+      }),`${width}x${height}: 8 KB result row is compact and reserved space receives more height`);
       assert.deepEqual(fit.clipped,[],`${width}x${height}: partition text fits`);
       if(width===1366) {
         await page.locator('.et100-viz-layout').screenshot({path:'/tmp/et100_memory_1366.png'});
@@ -328,7 +406,7 @@ const root=path.resolve(__dirname,'../..');
     }
     await page.setViewportSize({width:1440,height:1000});
     await page.evaluate(()=>{
-      mockSerial.file=et100File;et100Client.io.now=()=>mockSerial.clock;
+      mockSerial.file=et100File;mockSerial.instProtocol=true;et100Client.io.now=()=>mockSerial.clock;
       et100Client.io.sleep=async n=>{mockSerial.clock+=n;};
     });
     await page.locator('#et100-start').click();
@@ -343,6 +421,8 @@ const root=path.resolve(__dirname,'../..');
     assert.match(log,/SMP upload ACK/);
     assert.match(log,/SMP Test ACK/);
     assert.match(log,/SMP Reset ACK/);
+    assert.match(log,/ET100\$INST;1;L;HELLO;/);
+    assert.match(log,/備份目前版本/);
     assert.match(log,/slot 0 .*confirmed=false/);
     assert.match(log,/slot 0 .*confirmed=true/);
     assert.match(log,/更新成功：.*已確認/);
@@ -352,7 +432,8 @@ const root=path.resolve(__dirname,'../..');
     assert.ok((log.match(/SMP upload ACK/g)||[]).length<=13,'upload log is throttled');
     assert.match(await page.locator('#et100-file-info').textContent(),/裝置／檔案硬體一致/);
     let state=await page.evaluate(()=>({opens:mockSerial.opens,requests:mockSerial.requests,polls:mockSerial.polls}));
-    assert.deepEqual(state.opens,[9600,9600,9600,115200,9600]);
+    assert.deepEqual(state.opens,[9600,115200,9600]);
+    assert.equal(await page.evaluate(()=>mockSerial.resyncs),2,'CRLF sent only after the two real baud transitions');
     assert.ok(state.requests.includes('2/0/5'));assert.equal(state.polls,2);
     assert.ok(!state.requests.some(s=>s.includes('ZVERO')||s.includes('SOTASTAGE')));
     await page.evaluate(()=>{mockSerial.failRc=10;mockSerial.reset=false;mockSerial.uploaded=0;});
@@ -445,13 +526,49 @@ const root=path.resolve(__dirname,'../..');
     assert.ok(sensorRequests.some(s=>s.startsWith('BLEGW$GSOTAPKG;')));
     assert.ok(!sensorRequests.some(s=>s==='2/0/5'||s==='2/1/0'||s.includes('SOTASTAGE')||s.includes('ZVERO')));
     assert.ok(await page.locator('[data-name="Sensor OTA"] .et100-slot-committed').evaluate(el=>parseFloat(el.style.width)>0));
-    assert.match(await page.locator('#et100-stat-rows').textContent(),/225,280 B/);
+    assert.doesNotMatch(await page.locator('#et100-viz').textContent(),/套件上限|225,280 B/);
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'sensor UI mobile width');
     await page.setViewportSize({width:1440,height:1000});
     await page.locator('#et100-package-query').click();
     await page.waitForFunction(()=>!et100Busy);
     assert.match(await page.locator('#et100-package-info').textContent(),/VALID/);
+    const packageQueries=await page.evaluate(()=>mockSerial.opens.length);
+    for(let i=0;i<3;i++) {
+      await page.locator('#et100-package-query').click();
+      await page.waitForFunction(()=>!et100Busy);
+    }
+    assert.equal(await page.evaluate(()=>mockSerial.opens.length),packageQueries,'repeated NOR queries do not reopen 9600');
+    const sharedNorHeights=await page.evaluate(()=>{
+      const mode=otaMode;
+      const heights=()=>[...document.querySelectorAll('#et100-nor-map .et100-partition')].map(row=>row.getBoundingClientRect().height);
+      const sensor=heights();
+      otaMode='et100';et100RefreshVisual();const self=heights();
+      otaMode=mode;et100RefreshVisual();const restored=heights();
+      return {sensor,self,restored};
+    });
+    assert.ok(sharedNorHeights.self.every((height,i)=>Math.abs(height-sharedNorHeights.sensor[i])<1 &&
+      Math.abs(height-sharedNorHeights.restored[i])<1),'Device RS232 and ET-100 self OTA use identical NOR partition heights');
+    const snapshot=await page.evaluate(()=>{
+      window.savedSensorVisual={file:et100File,visual:{...et100Visual},stored:{...et100StoredPackage}};
+      et100File=null;et100Visual.off=null;et100Visual.stage='idle';et100RefreshVisual();
+      return et100StoredPackage;
+    });
+    assert.equal(await page.locator('#et100-sensor-state').textContent(),`${snapshot.firmware}（${snapshot.package_length.toLocaleString()} B）`);
+    assert.ok(await page.locator('[data-name="Sensor OTA"] .et100-slot-committed').evaluate(el=>parseFloat(el.style.width)>0),'read-only VALID snapshot fills the stored package, even without a selected file');
+    assert.match(await page.locator('#et100-stat-rows').textContent(),/已提交進度未知/,'stored package is not an upload ACK');
+    for (const state of ['EMPTY','INVALID']) {
+      await page.evaluate(state=>et100ApplyPackage({...et100StoredPackage,state}),state);
+      assert.equal(await page.locator('#et100-sensor-state').textContent(),'');
+      assert.equal(await page.locator('#et100-sensor-state').isVisible(),false);
+      assert.equal(await page.locator('[data-name="Sensor OTA"] .et100-slot-committed').evaluate(el=>parseFloat(el.style.width)),0);
+    }
+    await page.evaluate(()=>{
+      et100File=savedSensorVisual.file;Object.assign(et100Visual,savedSensorVisual.visual,{stage:'upload',off:4096});
+      et100ApplyPackage(savedSensorVisual.stored);
+    });
+    assert.match(await page.locator('#et100-sensor-state').textContent(),/^已提交 4,096 \/ /,'live upload takes precedence over the prior stored snapshot');
+    await page.evaluate(()=>{Object.assign(et100Visual,savedSensorVisual.visual);et100RefreshVisual();});
     await page.locator('#et100-panel').screenshot({path:'/tmp/et100_sensor_sidebar.png'});
     await page.locator('.et100-viz-layout').screenshot({path:'/tmp/et100_sensor_diagram.png'});
     const relayStart=await page.evaluate(()=>{
@@ -466,9 +583,9 @@ const root=path.resolve(__dirname,'../..');
     assert.equal(await page.locator('#et100-panel').isVisible(),false);
     assert.equal(await page.locator('#sensor-probe-panel').isVisible(),false);
     assert.equal(await page.locator('#flash-ota-viz').isVisible(),true);
-    assert.match(await page.locator('#flash-viz-source-title').textContent(),/ET-100.*NOR 16 MB/);
+    assert.equal(await page.locator('#flash-viz-source-title').textContent(),'外部 NOR · 16 MB（EVB）');
     assert.match(await page.locator('#flash-viz-source-slots').textContent(),/0x420000/);
-    assert.match(await page.locator('#flash-viz-source-slots .target .flash-viz-slot-size').textContent(),/256 KiB/);
+    assert.equal(await page.locator('#flash-viz-source-slots .target .flash-viz-slot-size').textContent(),'256 KB');
     assert.ok(await page.locator('#flash-viz-source-slots .target .flash-viz-slot-image').evaluate(el=>parseFloat(el.style.width)>0));
     await page.locator('#sensor-relay-mac').fill('AABBCCDDEEFF');
     await page.locator('#sensor-relay-start').click();
@@ -515,15 +632,15 @@ const root=path.resolve(__dirname,'../..');
     assert.match(await page.locator('#et100-file-info').textContent(),/EUP_ET100/,'self file is preserved separately');
     await page.locator('[data-tab="ble"]').click();
     assert.equal(await page.locator('#et100-viz').isVisible(),false,'ET-100 diagram hidden outside OTA tab');
-    assert.equal(await page.locator('[data-tab="lte"]').textContent(),'AT 分析');
+    assert.equal(await page.locator('[data-tab="lte"]').getAttribute('aria-label'),'AT 指令分析');
     assert.equal(await page.locator('#lte-page').getAttribute('aria-label'),'AT 分析終端');
     for (const width of [1400,1920]) {
       await page.setViewportSize({width,height:1000});
       for (const tab of ['ble','can','gatt','dash','lte']) {
         await page.locator(`[data-tab="${tab}"]`).click();
         const sidebar=await page.locator('.sidebar').boundingBox(),main=await page.locator('.main-panel').boundingBox();
-        assert.equal(sidebar.width,320,`${tab} sidebar fixed at 320px (${width}px viewport)`);
-        assert.equal(main.x,320,`${tab} right panel does not shift`);
+        assert.equal(sidebar.width,350,`${tab} sidebar fixed at 350px (${width}px viewport)`);
+        assert.equal(main.x,350,`${tab} right panel follows sidebar width`);
       }
       assert.equal(await page.locator('#lte-page').isVisible(),true);
       assert.equal(await page.locator('.main-panel > .log-wrap').isVisible(),false,'AT page still hides common log');
@@ -532,6 +649,17 @@ const root=path.resolve(__dirname,'../..');
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.locator('#lte-page').isVisible(),true);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'AT mobile layout stays within page');
+    const recovery=await page.evaluate(async()=>{
+      mockSerial.failOpen=true;let error='';
+      try {await et100Reopen(115200);}catch(e){error=e.message;}
+      await et100Reopen(9600);
+      const before=mockSerial.opens.length;
+      await et100Reopen(9600);
+      return {error,baud:mockSerial.baud,streamsReady:Boolean(reader&&writer),before,after:mockSerial.opens.length};
+    });
+    assert.match(recovery.error,/mock port open failure/);
+    assert.equal(recovery.baud,9600);assert.equal(recovery.streamsReady,true);
+    assert.equal(recovery.after,recovery.before,'failed reopen does not leave a stale cached baud');
     assert.deepEqual(errors,[],'uncaught browser errors');
     console.log('PASS browser mock Serial: self OTA, Sensor SMP storage, package comparisons/download, v0.8.9 relay gate/start/cancel/success/metadata/EMPTY, ET-100 NOR to Sensor diagram, no unsupported probe/ZVERO, AT widths and desktop/mobile layouts');
   } finally {await browser.close();}

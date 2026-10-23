@@ -50,6 +50,11 @@ class Device {
         this.client.decoder.feed(new TextEncoder().encode('AT$PD=BLEGW$GFWINFO;'+body+fields[1]+'\r\n'));
       }
       else if(fields[0]==='BLEGW$OTABAUD')this.client.decoder.feed(new TextEncoder().encode('AT$PD='+txt.trim().replace(';115200;',';1;115200;').replace(';9600;',';1;9600;')+'\r\n'));
+      else if(fields[0]==='BLEGW$GOTASTAT') {
+        const txn=Array.from(this.file.sha.slice(0,4),v=>v.toString(16).padStart(2,'0')).join('').toUpperCase();
+        const body=this.options.result?`1;CONFIRMED;${txn};${this.options.result};0;old-dev;`:'0;';
+        this.client.decoder.feed(new TextEncoder().encode(`AT$PD=BLEGW$GOTASTAT;${body}${fields[1]}\r\n`));
+      }
       return;
     }
     this.decoder.feed(b);
@@ -78,13 +83,39 @@ class Device {
       return this.respond(p,{rc:0,off:this.off});
     }
     if(key==='2/1/0') {assert.ok(S.equal(body.hash,this.file.tlvHash));assert.equal(body.confirm,false);return this.respond(p,{images:[]});}
-    if(key==='2/0/5') {this.reset=true;return this.respond(p,{});}
+    if(key==='2/0/5') {
+      this.reset=true;this.respond(p,{});
+      if(this.options.inst) {
+        const txn=Array.from(this.file.sha.slice(0,4),v=>v.toString(16).padStart(2,'0')).join('').toUpperCase();
+        const lines=this.options.inst==='halt'?[['HELLO','0.8.11;CORRUPT'],['HALT','STATE_READ;8']]:
+          [['HELLO','0.8.11;PENDING'],['START',`INSTALL;${this.file.bytes.length}`],['CHECK','OK'],
+           ['BACKUP','SKIP'],['ERASE','4096;4096'],['WRITE',`${this.file.bytes.length};${this.file.bytes.length}`],
+           ['VERIFY','OK'],['RESULT',this.options.result==='ABORTED'?'ABORTED;2':'INSTALLED;0'],
+           ...(this.options.inst==='no-boot'?[]:[['BOOT',`${this.options.rollback?'CONFIRMED':'TRIAL'};9600`]])];
+        for(const [event,fields] of lines) {
+          const raw=`ET100$INST;${this.options.inst==='v2'?2:1};L;${event};${this.options.inst==='halt'?'-':this.options.inst==='wrong-txn'?'00000000':txn};${fields}`;
+          const line=`${raw}*${S.crc16(new TextEncoder().encode(raw)).toString(16).toUpperCase().padStart(4,'0')}\r\n`;
+          this.client.decoder.feed(new TextEncoder().encode(line));
+        }
+      }
+      return;
+    }
     throw Error('Unexpected request '+key);
   }
 }
 (async()=>{
   assert.equal(S.crc16(new TextEncoder().encode('123456789')),0x31c3);
   assert.equal(S.crc32(new TextEncoder().encode('123456789')),0xcbf43926);
+  const vector='ET100$INST;1;L;WRITE;8755CE49;262144;314752*2926';
+  assert.equal(S.parseInst(vector).event,'WRITE');
+  assert.equal(S.parseInst(vector.slice(0,-1)+'7'),null);
+  assert.equal(S.parseInst('junk'+vector),null);
+  function instLine(body){return `${body}*${S.crc16(new TextEncoder().encode(body)).toString(16).toUpperCase().padStart(4,'0')}`;}
+  assert.equal(S.parseInst(instLine('ET100$INST;1;A;BOOT;8755CE49;TRIAL;9600')),null);
+  assert.equal(S.parseInst(instLine('ET100$INST;1;L;WRITE;8755CE49;4294967296;4294967296')),null);
+  assert.equal(S.parseInst(instLine('ET100$INST;1;L;WRITE;8755CE49;2;1')),null);
+  assert.equal(S.parseInst(instLine('ET100$INST;1;L;FUTURE;8755CE49;extra')).known,false);
+  assert.equal(S.parseInst(instLine('ET100$INST;1;L;BOOT;8755CE49;TRIAL;9600;extra')).fields[1],'9600');
   for(const n of [8,100,700,1024]) {
     const p=Uint8Array.from({length:n},(_,i)=>i&255);let got;
     const d=new S.Decoder(b=>got=b);for(const b of S.frame(p))d.feed(Uint8Array.of(b));
@@ -131,7 +162,7 @@ class Device {
     await assert.rejects(d.client.identify(file),/若剛中斷更新，請等 30 秒後再查詢/);
   }
   const late=new Device(file,{confirmAfter:30});assert.equal((await late.client.update(file)).kind,'success');
-  assert.equal(late.clock,155000); // 超過原本 120 秒，但仍在新 180 秒期限內。
+  assert.equal(late.clock,158000); // 含 3 秒未觀測 HELLO 的舊 installer 回退，仍在 180 秒內。
   const cancelled=new Device(file,{cancel:true});await assert.rejects(cancelled.client.update(file),/取消/);
   assert.ok(!cancelled.writes.some(w=>w.key==='2/1/0'||w.key==='2/0/5'));
   assert.equal(cancelled.opens.at(-1),9600);
@@ -140,7 +171,22 @@ class Device {
     assert.ok(!d.writes.some(w=>w.key==='2/1/0'));
   }
   assert.equal((await new Device(file,{rollback:true}).client.update(file)).kind,'rollback');
+  for(const inst of ['normal','no-boot','v2','wrong-txn']) {
+    const d=new Device(file,{inst});assert.equal((await d.client.update(file)).kind,'success');
+    assert.deepEqual(d.opens,[9600,115200,9600]);
+    assert.ok(d.clock<180000);
+    if(inst==='normal')assert.equal(d.clock,10000);
+    if(inst==='no-boot')assert.equal(d.clock,40000);
+    if(inst==='v2'||inst==='wrong-txn')assert.equal(d.clock,13000);
+  }
+  const halt=new Device(file,{inst:'halt'});await assert.rejects(halt.client.update(file),/Installer 停機.*STATE_READ/);
+  assert.equal(halt.baud,115200);
+  const aborted=new Device(file,{inst:'normal',rollback:true,result:'ABORTED'});
+  assert.equal((await aborted.client.update(file)).kind,'aborted');
+  const restored=await new Device(file,{rollback:true,result:'ROLLED_BACK'}).client.update(file);
+  assert.equal(restored.kind,'rollback');assert.equal(restored.verified,true);
   const unknown=new Device(file,{unknown:true});await assert.rejects(unknown.client.update(file),/180 秒.*結果未知/);assert.equal(unknown.clock,180000);
   const d=new Device(file);const request=d.client.request(0,1,0);await request;
+  console.log('PASS INST v1 CRC/fields/source/version/txn, live stages, missed HELLO/BOOT/APP fallback, HALT, ABORTED and verified rollback');
   console.log('PASS CRC/CBOR/framing, ZIP/BIN validation, GFWINFO match/project-hardware-soc mismatch/pre-0.8.7, ASCII timeout hint, full upload/resume, Test hash/reset=5, 180s confirm/rollback/timeout, cancel and error messages');
 })().catch(e=>{console.error(e);process.exitCode=1;});

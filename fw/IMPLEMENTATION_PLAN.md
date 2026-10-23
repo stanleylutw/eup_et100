@@ -1,5 +1,7 @@
 # IMPLEMENTATION_PLAN
 
-目前沒有待執行施工單。v0.8.10 完整任務內容保留於 commit `1f16f0d`，依 comm.md 在 merge 前恢復佔位文件。
+目前沒有待執行施工單。v0.9.2 完整施工單保留於 commit `4c67d9d`，依 comm.md 在 merge 前恢復佔位文件。
 
-v0.8.11 規格見 [INST DRAFT v2](docs/02_protocol/07_installer_status.md)，新分支開工時另寫施工單。實機由 Stanley、獨立 review 由 Claude 負責。
+歷史查閱：`git show 4c67d9d:fw/IMPLEMENTATION_PLAN.md`。
+
+實機驗收由 Stanley 負責，merge 不代表實機驗收通過。後續任務另開分支及施工單。

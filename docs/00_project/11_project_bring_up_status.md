@@ -6,7 +6,17 @@
 
 > 本檔是跨 HW + FW 的專案層級狀態儀表板。詳細技術文件連結分散在 [`docs/03_hardware/sch_analysis/`](../03_hardware/sch_analysis/) 與 [`fw/`](../../fw/)。
 
+> **v0.9.0（待獨立 review／Stanley 實機）**：App 新增 SYS／GSYSSTAT 33 項周邊狀態快照與 HTML Dash 解碼；僅接已有可靠來源，未實作周邊回 UNSUPPORTED、reset 原因 UNKNOWN。Host／JS／mock UI／ARM／DFU 通過，不代表 EG800／GNSS 等產品周邊已完成。沒有 Codex 燒錄／SWD；[20 報告](../../fw/docs/04_testing/20_system_status.md)列出交付與實機步驟。
+
 > **v0.8.10**：MAC 白名單／MAXRPT 指令、FlashDB 保存及 HTML 選檔／圖表完成；host／ARM／DFU／UI 測試 PASS。Stanley 已提供 0.8.10 App OTA confirmed 紀錄，白名單實機與 Claude 獨立 review 仍待完成；沒有由 Codex 執行 EVB 燒錄。本輪文件與程式一併提交，不代表硬體全面驗收。
+
+> **v0.9.2（Claude review PASS；EVB 實機待 Stanley）**：修正取消連線後 GATT ownership 不釋放（M0 證實 CONN_END status 0）；2 s quiet 期防延遲連線。
+
+> **v0.9.1（Claude review PASS；EVB 實機待 Stanley）**：上傳後立即可 GATT OTA；連線失敗不再永久 CONNECTING（清理期限＋背景重試）；D9 待 M0 SWD 取證。
+
+> **v0.8.12（Claude review PASS；EVB 實機待 Stanley）**：修正 GSENSOROTAFLOW `%012llX`（newlib-nano）並加 ARM nano 模擬測試；HTML 減少 port 重開。間歇無回覆／舊 token 根因待實機證據。
+
+> **v0.8.11（Claude review PASS；EVB 實機待 Stanley）**：Installer 狀態／結果記錄、三次中斷策略、安裝期 WDT、App 120 s 試運行期限、GOTASTAT／BLE 0x09、HTML INST 接收與鮑率交接已實作。NOR 結果區獨立 8 KB，boot record／B-info 保持不變；測試用 Installer／App 與四項 Stanley 實機步驟見 [18 報告](../../fw/docs/04_testing/18_installer_status.md)。不宣稱已在板上運行。
 
 > **2026-10-02 規格同步**：FR3068E-C 原廠 v0.4.9 為 2 MB Flash、512 KB SRAM、QFN80、2 組 CAN、AEC-Q100「否」；BT core 是 32-bit RISC @48 MHz。現有 SDK linker 配置另計，host build 不代表已在硬體上運行。來源：[FR306x 開發參考](../03_hardware/fr306x_reference/README.md)。
 

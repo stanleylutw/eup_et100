@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "sensor_store.h"
+#include "inst_status.h"
 
 enum ota_transport { OTA_TRANSPORT_SERIAL, OTA_TRANSPORT_BLE, OTA_TRANSPORT_COUNT };
 /* tag: value given at submit (BLE: connection generation); the sender drops the
@@ -30,11 +31,16 @@ bool ota_worker_sensor_status(struct sensor_store_status *out);
 bool ota_worker_sensor_delete(void);
 /* -1 while nothing finished; else 0 / SMP error of the last queued delete (consumed). */
 int ota_worker_sensor_deleted(void);
-/* v0.8.9 Sensor OTA relay. begin: false if unsupported, an SMP client was active
- * within 30 s, or a delete is queued; while held, uploads and deletes get EBUSY. */
+/* Relay begins only with no queued/in-flight SMP, delete, or protected open
+ * upload session. A completed Sensor package can be handed over immediately;
+ * read-only SMP queries do not extend the unfinished-upload hold. */
 bool ota_worker_relay_begin(void);
 void ota_worker_relay_end(void);
 /* Package bytes (offset 0 = header), read by the worker task that owns the NOR.
  * Blocks the caller; 0 or -1 (error / 2 s timeout). */
 int ota_worker_sensor_read(uint32_t offset, void *data, size_t length);
+/* Cached diagnostic record; no NOR access by the caller. */
+bool ota_worker_inst_record(struct inst_record *);
+bool ota_worker_inst_save(const struct inst_record *);
+bool ota_worker_inst_pending(void);
 #endif

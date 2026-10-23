@@ -89,9 +89,11 @@ static void write_value(unsigned att,uint8_t *p,uint16_t n,uint16_t offset,uint8
 }
 int main(void)
 {
+    et100_sys_init();
     app_ble_init();gap_event(GATT_EVT_PROFILE_ADDED,0);assert(adv_starts==1);
     gap_event(GATT_EVT_PROFILE_ADDED,0);assert(adv_starts==1);
     gap_event(GAP_EVT_ADV_START,0);assert(scan_starts==1);
+    uint8_t sys[SYS_COUNT];et100_sys_snapshot(sys);assert(sys[SYS_BLE-1]==4);
     gap_event(GAP_EVT_NAME_REQ,0);gap_event(GAP_EVT_SLAVE_CONNECT,3);
     uint8_t value[160]={0};assert(read_value(STATUS,0,value,16)==16 && value[3]==0xff);
     write_value(CCC,(uint8_t[]){1,0},2,0,3);ticks=100;et100_app_server_poll();
@@ -128,6 +130,14 @@ int main(void)
     gap_event(GAP_EVT_SLAVE_CONNECT,3);assert(!subscribed && mtu==23 && !in_flight);
     et100_app_server_poll();assert(!in_flight);
     assert(read_value(CCC,0,value,2)==2 && !value[0]);
+    gap_event(GAP_EVT_SCAN_START,0);et100_sys_snapshot(sys);assert(sys[SYS_BLE-1]==6);
+    gap_event(GAP_EVT_ADV_END,0);gap_event(GAP_EVT_SCAN_END,0);
+    et100_sys_snapshot(sys);assert(sys[SYS_BLE-1]==5);
+    gap_event(GAP_EVT_MASTER_CONNECT,2);
+    lost.param.disconnect.conidx=3;lost.param.disconnect.local_role=LOCAL_ROLE_SLAVE;gap_handler(&lost);
+    et100_sys_snapshot(sys);assert(sys[SYS_BLE-1]==5); /* master still connected */
+    lost.param.disconnect.conidx=2;lost.param.disconnect.local_role=LOCAL_ROLE_MASTER;gap_handler(&lost);
+    et100_sys_snapshot(sys);assert(sys[SYS_BLE-1]==2);
     puts("PASS: App SDK callbacks, UUID/name AD lengths, bounded read/blob, CCCD/MTU, notify completion/retry, dual-role isolation/re-advertising");
     return 0;
 }

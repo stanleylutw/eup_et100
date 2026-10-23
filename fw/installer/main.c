@@ -7,14 +7,30 @@
 #include "loader_frame.h"
 #include "ota_journal.h"
 #include "nor_qspi1.h"
+#include "inst_status.h"
 #include <string.h>
 #include <stdio.h>
 
 static UART_HandleTypeDef uart;
+static uint32_t loader_now(void);
+static size_t status_write(const char *data,size_t length)
+{
+    uint32_t start=loader_now();uint64_t budget=4800001;size_t sent=0;
+    while (sent<length && budget--) {
+        if ((uint32_t)(loader_now()-start)>=50000) break;
+        if (uart.UARTx->USR.TFNF) uart.UARTx->DATA_DLL.DATA=(uint8_t)data[sent++];
+    }
+    return sent;
+}
+#ifndef ET100_INSTALLER_DEBUG
+#define ET100_INSTALLER_DEBUG 0
+#endif
 extern void installer_jump(const struct image_info *) __attribute__((noreturn));
 int _write(int fd, char *data, int length)
 {
-    (void)fd;uart_transmit(&uart,(uint8_t *)data,length);return length;
+    (void)fd;
+    if (ET100_INSTALLER_DEBUG) (void)status_write(data,(size_t)length);
+    return length;
 }
 bool user_deep_sleep_check(void) { return false; }
 void user_entry_before_sleep(void) {}
@@ -80,6 +96,47 @@ static void watchdog_start(unsigned seconds)
     iwdt_Init_t cfg={.iwdt_Count=32000u*seconds,.iwdt_Timeout=1024,.iwdt_int_Enable=WDT_INT_DISABLE};
     iwdt_init(cfg);iwdt_Enable();iwdt_Refresh();
 }
+static struct inst_record status_record;
+static struct boot_record *active_state;
+static bool inst_active,nor_ready;
+static struct inst_progress progress;
+static void status_event(const char *event,const char *fields)
+{
+    if (!inst_active) return;
+    char line[INST_LINE_MAX+1];
+    size_t n=inst_line(line,sizeof line,'L',event,
+        active_state && active_state->kind!=BOOT_NONE ? active_state->hash : NULL,fields);
+    if (n) (void)status_write(line,n);
+}
+static void status_save(unsigned result)
+{
+    status_record.result=result;
+    if (active_state) {
+        status_record.state=active_state->kind;
+        memcpy(status_record.hash,active_state->hash,32);
+    }
+    if (nor_ready) (void)inst_record_write(nor_qspi1_port(),&status_record);
+}
+static void status_report(enum inst_stage stage,uint32_t done,uint32_t total,unsigned code)
+{
+    char fields[48];status_record.stage=stage;
+    if (code) status_record.code=code;
+    if (stage==IS_STATE_WRITE) {
+        if (!code && active_state && done==BOOT_BACKUP_READY) {
+            status_record.state=done;status_record.attempts=1;status_save(IR_RUNNING);
+        }
+        return;
+    }
+    if (stage==IS_CHECK || stage==IS_VERIFY) {
+        status_event(inst_stage_name(stage),code ? "FAIL" : "OK");return;
+    }
+    if (stage!=IS_BACKUP && stage!=IS_ERASE && stage!=IS_WRITE) return;
+    if (code) return;
+    if (done==UINT32_MAX) { status_event("BACKUP","SKIP");return; }
+    if (!inst_progress_due(&progress,stage,done,total)) return;
+    snprintf(fields,sizeof fields,"%lu;%lu",(unsigned long)done,(unsigned long)total);
+    status_event(inst_stage_name(stage),fields);
+}
 static void watchdog_probe(void)
 {
     printf("WDT PROBE start 2s feed for 4s\r\n");watchdog_start(2);
@@ -102,14 +159,18 @@ static int dev_loader(void)
     if (!rc) rc=nor_qspi1_authorize_writes();
     if (!rc) rc=ota_journal_recover(&journal,nor,installer_journal_hash,NULL);
     if (rc) return rc;
-    printf("LOADER READY dev-only UNSIGNED\r\n");
+    const char ready[]="LOADER READY dev-only UNSIGNED\r\n";
+    (void)status_write(ready,sizeof ready-1);
     bool session=false;uint64_t sid=0;uint32_t reset_mask=0;
     for (;;) {
         uint8_t h[20],op;uint32_t index;size_t n;
         if (receive(h,sizeof h,30000000) || loader_header(h,&op,&index,&n)) return -30;
         if (receive(payload,n,3000000) || loader_payload(h,payload)) return -31;
         rc=0;
-        if (op==LOAD_ABORT) { printf("ACK 4 0 rc=0 ABORT\r\n");return 0; }
+        if (op==LOAD_ABORT) {
+            const char aborted[]="ACK 4 0 rc=0 ABORT\r\n";
+            (void)status_write(aborted,sizeof aborted-1);return 0;
+        }
         if (op==LOAD_BEGIN) {
             struct ota_manifest m={0};
             m.session_id=(uint64_t)get32(payload)|(uint64_t)get32(payload+4)<<32;
@@ -142,7 +203,8 @@ static int dev_loader(void)
                 }
             }
         }
-        printf("ACK %u %lu rc=%d\r\n",op,(unsigned long)index,rc);
+        char ack[64];int ack_length=snprintf(ack,sizeof ack,"ACK %u %lu rc=%d\r\n",op,(unsigned long)index,rc);
+        if (ack_length>0 && (size_t)ack_length<sizeof ack) (void)status_write(ack,(size_t)ack_length);
         if (op==LOAD_FINISH && !rc) { nor_qspi1_delay_us(20000);NVIC_SystemReset(); }
     }
 }
@@ -156,7 +218,7 @@ static int reset_hook(unsigned phase,struct boot_record *state)
 }
 int main(void)
 {
-    board_init();printf("ET100 INSTALLER 0.8.4-dev UNSIGNED PROTOTYPE\r\n");
+    board_init();printf("ET100 INSTALLER %s UNSIGNED PROTOTYPE\r\n",INST_VERSION);
     const uint8_t *b=(const uint8_t *)0x08001000;
     bool zero=true, ff=true;
     for (unsigned i=0;i<4096;i++) { zero&=b[i]==0;ff&=b[i]==0xff; }
@@ -166,25 +228,49 @@ int main(void)
     printf("\r\n");
     struct boot_record state;
     int rc=boot_state_read(&installer_internal,&state);
+    active_state=&state;
+    inst_active=rc || (state.kind!=BOOT_NONE && state.kind!=BOOT_CONFIRMED);
+    char fields[72];
+    snprintf(fields,sizeof fields,"%s;%s",INST_VERSION,rc ? "CORRUPT" : inst_state_name(state.kind));
+    status_event("HELLO",fields);
+    if (rc) { status_record.stage=IS_STATE_READ;status_record.code=IC_STATE_READ; }
     printf("STATE rc=%d kind=%lu seq=%lu len=%lu reset_mask=%lu\r\n",rc,
         (unsigned long)state.kind,(unsigned long)state.sequence,(unsigned long)state.length,(unsigned long)state.reset_mask);
     if (rc) goto stop;
     if (state.kind==BOOT_TRIAL) {
         state.kind=BOOT_ROLLBACK_REQUIRED;
-        if ((rc=boot_state_write(&installer_internal,&state))) goto stop;
+        if ((rc=boot_state_write(&installer_internal,&state))) {
+            status_record.stage=IS_STATE_WRITE;status_record.code=IC_STATE_WRITE;goto stop;
+        }
+        status_record.code=IC_TRIAL_RESET;
         printf("TRIAL unconfirmed: ROLLBACK_REQUIRED\r\n");
     }
     if (state.kind==BOOT_PENDING || state.kind==BOOT_BACKUP_READY || state.kind==BOOT_ROLLBACK_REQUIRED) {
         rc=installer_nor_init();
-        if (rc && state.kind==BOOT_PENDING) {
-            state.kind=BOOT_CONFIRMED;state.last_update=UPDATE_ABORTED;
-            rc=boot_state_write(&installer_internal,&state);
-        } else if (!rc) {
-            if (state.kind==BOOT_PENDING) rc=nor_qspi1_authorize_writes();
-            if (!rc) rc=transaction_run(&installer_internal,nor_qspi1_port(),&state,reset_hook);
+        /* Metadata tracking writes need authorization during resumed installs/rollback too. */
+        if (!rc) rc=nor_qspi1_authorize_writes();
+        nor_ready=!rc;
+        if (nor_ready) {
+            watchdog_start(8);inst_set_feed(iwdt_Refresh);
+            (void)inst_record_read(nor_qspi1_port(),&status_record);
+        }
+        rc=transaction_prepare(&installer_internal,&state,&status_record,rc);
+        if (rc) goto stop;
+        if (state.kind!=BOOT_CONFIRMED) {
+            status_save(IR_RUNNING);
+            snprintf(fields,sizeof fields,"%s;%lu",state.kind==BOOT_ROLLBACK_REQUIRED ? "ROLLBACK" :
+                state.kind==BOOT_BACKUP_READY ? "RESUME" : "INSTALL",
+                (unsigned long)(state.kind==BOOT_ROLLBACK_REQUIRED ? state.confirmed_length : state.length));
+            status_event("START",fields);inst_set_reporter(status_report);
+            rc=transaction_run(&installer_internal,nor_qspi1_port(),&state,reset_hook);
         }
         printf("INST COMPLETE rc=%d kind=%lu\r\n",rc,(unsigned long)state.kind);
         if (rc) goto stop;
+        unsigned result=state.kind==BOOT_TRIAL ? IR_INSTALLED :
+            state.last_update==UPDATE_FAILED ? IR_ROLLED_BACK : IR_ABORTED;
+        status_save(result);
+        snprintf(fields,sizeof fields,"%s;%lu",inst_result_name(result),(unsigned long)status_record.code);
+        status_event("RESULT",fields);
     } else {
         unsigned request=loader_requested();
         if (request==2) watchdog_probe();
@@ -195,9 +281,12 @@ int main(void)
     }
     struct image_info info;
     rc=mcuboot_image_verify((const uint8_t *)ET100_APP_SLOT,ET100_APP_SLOT_SIZE,&info);
+    if (rc) { status_record.stage=IS_BOOT;status_record.code=IC_VERIFY_FAIL; }
     if (!rc && state.kind==BOOT_CONFIRMED) {
         mbedtls_sha256_ret((const uint8_t *)ET100_APP_SLOT,info.size,digest,0);
-        if (info.size!=state.confirmed_length || memcmp(digest,state.confirmed_hash,32)) rc=IMAGE_EHASH;
+        if (info.size!=state.confirmed_length || memcmp(digest,state.confirmed_hash,32)) {
+            rc=IMAGE_EHASH;status_record.stage=IS_BOOT;status_record.code=IC_VERIFY_FAIL;
+        }
     }
     printf("E0 VERIFY rc=%d vector=0x%08lX payload=%lu\r\n",rc,
            (unsigned long)ET100_APP_VECTOR,(unsigned long)info.payload_size);
@@ -207,9 +296,25 @@ int main(void)
         printf("%s WDT 60s enabled\r\n",state.kind==BOOT_TRIAL ? "TRIAL" : "BOOT");
         printf("E0 JUMP msp=0x%08lX reset=0x%08lX irq=masked\r\n",
                (unsigned long)info.msp,(unsigned long)info.reset);
-        for (unsigned i=0;i<1000000;i++) if (uart.UARTx->LSR.LSR_BIT.TEMT) installer_jump(&info);
+        snprintf(fields,sizeof fields,"%s;9600",inst_state_name(state.kind));status_event("BOOT",fields);
+        uint32_t start=loader_now();
+        for (unsigned i=0;i<9600000;i++) {
+            if (uart.UARTx->LSR.LSR_BIT.TEMT) {
+                nor_qspi1_delay_us(300000); /* Host port close/open guard; App event may still be missed. */
+                installer_jump(&info);
+            }
+            if ((uint32_t)(loader_now()-start)>100000) break;
+        }
+        /* A broken status UART must not prevent a verified App from booting. */
+        installer_jump(&info);
     }
 stop:
+    inst_active=true; /* A normal-boot validation failure must also be observable. */
+    inst_set_feed(NULL);iwdt_Disable();
+    if (!status_record.code) status_record.code=IC_VERIFY_FAIL;
+    status_save(IR_HALT);
+    snprintf(fields,sizeof fields,"%s;%lu",inst_stage_name(status_record.stage),(unsigned long)status_record.code);
+    status_event("HALT",fields);
     printf("INST STOP rc=%d; fail closed\r\n",rc);
     for (;;) __WFI();
 }

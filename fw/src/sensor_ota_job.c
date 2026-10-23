@@ -495,6 +495,7 @@ static int verify_after_reboot(void)
         verify_error_hint = SENSOR_OTA_ERROR_WAIT_ADV_TIMEOUT;
         verify_ops.wait_ms = SENSOR_OTA_REBOOT_ADV_MS - (now_ms() - start);
         err = et100_gatt_exclusive(job_status.target_mac, &verify_ops);
+        if (err && et100_gatt_state() != 0) return err;
         if (verify_result_is_final(err)) return err;
         delay_ms(500);   /* A rebooting Sensor may advertise before its connect path is ready. */
     }
@@ -545,6 +546,10 @@ static void run_job(void)
         workflow_set(SENSOR_OTA_STEP_WAIT_ADV, SENSOR_OTA_STEP_ACTIVE);
         report_state(SENSOR_OTA_JOB_WAIT_ADV, attempt);
         err = et100_gatt_exclusive(job_status.target_mac, &upload_ops);
+        if (err && et100_gatt_state() != 0) {
+            /* Cleanup still owns the link; do not overwrite its failure with BUSY. */
+            break;
+        }
         if (upload_result_is_final(err)) break;
         /* Do not reuse another packet from the same short OTA advertising burst. */
         delay_ms(SENSOR_OTA_RETRY_BACKOFF_MS);
@@ -569,6 +574,8 @@ static void run_job(void)
     if (cancel_requested || err == -ECANCELED) finish_job(SENSOR_OTA_JOB_CANCELLED, SENSOR_OTA_ERROR_CANCELLED);
     else if (err == -ETIMEDOUT) finish_job(SENSOR_OTA_JOB_TIMEOUT, SENSOR_OTA_ERROR_REBOOT_TIMEOUT);
     else if (err == -EACCES) finish_job(SENSOR_OTA_JOB_FAILED, SENSOR_OTA_ERROR_AUTH_FAILED);
+    else if (err == -ENOTCONN && verify_error_hint == SENSOR_OTA_ERROR_CONNECT_FAILED)
+        finish_job(SENSOR_OTA_JOB_FAILED, SENSOR_OTA_ERROR_CONNECT_FAILED);
     else if (err == -ENODATA) finish_job(SENSOR_OTA_JOB_FAILED, SENSOR_OTA_ERROR_METADATA_READ_FAILED);
     else if (err == -ENOTSUP) finish_job(SENSOR_OTA_JOB_FAILED, SENSOR_OTA_ERROR_CAPABILITY_MISMATCH);
     else if (err == -EXDEV || err == -EPROTONOSUPPORT) finish_job(SENSOR_OTA_JOB_FAILED, SENSOR_OTA_ERROR_TARGET_MISMATCH);
@@ -722,11 +729,13 @@ int sensor_ota_job_uart(const char *cmd, const char *params, const char *token, 
                      (unsigned)st.error, detail, token);
     } else if (!strcmp(cmd, "GSENSOROTAFLOW")) {
         sensor_ota_job_get_status(&st);
-        n = snprintf(out, capacity, "AT$PD=BLEGW$GSENSOROTAFLOW;1;%s;%s;%s;%s;%08lX;%012llX;%s\r\n",
+        /* newlib-nano does not consume ll conversions; keep the 48-bit wire field. */
+        n = snprintf(out, capacity, "AT$PD=BLEGW$GSENSOROTAFLOW;1;%s;%s;%s;%s;%08lX;%04lX%08lX;%s\r\n",
                      sensor_ota_job_state_name(st.state), sensor_ota_workflow_step_name(st.workflow_step),
                      sensor_ota_step_result_name(st.step_result), sensor_ota_workflow_step_name(st.failed_step),
                      (unsigned long)st.target.match_mask,
-                     (unsigned long long)(st.step_results & 0xffffffffffffull), token);
+                     (unsigned long)((st.step_results >> 32) & 0xffffu),
+                     (unsigned long)(st.step_results & 0xffffffffu), token);
     } else if (!strcmp(cmd, "GSENSOROTAMETA")) {
         sensor_ota_job_get_status(&st);
         if (!st.target.valid) {

@@ -52,6 +52,8 @@ void ota_manager_set_source(struct ota_manager *m, uint32_t source)
     m->active_source = source;
 }
 
+bool ota_manager_upload_open(const struct ota_manager *m) { return m->session; }
+
 /* Single update owner across transports: a mutating request from another
  * transport within OTA_OWNER_HOLD_MS of the owner's last change is refused. */
 static int claim(struct ota_manager *m)

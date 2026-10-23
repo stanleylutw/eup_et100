@@ -105,7 +105,7 @@ SMP 本身沒有 baud 協商，因此以 GCHK 風格的 ASCII 指令切換（在
 Host  → BLEGW$OTABAUD;115200;<token4>\r\n
 ET100 → AT$PD=BLEGW$OTABAUD;1;115200;<token4>\r\n     （回應送完才切換）
 雙方切 115200 → 執行 SMP
-最後一個 SMP 封包後 30 秒（或切換後 30 秒內沒有 SMP）→ 裝置自動回 9600；重開機也回 9600
+最後一個 SMP 封包後 30 秒（或切換後 30 秒內沒有 SMP）→ App 自動回 9600；App 重開機也回 9600。Installer 階段則為 115200，不能把它當作 App 已啟動。
 ```
 
 只接受 `9600`、`115200`，其他回 `;0;`。token 為 4 個英數字元（同 GCHK）。
@@ -123,6 +123,12 @@ ET100 → AT$PD=BLEGW$OTABAUD;1;115200;<token4>\r\n     （回應送完才切換
 ```
 
 EVB 實測：293 KB，115200 約 53 秒、9600 約 8 分鐘（見 [13 測試報告](../04_testing/13_evb_smp_serial.md)）。
+
+### v0.8.11 INST 交接
+
+HTML 在送 OS reset 前掛上 INST listener，維持 115200 收 Installer 狀態；收到已知 INST v1、txn 匹配的 BOOT;…;9600 才切 9600。3 s 沒觀測到 HELLO／BOOT，或 HELLO 後 30 s 無事件時，退回 9600 的 SMP 查詢；不能把漏行當作已成功或斷言舊 Installer。保留 reset 起算的 180 s 總期限與完整版本／hash／confirmed 驗證；INST CONFIRMED 僅作提示，不能替代映像比對。未知協定主版本只記錄，不依事件切 baud。
+
+App 新增 `BLEGW$GOTASTAT;<tok>`，供查詢實際 boot state 與最後放棄／還原結果；它不含完整映像 hash，不能單獨判定更新成功。試運行 120 s 後 reset，加上安裝／還原時間可能超出 HTML 的 180 s，此時顯示結果未知，稍後再查詢，不擅自增加等待期限。格式及錯誤碼見 [07 INST](07_installer_status.md)；本輪實機由 Stanley 執行。
 
 ## 6. BLE transport（v0.8.6）
 

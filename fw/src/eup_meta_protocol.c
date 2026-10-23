@@ -112,6 +112,18 @@ void eup_meta_handle(const uint8_t *req, size_t len,
         break;
     case 0x7f:
         break;
+    case 0x09: {
+        const struct inst_snapshot *s=id->ota;
+        if (!s || !s->ready) { out->status=EUP_META_INTERNAL_ERROR;break; }
+        put_u8(&w,1,(uint8_t)s->state);
+        put_u8(&w,2,(uint8_t)(s->has_record ? s->record.result : IR_NONE));
+        put_le32(&w,3,s->has_record ? s->record.code : 0);
+        char txn[9];inst_txn(s->has_record ? s->record.hash : NULL,txn);
+        put(&w,4,txn,strlen(txn));put(&w,5,s->running_hash,32);
+        if (id->info) put_field(&w,6,id->info->firmware_version,sizeof id->info->firmware_version);
+        if (!w.ok) out->status=EUP_META_INTERNAL_ERROR;
+        break;
+    }
     default:
         out->status = EUP_META_UNKNOWN_COMMAND;
         break;

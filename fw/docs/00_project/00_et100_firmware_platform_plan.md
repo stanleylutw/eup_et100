@@ -1,9 +1,19 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.8.10
-Last updated: 2026-10-23 Codex
+Version: v0.9.2
+Last updated: 2026-10-23 Claude
 
 ## Revision History
+
+2026-10-23 v0.9.2（Claude review PASS；EVB 實機待 Stanley）：M0 DAP 唯讀證實取消連線後 SDK 回 `CONN_END` status 0，`initiating` 不清除導致 GATT ownership 永不釋放（需重開機）。修正為取消成功後的 CONN_END 不論 status 皆清除（另 2 s 後備），釋放後 2 s quiet 期防延遲連線；診斷加 e/st/sr。D11 自動復原仍待決。
+
+2026-10-23 v0.9.1（Claude review PASS；EVB 實機待 Stanley）：Sensor relay 啟動改用狀態判斷（SMP 無排隊／處理中、無刪除、無 30 s 內未完成上傳），套件驗證成功後可立即 GATT OTA；連線失敗回 FAILED／CONNECT_FAILED，BLE 清理最多 15 s 後背景重試並保留 ownership，診斷事件帶旗標；HTML BUSY 自動重試、不誤標套件錯誤。`initiating` 清除條件（D9）待 M0 取證；永久清理失敗自動復原（D11）待決策。
+
+2026-10-23 v0.9.0（待獨立 review／Stanley 實機）：新增 SYS Type＋Index,Status 狀態介面、33 項 registry、GSYSSTAT RAM 快照、CRC 與主動通知；接入既有 SYSTEM／FlashDB／NOR prepare／BLE GAP／UART／WDT 證據，其他 UNKNOWN／UNSUPPORTED，不新增產品周邊驅動。HTML Dash 新增完整狀態表、查詢與錯誤／離線處理，保留 OTA 圖與共用 Log。首版 boot 僅確證 TRIAL 送 2，其他送 UNKNOWN，不猜測 rollback/reset。未改 Installer／SDK／NVS／B-info，未操作硬體；見 [08 協定](../02_protocol/08_system_status.md)與 [20 報告](../04_testing/20_system_status.md)。
+
+2026-10-23 v0.8.12（Claude review PASS；EVB 實機待 Stanley）：修正 `GSENSOROTAFLOW` 的 `%012llX`（newlib-nano 不支援 `ll`，導致欄位錯誤、token 遺失，且錯位參數被當指標解參考，可能 fault）→ `%04lX%08lX`，協定格式不變；新增 ARM newlib-nano 模擬測試（unicorn）。HTML 同 baud 不再重開 port，真正重開後送 CRLF 重新同步。上傳後間歇無回覆／舊 token 的根因仍未證實。
+
+2026-10-23 v0.8.11（Claude review PASS；EVB 實機待 Stanley）：新增 Installer INST v1 狀態行、10% 節流、115200→9600 BOOT 交接、共用結果／三次中斷計數（NOR 0x460000–0x461FFF），不改 boot record v2。Installer 安裝期依進度餵 8 s WDT；App 新增 120 s 試運行期限、GOTASTAT 與 BLE 0x09 快照，NOR 存取仍只有 OTA worker。HTML 支援 INST／舊版回退，仍以 SMP 完整 hash、版本與 confirmed 判成功，Log 高度不變。實作與驗收範圍見 [07](../02_protocol/07_installer_status.md)、[18](../04_testing/18_installer_status.md)。實機全部交 Stanley，不能以 host 或 build PASS 代替 EVB PASS。 App `APP` 行只在試運行或有未回報的還原／放棄結果時送一次（S4，FlashDB 0x00030008 記已回報 txn）。
 
 2026-10-23 v0.8.10：新增 GLIST／SLIST（八筆 MAC）與 GMAXRPT／SMAXRPT（預設 3），CID／MAC 採 OR；FlashDB 新增獨立 key，GTIME 與回報筆數連動。HTML 新增 ET-100 固定 build 路徑選單、隔離選檔記憶及中文 Flash／NOR 圖表，自行縮放而不改共用 Log。Host／ARM／DFU／UI PASS；白名單實機驗收與獨立 review 尚待完成。後續實機由 Stanley、review 由 Claude 負責；本次 merge 不替代驗收。
 

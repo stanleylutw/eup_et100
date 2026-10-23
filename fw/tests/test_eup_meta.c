@@ -85,6 +85,26 @@ int main(void)
     struct eup_meta_identity id = { .info = &info, .mtu = 247 };
     struct eup_meta_response r;
     uint8_t req[8];
+    struct inst_snapshot ota={.ready=true,.state=BOOT_CONFIRMED,.has_record=true};
+    ota.record.result=IR_ROLLED_BACK;ota.record.code=IC_TRIAL_TIMEOUT;
+    ota.record.hash[0]=0xab;memset(ota.running_hash,0x5a,32);
+    id.ota=&ota;
+    eup_uuid_build_request(0x09,9,NULL,0,req,sizeof req);eup_meta_handle(req,7,&id,&r);
+    assert(r.status==0 && r.length);
+    unsigned tags=0;
+    for(size_t at=0;at<r.length;) {
+        unsigned tag=r.payload[at],n=r.payload[at+1];const uint8_t *value=r.payload+at+2;
+        assert(at+2+n<=r.length);tags|=1u<<tag;
+        if(tag==1)assert(n==1&&value[0]==BOOT_CONFIRMED);
+        if(tag==2)assert(n==1&&value[0]==IR_ROLLED_BACK);
+        if(tag==3)assert(n==4&&value[0]==IC_TRIAL_TIMEOUT&&!value[1]&&!value[2]&&!value[3]);
+        if(tag==4)assert(n==8&&!memcmp(value,"AB000000",8));
+        if(tag==5)assert(n==32&&!memcmp(value,ota.running_hash,32));
+        at+=2+n;
+    }
+    assert(tags==0x7e);
+    id.ota=NULL;eup_meta_handle(req,7,&id,&r);assert(r.status==EUP_META_INTERNAL_ERROR);
+    ota.has_record=false;id.ota=&ota;eup_meta_handle(req,7,&id,&r);assert(r.status==0);
     eup_uuid_build_request(0x01, 7, NULL, 0, req, sizeof req);
     req[6] ^= 1;                                /* checksum */
     eup_meta_handle(req, 7, &id, &r);

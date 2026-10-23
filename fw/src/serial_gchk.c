@@ -2,6 +2,7 @@
 #include "../include/eup_fw_info.h"
 #include "eup_meta_protocol.h"
 #include "smp_server.h"
+#include "system_status.h"
 #include <stdio.h>
 #include <string.h>
 #ifndef ET100_SERIAL_HOST_TEST
@@ -255,7 +256,12 @@ static void handle_line(struct et100_serial_parser *p)
               (command[i] >= '0' && command[i] <= '9')))
             return;
     *end = '\0';
-    if (strcmp(command, "GCHK") == 0 && token == end + 1) {
+    if (strcmp(command, "GSYSSTAT") == 0) {
+        unsigned error=token==end+1 && p->length+2<=32 ? 0 : 1;
+        if (!p->system_status) error=2;
+        length=(int)(p->system_status ? p->system_status(token,error,response,sizeof response) :
+            et100_sys_query(token,error,response,sizeof response));
+    } else if (strcmp(command, "GCHK") == 0 && token == end + 1) {
         length = snprintf(response, sizeof(response),
             "AT$PD=BLEGW$GCHK;1;%s;Freqchip;DEV1.4_fr3068ep-c;" EUP_FIRMWARE_VERSION ";%u;%s\r\n",
             p->identity, current_gatt_state(), token);
@@ -305,6 +311,18 @@ static void handle_line(struct et100_serial_parser *p)
             if (!parsed) memset(next.macs, 0, sizeof next.macs);
             length = list_response(response, sizeof response, command, valid, &next, token);
         } else length = snprintf(response, sizeof response, "AT$PD=BLEGW$SMAXRPT;%u;%s;%s\r\n", valid, params, token);
+    } else if (strcmp(command, "GOTASTAT") == 0 && token == end + 1) {
+        struct inst_snapshot st;char txn[9];
+        if (!p->ota_status || !p->ota_status(&st))
+            length=snprintf(response,sizeof response,"AT$PD=BLEGW$GOTASTAT;0;%s\r\n",token);
+        else {
+            inst_txn(st.has_record ? st.record.hash : NULL,txn);
+            const struct eup_fw_info *i=p->fw_info;
+            length=snprintf(response,sizeof response,"AT$PD=BLEGW$GOTASTAT;1;%s;%s;%s;%lu;%.*s;%s\r\n",
+                inst_state_name(st.state),txn,st.has_record ? inst_result_name(st.record.result) : "-",
+                (unsigned long)(st.has_record ? st.record.code : 0),
+                i ? field_len(i->firmware_version,sizeof i->firmware_version) : 0,i ? i->firmware_version : "",token);
+        }
     } else if (strcmp(command, "GFWINFO") == 0 && token == end + 1) {
         const struct eup_fw_info *i = p->fw_info;
         if (i) {
@@ -419,6 +437,7 @@ void et100_serial_feed(struct et100_serial_parser *p, uint8_t byte)
 #include "ble_reporter.h"
 #include "app_gatt_server.h"
 #include "boot_health.h"
+#include "boot_state.h"
 #include "smp_serial.h"
 #include "smp_server.h"
 #include "ota_worker.h"
@@ -432,6 +451,7 @@ static int storage_initialized;
 void et100_serial_storage_ready(int ready)
 {
     storage_initialized = ready;
+    et100_sys_set(SYS_SETTINGS,ready ? 2 : SYS_ERROR);
 }
 
 static int record_read(uint8_t record[8])
@@ -594,6 +614,8 @@ static void serial_task(void *argument)
     et100_serial_init(&serial_parser, identity, serial_send, serial_uart);
     serial_parser.baud_supported = 1;
     serial_parser.fw_info = &et100_fw_info;
+    serial_parser.ota_status = et100_boot_status;
+    serial_parser.system_status = et100_sys_query;
     struct sensor_store_status pkg;
     if (ota_worker_sensor_status(&pkg)) serial_parser.pkg_status = pkg_status;
     smp_serial_init(&smp_rx);
@@ -611,9 +633,25 @@ static void serial_task(void *argument)
     unsigned cid_revision = serial_parser.cid_revision;
     uart_receive_IT(serial_uart, &rx_byte, 1);
     et100_gatt_poll(serial_send, serial_uart);
+    et100_sys_set(SYS_RS232_0,2);
+    et100_sys_set(SYS_SYSTEM,2);
 
+    bool sys_boot_checked=false;
+    char sys_line[SYS_LINE_MAX+1];
     for (;;) {
         et100_boot_poll(storage_initialized);
+        if (!sys_boot_checked) {
+            struct inst_snapshot initial;
+            et100_sys_boot_trial(et100_boot_status(&initial) && initial.state==BOOT_TRIAL);
+            sys_boot_checked=true;
+        }
+        et100_sys_set(SYS_WATCHDOG,(ool_read(PMU_REG_WDT_CTRL)&PMU_WDT_EN_BIT) ? 2 : SYS_ERROR);
+        char boot_line[INST_LINE_MAX+1];
+        size_t boot_length=et100_boot_line(boot_line,sizeof boot_line);
+        if (boot_length) {
+            serial_send(boot_line,boot_length,serial_uart);
+            et100_boot_line_sent();
+        }
         unsigned received = 0;
         /* Drain queued input before a potentially 200-ms UART transmission. */
         for (; received < RX_RING_SIZE; received++) {
@@ -665,6 +703,10 @@ static void serial_task(void *argument)
         if (deleted >= 0) et100_serial_pkg_deleted(&serial_parser, deleted);
         TickType_t now = xTaskGetTickCount();
         int smp_active = smp_seen && (TickType_t)(now - smp_last) < pdMS_TO_TICKS(SMP_IDLE_MS);
+        bool sys_paused=smp_active || ota_worker_active() || sensor_ota_job_busy() ||
+            uart_baud!=9600 || serial_parser.length || serial_parser.discard || rx_head!=rx_tail;
+        size_t sys_length=et100_sys_poll((uint32_t)now*portTICK_PERIOD_MS,sys_paused,sys_line,sizeof sys_line);
+        if (sys_length) serial_send(sys_line,sys_length,serial_uart);
         /* Pause unsolicited Type-1 reports while any SMP client (UART or BLE) is active. */
         if (!smp_active && !ota_worker_active()) et100_scan_poll(serial_send, serial_uart);
         /* OTABAUD fallback: return to 9600 after 30 s without SMP traffic. */

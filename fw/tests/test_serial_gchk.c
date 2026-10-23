@@ -1,6 +1,7 @@
 #include "serial_gchk.h"
 #include "../include/eup_fw_info.h"
 #include "smp_server.h"
+#include "system_status.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -49,6 +50,8 @@ static void capture(const char *data, size_t length, void *context)
 
 static struct sensor_store_status pkg;
 static int pkg_ok = 1;
+static struct inst_snapshot ota;
+static int ota_status(struct inst_snapshot *out) { *out=ota;return ota.ready; }
 static int pkg_status(struct sensor_store_status *out)
 {
     *out = pkg;
@@ -164,6 +167,13 @@ int main(void)
            "AT$PD=BLEGW$GFWINFO;1;PPPPPPPPPPPPPPPPPPPPPPPP;;;fr3068e_c;F002\r\n");
     p.fw_info = NULL;
     puts("PASS: GFWINFO from EUPFWV1, missing source, unterminated fields");
+    expect(&p,"BLEGW$GOTASTAT;O000\r\n","AT$PD=BLEGW$GOTASTAT;0;O000\r\n");
+    p.ota_status=ota_status;ota.ready=true;ota.state=BOOT_CONFIRMED;
+    expect(&p,"BLEGW$GOTASTAT;O001\r\n","AT$PD=BLEGW$GOTASTAT;1;CONFIRMED;-;-;0;;O001\r\n");
+    ota.has_record=true;ota.record.result=IR_ROLLED_BACK;ota.record.code=IC_TRIAL_TIMEOUT;
+    ota.record.hash[0]=0xab;p.fw_info=&fw;
+    expect(&p,"BLEGW$GOTASTAT;O002\r\n","AT$PD=BLEGW$GOTASTAT;1;CONFIRMED;AB000000;ROLLED_BACK;9;0.8.7-dev;O002\r\n");
+    p.fw_info=NULL;
     /* v0.8.8 GSOTAPKG / DSOTAPKG: eup_gateway rs232_cmd_handler.c formats */
     expect(&p, "BLEGW$GSOTAPKG;P000\r\n", "AT$PD=BLEGW$GSOTAPKG;0;UNSUPPORTED;P000\r\n");
     expect(&p, "BLEGW$DSOTAPKG;P001\r\n", "AT$PD=BLEGW$DSOTAPKG;0;UNSUPPORTED;P001\r\n");
@@ -286,5 +296,17 @@ int main(void)
     expect(&p, "BLEGW$SMAXRPT;1;FAIL\r\n", "AT$PD=BLEGW$SMAXRPT;0;1;FAIL\r\n");
     assert(saved == controls_saves);
     puts("PASS: whitelist/MAXRPT commands, 8 slots, normalization, constraints, persistence codec corruption/reload/failure");
+    et100_sys_init();p.system_status=et100_sys_query;
+    char sys_expected[SYS_LINE_MAX+1];
+    assert(et100_sys_query("A001",0,sys_expected,sizeof sys_expected));
+    expect(&p,"BLEGW$GSYSSTAT;A001\r\n",sys_expected);
+    assert(et100_sys_query("A002",1,sys_expected,sizeof sys_expected));
+    expect(&p,"BLEGW$GSYSSTAT;extra;A002\r\n",sys_expected);
+    expect(&p,"BLEGW$GSYSSTAT;abcd\r\n","");
+    expect(&p,"BLEGW$GSYSSTAT;A!01\r\n","");
+    p.system_status=NULL;
+    assert(et100_sys_query("A003",2,sys_expected,sizeof sys_expected));
+    expect(&p,"BLEGW$GSYSSTAT;A003\r\n",sys_expected);
+    puts("PASS: GSYSSTAT full snapshot, CRC/token, malformed params, no hardware callback");
     return 0;
 }

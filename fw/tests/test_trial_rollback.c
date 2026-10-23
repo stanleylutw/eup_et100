@@ -14,6 +14,9 @@ static bool weak[sizeof nor/4096],saved_weak[sizeof weak];
 static uint8_t a[SIZE],b[SIZE],ha[32],hb[32];
 static unsigned operations,cut,mode,nor_writes;
 static bool backup_error;
+static unsigned observed_code;
+static void observed(enum inst_stage stage,uint32_t done,uint32_t total,unsigned code)
+{ (void)stage;(void)done;(void)total;if(code)observed_code=code; }
 static jmp_buf outage;
 static void put32(uint8_t *p,uint32_t v) { for (unsigned i=0;i<4;i++) p[i]=v>>(8*i); }
 static void fixture(uint8_t image[SIZE],unsigned version,uint8_t hash[32])
@@ -127,6 +130,7 @@ static unsigned matrix(unsigned scenario)
 }
 int main(void)
 {
+    inst_set_reporter(observed);
     fixture(a,1,ha);fixture(b,2,hb);memset(flash,0xa5,sizeof flash);memset(nor,0xff,sizeof nor);
     memset(flash+BOOT_STATE_BASE,0xff,16384);memcpy(flash+0x20000,a,SIZE);memcpy(nor+0x20000,b,SIZE);
     /* Import actual v0.8.3 wire format and promote it without erasing the old bank. */
@@ -135,9 +139,27 @@ int main(void)
     put32(legacy+56,0x54494d43);memcpy(flash+BOOT_STATE_BASE,legacy,60);read_state();
     assert(record.kind==BOOT_CONFIRMED && record.confirmed_length==SIZE && !memcmp(record.confirmed_hash,ha,32));
     record.kind=BOOT_PENDING;record.length=SIZE;memcpy(record.hash,hb,32);assert(!boot_state_write(&port,&record));
+#if defined(ET100_TEST_BAD_CANDIDATE) && ET100_TEST_BAD_CANDIDATE
+    read_state();run();read_state();
+    assert(record.kind==BOOT_CONFIRMED && record.last_update==UPDATE_ABORTED);
+    assert(observed_code==IC_SRC_INVALID && !memcmp(flash+0x20000,a,SIZE));
+    assert(!memcmp(nor+0x20000,b,SIZE));
+    puts("PASS test-only Candidate read corruption => ABORTED; physical NOR and old App unchanged");
+    return 0;
+#endif
     unsigned previous=operations;assert(boot_state_confirm(&port,hb));assert(operations==previous);
     read_state();backup_error=true;run();read_state();
     assert(record.kind==BOOT_CONFIRMED && record.last_update==UPDATE_ABORTED && !memcmp(flash+0x20000,a,SIZE));
+    assert(observed_code==IC_BACKUP_FAIL);
+    /* NOR init errors abort only while the old App has not been erased. */
+    for(unsigned kind=BOOT_PENDING;kind<=BOOT_ROLLBACK_REQUIRED;kind++) {
+        if(kind!=BOOT_PENDING&&kind!=BOOT_BACKUP_READY&&kind!=BOOT_ROLLBACK_REQUIRED)continue;
+        record.kind=kind;assert(!boot_state_write(&port,&record));
+        struct inst_record status={0};int rc=transaction_prepare(&port,&record,&status,NOR_ETIMEOUT);
+        assert(status.code==IC_NOR_INIT && !memcmp(flash+0x20000,a,SIZE));
+        if(kind==BOOT_PENDING)assert(!rc && record.kind==BOOT_CONFIRMED);
+        else assert(rc && record.kind==kind);
+    }
     backup_error=false;record.kind=BOOT_PENDING;assert(!boot_state_write(&port,&record));read_state();
     unsigned cases=matrix(0);assert(record.kind==BOOT_TRIAL);
     operations=0;assert(boot_state_confirm(&port,ha));assert(!operations);
@@ -146,13 +168,24 @@ int main(void)
     cases+=matrix(1);assert(record.kind==BOOT_CONFIRMED && !memcmp(record.confirmed_hash,hb,32));
     record=trial;assert(!boot_state_write(&port,&record));read_state();cases+=matrix(2);
     assert(record.kind==BOOT_CONFIRMED && !memcmp(flash+0x20000,a,SIZE));
+    struct inst_record counter={.state=BOOT_PENDING,.attempts=3,.result=IR_RUNNING};
+    memcpy(counter.hash,hb,32);record.kind=BOOT_PENDING;assert(!boot_state_write(&port,&record));
+    assert(!transaction_prepare(&port,&record,&counter,0));
+    assert(record.kind==BOOT_CONFIRMED&&record.last_update==UPDATE_ABORTED&&counter.code==IC_RETRY_LIMIT);
+    record.kind=BOOT_BACKUP_READY;assert(!boot_state_write(&port,&record));
+    counter.state=BOOT_BACKUP_READY;counter.attempts=3;counter.result=IR_RUNNING;
+    assert(!transaction_prepare(&port,&record,&counter,0) && record.kind==BOOT_ROLLBACK_REQUIRED);
+    run();read_state();assert(record.kind==BOOT_CONFIRMED&&!memcmp(flash+0x20000,a,SIZE));
     /* A retained, fully verified matching rollback image must not be rewritten. */
     record.kind=BOOT_PENDING;record.length=SIZE;memcpy(record.hash,hb,32);assert(!boot_state_write(&port,&record));
     read_state();nor_writes=0;run();assert(nor_writes==0);
     /* Corrupt rollback must fail before erasing the currently installed App. */
     nor[0x220000+576+282]^=1;
+    observed_code=0;
     assert(transaction_run(&port,&external,&record,NULL)!=0);read_state();
     assert(record.kind==BOOT_ROLLBACK_REQUIRED && !memcmp(flash+0x20000,b,SIZE));
+    assert(observed_code==IC_SRC_INVALID);
+    memset(flash+BOOT_STATE_BASE,0,16384);assert(boot_state_read(&port,&record));
     puts("PASS trial/confirm/rollback, v1 migration, backup abort/reuse, bad rollback and wrong-state/hash rejection");
     printf("PASS backup/TRIAL/confirm/rollback power-cut matrix (%u cases, three torn-operation modes)\n",cases);
 }

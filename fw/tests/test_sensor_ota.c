@@ -27,6 +27,8 @@ int ota_worker_sensor_read(uint32_t off, void *data, size_t n)
 
 /* ---- fake Sensor ---- */
 static struct {
+    int connect_fail, drain_stuck;
+    int m0_stop, m0_cancel;
     int advertising, auth_fail, smp_missing, boot_fail, reset_silent, bad_seq, bad_state;
     unsigned drop_after_chunks, cancel_after_chunks, chunks, erases, resets;
     char project[25], fw[33];
@@ -35,6 +37,21 @@ static struct {
     int slot1_valid, pending;
 } sensor;
 static int link_up, gatt_busy, reserved_flag, cancel_flag, sessions;
+static unsigned m0_initiating, m0_stop_requested, m0_end_seen, m0_end_status, m0_stops;
+static unsigned m0_quiet_valid, m0_unreserve_pending;
+static uint32_t m0_quiet_ms;
+static int m0_quiet(void)
+{
+    if (m0_quiet_valid && (uint32_t)(ticks-m0_quiet_ms)>=2000) m0_quiet_valid=0;
+    return m0_quiet_valid;
+}
+static int fake_gap_conn_stop(void)
+{ m0_stops++;return 0; }
+static void fake_conn_end(unsigned status)
+{
+    m0_end_seen=1;m0_end_status=status;
+    if (m0_stop_requested || status || link_up) m0_initiating=m0_stop_requested=0;
+}
 static uint16_t fake_mtu = 247, notify_size;
 static void (*sink)(const uint8_t *, size_t);
 static int (*hook)(void);
@@ -46,8 +63,8 @@ static const uint8_t MAC[6] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
 
 unsigned et100_gatt_state(void) { return (unsigned)gatt_busy; }
 void et100_gatt_set_idle_hook(int (*h)(void)) { hook = h; }
-int et100_gatt_reserve(void) { if (reserved_flag || gatt_busy) return -EBUSY; reserved_flag = 1; cancel_flag = 0; return 0; }
-void et100_gatt_unreserve(void) { reserved_flag = 0; cancel_flag = 0; }
+int et100_gatt_reserve(void) { if (reserved_flag || gatt_busy || m0_quiet()) return -EBUSY; reserved_flag = 1; cancel_flag = 0; return 0; }
+void et100_gatt_unreserve(void) { reserved_flag = 0; cancel_flag = 0;m0_unreserve_pending=0; }
 void et100_gatt_cancel(void) { if (reserved_flag) cancel_flag = 1; }
 uint16_t et100_gatt_mtu(void) { return fake_mtu; }
 void et100_gatt_op_event(const uint8_t mac[6], const char *data)
@@ -209,11 +226,26 @@ int et100_gatt_smp_write(const uint8_t *data, size_t length)
 int et100_gatt_exclusive(const uint8_t mac[6], const struct et100_gatt_exclusive_ops *ops)
 {
     assert(reserved_flag && relay_active && !memcmp(mac, MAC, 6));
+    if (m0_quiet()) return -EBUSY;
     sessions++;
     if (cancel_flag) return -ECANCELED;
     if (!sensor.advertising) { ticks += ops->wait_ms; return -ETIMEDOUT; }
     ticks += 100;
     ops->matched(ops->ctx);
+    if (sensor.connect_fail) {
+        ticks+=10000;
+        if (sensor.m0_stop) {
+            gatt_busy=1;m0_initiating=1;
+            assert(fake_gap_conn_stop()==0);
+            m0_stop_requested=1;
+            ticks+=20;fake_conn_end(0); /* Return first, then event; never a link. */
+            assert(!m0_initiating && !m0_stop_requested && !link_up);
+            gatt_busy=0;m0_quiet_valid=1;m0_quiet_ms=ticks;
+            if (sensor.m0_cancel) { cancel_flag=1;return -ECANCELED; }
+        }
+        if (sensor.drain_stuck) { ticks+=15000;gatt_busy=1; }
+        return -ENOTCONN;
+    }
     link_up = 1;
     ops->stage(ET100_GATT_CONNECTED, 0, ops->ctx);
     ops->stage(ET100_GATT_AUTHENTICATING, 0, ops->ctx);
@@ -247,6 +279,8 @@ static void reset(void)
     snprintf(sensor.fw, sizeof sensor.fw, "v3.6.14");
     memset(sensor.active_hash, 0xa0, 32);
     link_up = gatt_busy = reserved_flag = cancel_flag = sessions = reads = 0;
+    m0_initiating=m0_stop_requested=m0_end_seen=m0_end_status=m0_stops=0;
+    m0_quiet_valid=m0_unreserve_pending=0;m0_quiet_ms=0;
     relay_active = relay_refuse = 0;
     fake_mtu = 247; notify_size = 0;
     events_len = 0; events[0] = 0;
@@ -308,8 +342,8 @@ static void test_success(uint16_t mtu, uint16_t notify)
     uint64_t all_pass = 0;
     for (unsigned s = 0; s < 15; s++) all_pass |= (uint64_t)SENSOR_OTA_STEP_PASS << (3 * s);
     char expected[160];
-    snprintf(expected, sizeof expected, "AT$PD=BLEGW$GSENSOROTAFLOW;1;SUCCESS;RESULT;PASS;NONE;000003FF;%012llX;T001\r\n",
-             (unsigned long long)all_pass);
+    assert(all_pass == 0x092492492492ull);
+    snprintf(expected, sizeof expected, "AT$PD=BLEGW$GSENSOROTAFLOW;1;SUCCESS;RESULT;PASS;NONE;000003FF;092492492492;T001\r\n");
     assert(!strcmp(uart("GSENSOROTAFLOW", ""), expected));
     snprintf(expected, sizeof expected, "AT$PD=BLEGW$GSENSOROTAMETA;1;AABBCCDDEEFF;EUP_AIoT_P1;P1_HW_1.0.0;v3.6.15;"
              "20261017223216;nrf52832;p1_nrf52832;AABBCCDDEEFF;%08lX;00;NONE;T001\r\n", (unsigned long)EUP_AIOT_REQUIRED_CAPS);
@@ -343,6 +377,16 @@ static void test_resume_after_drop(void)
 
 static void test_failures(void)
 {
+    reset();sensor.connect_fail=1;sensor.drain_stuck=1;
+    run();expect(SENSOR_OTA_JOB_FAILED,SENSOR_OTA_ERROR_CONNECT_FAILED);
+    assert(sessions==1 && gatt_busy && !relay_active);
+    assert(step(SENSOR_OTA_STEP_CONNECTING)==SENSOR_OTA_STEP_FAIL);
+    assert(strstr(uart("SENSOROTA","AABBCCDDEEFF"),";0;4;BUSY;"));
+
+    reset();sensor.connect_fail=1;
+    run();expect(SENSOR_OTA_JOB_FAILED,SENSOR_OTA_ERROR_CONNECT_FAILED);
+    assert(sessions==SENSOR_OTA_MAX_SESSIONS && !gatt_busy);
+
     reset(); sensor.bad_state = 1;
     run();
     expect(SENSOR_OTA_JOB_FAILED, SENSOR_OTA_ERROR_LINK_BUDGET);
@@ -390,6 +434,23 @@ static void test_failures(void)
     assert(hook());
     expect(SENSOR_OTA_JOB_FAILED, SENSOR_OTA_ERROR_PACKAGE_INVALID);
     assert(sensor.erases == 0 && !relay_active && !reserved_flag);
+}
+
+static void test_m0_job_recovery(void)
+{
+    for (int cancel=0;cancel<=1;cancel++) {
+        reset();sensor.connect_fail=1;sensor.m0_stop=1;sensor.m0_cancel=cancel;
+        run();
+        expect(cancel ? SENSOR_OTA_JOB_CANCELLED : SENSOR_OTA_JOB_FAILED,
+               cancel ? SENSOR_OTA_ERROR_CANCELLED : SENSOR_OTA_ERROR_CONNECT_FAILED);
+        assert(m0_stops && m0_end_seen && m0_end_status==0 && !m0_initiating);
+        assert(!gatt_busy && !link_up && !reserved_flag && !m0_unreserve_pending && !relay_active);
+        assert(strstr(uart("SENSOROTA","AABBCCDDEEFF"),";0;4;BUSY;"));
+        ticks=m0_quiet_ms+2000;sensor.connect_fail=sensor.m0_stop=sensor.m0_cancel=0;
+        assert(strstr(uart("SENSOROTA","AABBCCDDEEFF"),";1;AABBCCDDEEFF;"));
+        assert(hook());expect(SENSOR_OTA_JOB_SUCCESS,SENSOR_OTA_ERROR_NONE);
+    }
+    puts("PASS M0 job fixture: stop(0)->END(0), FAILED/CANCELLED, released reservation, BUSY during quiet and successful restart");
 }
 
 static void test_start_errors(void)
@@ -444,11 +505,35 @@ static void test_smp_client(void)
     sensor_smp_client_end();
 }
 
+static void test_flow_hex(void)
+{
+    static const struct { uint64_t bits; const char *hex; } cases[] = {
+        {0, "000000000000"}, {1, "000000000001"}, {0xffffffffull, "0000FFFFFFFF"},
+        {0x100000000ull, "000100000000"}, {0xabcd12345678ull, "ABCD12345678"},
+        {UINT64_MAX, "FFFFFFFFFFFF"}
+    };
+    for (unsigned i=0;i<sizeof cases/sizeof cases[0];i++) {
+        memset(&job_status,0,sizeof job_status);job_status.step_results=cases[i].bits;
+        char expected[160],out[160];
+        int n=snprintf(expected,sizeof expected,"AT$PD=BLEGW$GSENSOROTAFLOW;1;IDLE;NONE;PENDING;NONE;00000000;%s;Z9Q1\r\n",cases[i].hex);
+        assert(sensor_ota_job_uart("GSENSOROTAFLOW","","Z9Q1",out,sizeof out)==n);
+        assert(!strcmp(out,expected));
+        for (size_t cap=1;cap<=(size_t)n;cap++) {
+            unsigned char guarded[162];memset(guarded,0xa5,sizeof guarded);
+            assert(sensor_ota_job_uart("GSENSOROTAFLOW","","Z9Q1",(char *)guarded+1,cap)==0);
+            assert(guarded[0]==0xa5 && guarded[cap+1]==0xa5 && guarded[cap]==0);
+        }
+    }
+    memset(&job_status,0,sizeof job_status);
+    puts("PASS FLOW: 12 uppercase hex digits, high 16/low 32, token, bounded truncation");
+}
+
 int main(void)
 {
     for (uint32_t i = 0; i < IMG_LEN; i++) image[i] = (uint8_t)(i * 31 + 7);
     sensor_ota_job_init();
     assert(hook == sensor_ota_job_poll);
+    test_flow_hex();
     test_smp_client();
     test_start_errors();
     test_success(247, 0);
@@ -456,6 +541,7 @@ int main(void)
     test_up_to_date();
     test_resume_after_drop();
     test_failures();
+    test_m0_job_recovery();
     puts("PASS: sensor OTA relay: full update, MTU 23 fragmentation, already up to date, resume after link drop,");
     puts("      target/auth/SMP/version failures, adv timeout, cancel, package replaced, start errors, wire formats");
     return 0;

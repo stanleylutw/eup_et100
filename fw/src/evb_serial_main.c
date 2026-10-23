@@ -18,6 +18,7 @@
 #include "app_at.h"
 #include "serial_gchk.h"
 #include "status_led.h"
+#include "system_status.h"
 
 /* hardware handlers */
 static UART_HandleTypeDef Uart3_handle;
@@ -329,6 +330,7 @@ int main( void )
 
     printf("start running\r\n");
 
+    et100_sys_init();
     /* init flashdb to store user data */
     et100_serial_storage_ready(flashdb_init() == 0);
 
