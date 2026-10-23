@@ -2,6 +2,7 @@
 #include "eup_fw_info.h"
 #include "integrity.h"
 #include "mbedtls/sha256.h"
+#include "inst_status.h"
 #include <string.h>
 
 static uint32_t get32(const uint8_t *p)
@@ -14,6 +15,7 @@ int image_hash(image_read_fn read, void *ctx, uint32_t length, uint8_t digest[32
         size_t n=length-off;if (n>sizeof block) n=sizeof block;
         if (read(ctx,off,block,n)) { rc=IMAGE_EIO;break; }
         rc=mbedtls_sha256_update_ret(&sha,block,n);off+=n;
+        if (!rc) inst_feed();
     }
     if (!rc) rc=mbedtls_sha256_finish_ret(&sha,digest);
     mbedtls_sha256_free(&sha);return rc;
@@ -24,6 +26,7 @@ static int metadata(image_read_fn read,void *ctx,uint32_t length)
     for (uint32_t off=0;off<length;off+=256) {
         size_t n=length-off;if (n>sizeof block) n=sizeof block;
         if (read(ctx,off,block,n)) return IMAGE_EIO;
+        inst_feed();
         for (unsigned i=0;i<256 && i+8<=n;i++) {
             /* Split literal: this file is also linked into the App, whose image must
              * contain exactly one contiguous metadata magic (the real block). */

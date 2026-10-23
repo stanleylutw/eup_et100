@@ -3821,9 +3821,58 @@ const ET100Smp = (() => {
     if(!images[entry.file]) throw Error('manifest application 檔案不存在／過大');
     return validate(images[entry.file],entry);
   }
+  function parseInst(line) {
+    if(typeof line!=='string'||line.length+2>120||!/^ET100\$INST;[ -~]+\*[0-9A-F]{4}$/.test(line))return null;
+    const star=line.lastIndexOf('*'),body=line.slice(0,star);
+    if(crc16(encoder.encode(body))!==parseInt(line.slice(star+1),16))return null;
+    const f=body.split(';');
+    if(f.length<5||!/^\d{1,10}$/.test(f[1])||!['L','A'].includes(f[2])||
+       !/^[A-Z_]+$/.test(f[3])||!/^([0-9A-F]{8}|-)$/.test(f[4])||f.slice(5).some(v=>v.length>31||v.includes('*')))return null;
+    const event=f[3],fields=f.slice(5),number=v=>/^\d{1,10}$/.test(v)&&Number(v)<=0xffffffff;
+    const minimum={HELLO:2,START:2,CHECK:1,BACKUP:1,ERASE:2,WRITE:2,VERIFY:1,RESULT:2,BOOT:2,HALT:2,APP:3,CONFIRMED:0,TRIAL_TIMEOUT:2};
+    const known=Object.hasOwn(minimum,event);
+    if(known&&fields.length<minimum[event])return null;
+    if(known&&(['APP','CONFIRMED','TRIAL_TIMEOUT'].includes(event)?f[2]!=='A':f[2]!=='L'))return null;
+    if(['ERASE','WRITE','BACKUP'].includes(event)&&!(event==='BACKUP'&&fields[0]==='SKIP')) {
+      if(fields.length<2||!number(fields[0])||!number(fields[1])||Number(fields[0])>Number(fields[1]))return null;
+    }
+    if(['RESULT','HALT','BOOT'].includes(event)&&!number(fields[1]))return null;
+    return {version:Number(f[1]),src:f[2],event,txn:f[4],fields,known};
+  }
   class Client {
     constructor(io) { this.io=io; this.seq=0; this.pending=null; this.cancelled=false; this.testSent=false; this.running=false; this.decoder=new Decoder(p=>this.receive(p),line=>this.receiveLine(line)); }
-    receiveLine(line) { this.lineWaiter?.(line); this.io.line?.(line); }
+    receiveLine(line) {
+      this.lineWaiter?.(line);
+      const event=parseInst(line),session=this.inst;
+      if(event&&session) {
+        if(event.version!==1) {
+          if(!session.warned) this.io.event?.('Installer 協定版本未支援；改以 SMP 確認');
+          session.warned=true;
+        } else if(event.known&&(event.txn===session.txn||(event.txn==='-'&&['HELLO','HALT'].includes(event.event)))) {
+          session.last=this.io.now();
+          if(event.src==='L'&&event.event==='HELLO')session.hello=true;
+          if(event.src==='L'&&event.event==='BOOT'&&['TRIAL','CONFIRMED','NONE'].includes(event.fields[0])&&event.fields[1]==='9600')session.boot=true;
+          if(event.src==='L'&&event.event==='HALT')session.halt=`Installer 停機：${event.fields[0]}（code ${event.fields[1]}）`;
+          if(event.event==='RESULT')session.result=event.fields[0];
+          const stages={CHECK:'驗證檔案',BACKUP:'備份目前版本',ERASE:'安裝中',WRITE:'安裝中',VERIFY:'檢查安裝映像'};
+          if(event.src==='L'&&stages[event.event])this.io.stage(stages[event.event]);
+          this.io.inst?.(event);
+        }
+      }
+      this.io.line?.(line);
+    }
+    async waitInstaller(deadline) {
+      const session=this.inst,helloDeadline=Math.min(deadline,this.io.now()+3000);
+      while(!session.hello&&!session.boot&&!session.halt&&this.io.now()<helloDeadline)
+        await this.io.sleep(Math.min(50,helloDeadline-this.io.now()));
+      while(session.hello&&!session.boot&&!session.halt&&this.io.now()<deadline) {
+        if(this.io.now()-session.last>=30000) {
+          this.io.event?.('Installer 30 秒無事件；切回 9600，以 SMP 查詢補足漏失狀態');break;
+        }
+        await this.io.sleep(Math.min(50,deadline-this.io.now()));
+      }
+      if(session.halt)throw Error(session.halt);
+    }
     receive(p) {
       const q=this.pending;
       if(!q||p.length<8||p.length!==8+p[2]*256+p[3]||p[6]!==q.seq||p[7]!==q.id||p[4]*256+p[5]!==q.group||(p[0]&7)!==q.op+1||(p[0]>>3&3)!==1) return;
@@ -3907,6 +3956,15 @@ const ET100Smp = (() => {
       if(result.state!=='EMPTY') throw Error('刪除後尚未確認 EMPTY');
       return result;
     }
+    async otaStatus(timeout=1000) {
+      const token=this.io.token();
+      try {
+        const line=await this.ascii('BLEGW$GOTASTAT;'+token,l=>l.startsWith('AT$PD=BLEGW$GOTASTAT;')&&l.endsWith(';'+token),timeout);
+        const f=line.split(';');
+        if(f.length!==8||f[1]!=='1'||!/^([0-9A-F]{8}|-)$/.test(f[3])||!/^\d{1,10}$/.test(f[5]))return null;
+        return {state:f[2],txn:f[3],result:f[4],code:Number(f[5]),firmware:f[6]};
+      } catch {return null;}
+    }
     async update(file, image=0) {
       if(this.running) throw Error('更新正在進行');
       if(image!==0&&image!==1) throw Error('不支援的上傳目標');
@@ -3958,13 +4016,17 @@ const ET100Smp = (() => {
         this.checkCancel(); this.testSent=true; this.io.stage('Test／重啟');
         await this.request(2,1,0,{hash:candidate.hash,confirm:false},60000);
         this.io.event?.('SMP Test ACK（confirm=false）');
+        const deadline=this.io.now()+180000;
+        this.inst={txn:Array.from(file.sha.slice(0,4),v=>v.toString(16).padStart(2,'0')).join('').toUpperCase(),last:this.io.now()};
         await this.request(2,0,5,{},30000); reset=true;
         this.io.event?.('SMP Reset ACK（group=0, id=5）');
+        await this.waitInstaller(deadline);
         await this.io.reopen(9600); high=false; this.decoder.reset();
-        this.io.stage('安裝中'); const deadline=this.io.now()+180000;
+        this.io.stage('安裝中');
         let checking=false;
         while(this.io.now()<deadline) {
-          await this.io.sleep(5000);
+          await this.io.sleep(Math.min(5000,deadline-this.io.now()));
+          if(this.io.now()>=deadline)break;
           let images;
           try {
             images=(await this.request(0,1,0,{},Math.min(5000,Math.max(1,deadline-this.io.now())))).images;
@@ -3979,7 +4041,12 @@ const ET100Smp = (() => {
             continue;
           }
           if(slot.version===file.version&&equal(slot.hash,file.tlvHash)) return {kind:'success',slot};
-          if(slot.version===before.slot.version&&file.version!==before.slot.version) return {kind:'rollback',slot};
+          if(slot.version===before.slot.version&&equal(slot.hash,before.slot.hash)) {
+            const status=await this.otaStatus(Math.max(1,Math.min(1000,deadline-this.io.now())));
+            const matched=status?.txn===this.inst.txn&&status.state==='CONFIRMED';
+            if(this.inst?.result==='ABORTED'||(matched&&status.result==='ABORTED'))return {kind:'aborted',slot};
+            return {kind:'rollback',slot,verified:matched&&status.result==='ROLLED_BACK'};
+          }
           throw Error('裝置已確認，但版本／hash 不符合預期');
         }
         throw Error('180 秒內未確認新版；結果未知，請查詢裝置（不是更新成功）');
@@ -3990,10 +4057,11 @@ const ET100Smp = (() => {
           try { await this.io.reopen(9600); this.decoder.reset(); } catch {}
         }
         this.running=false;
+        this.inst=null;
       }
     }
   }
-  return {concat,equal,cbor,uncbor,crc16,crc32,packet,frame,Decoder,validate,loadFile,Client};
+  return {concat,equal,cbor,uncbor,crc16,crc32,packet,frame,Decoder,validate,loadFile,parseInst,Client};
 })();
 </script>
 <script>
@@ -8793,7 +8861,7 @@ const et100PartitionNames = {
   'ROM A 資訊段':'開機資訊', 'ROM B 資訊段':'原廠 OTA 資訊',
   Installer:'韌體安裝程式', App:'主程式', 'Settings／KV':'系統設定', 'Boot state':'更新狀態',
   'Download journal':'下載紀錄', Candidate:'新版韌體暫存', Rollback:'舊版韌體備份',
-  'Sensor OTA':'感測器更新套件', 'Logs／預留':'日誌與預留空間'
+  'Sensor OTA':'感測器更新套件', 'Installer 結果':'安裝結果紀錄', 'Logs／預留':'日誌與預留空間'
 };
 function et100StoragePartitions(profile) {
   const total = (profile === 'product' ? 32 : 16)*1024*1024;
@@ -8802,7 +8870,8 @@ function et100StoragePartitions(profile) {
     ['Candidate', 0x020000, 2*1024*1024, '#0F7AE5', '接收並驗證待更新韌體'],
     ['Rollback', 0x220000, 2*1024*1024, '#238B78', '更新失敗時還原'],
     ['Sensor OTA', 0x420000, 256*1024, '#9B69AC', '套件上限 225,280 B'],
-    ['Logs／預留', 0x460000, total-0x460000, '#B5BEC9', '預留供後續功能使用']
+    ['Installer 結果', 0x460000, 8192, '#738295', '安裝結果與中斷計數'],
+    ['Logs／預留', 0x462000, total-0x462000, '#B5BEC9', '預留供後續功能使用']
   ];
 }
 function et100Capacity(bytes) {
@@ -8860,6 +8929,7 @@ function et100RefreshVisual() {
   document.getElementById('et100-app-state').textContent = et100Device ?
     `${et100Device.slot.version} · ${et100Device.slot.confirmed ? '已確認' : '未確認'}` : '尚未查詢';
   const labels = {idle:'等待中', prepare:'準備傳輸', upload:'上傳中', verify:'驗證 Candidate', reset:'Test／重啟',
+    backup:'備份目前版本', 'install-check':'驗證檔案', 'install-verify':'檢查安裝映像',
     waiting:'安裝中', checking:'新版程式檢查中', confirmed:'更新成功', rollback:'推定回滾', error:'流程停止', cancelled:'取消傳輸',
     'sensor-verify':'比對 NOR 套件', stored:'Sensor 套件已儲存', deleted:'Sensor 套件已刪除'};
   const phase = labels[et100Visual.stage] || '等待中';
@@ -8873,7 +8943,8 @@ function et100RefreshVisual() {
     ['經過時間', `${et100Visual.elapsed.toFixed(1)} s`], ['檔案大小', bytes ? `${bytes.toLocaleString()} B` : '尚未載入'],
     [sensor ? '感測器更新套件' : '新版韌體暫存', sensor ? '256 KB' : '2 MB'], ['檔案放入餘量', bytes ? `${(slotSize-bytes).toLocaleString()} B` : '未知'],
     [sensor ? '套件上限' : 'App 上限', sensor ? '225,280 B' : '1792 KB'],
-    [sensor ? 'NOR 狀態' : '安裝／備份進度', sensor ? (et100StoredPackage?.state || '尚未查詢') : '裝置未回報']
+    [sensor ? 'NOR 狀態' : '安裝／備份進度', sensor ? (et100StoredPackage?.state || '尚未查詢') :
+      et100Visual.inst ? `${et100Visual.inst.event} · ${et100Visual.inst.fields.join(' / ')}` : '裝置未回報']
   ];
   const table = document.getElementById('et100-stat-rows'); table.replaceChildren();
   for (const [name, value] of rows) {
@@ -9118,18 +9189,23 @@ const et100Client = new ET100Smp.Client({
     if (!writer || !connected || !et100TransportMode()) throw Error('ET-100 Serial 已中斷');
     if (bytes[0] === 0x42) {
       const command = new TextDecoder().decode(bytes).trim();
-      if (/^BLEGW\$(GCHK|GFWINFO|OTABAUD|GSOTAPKG|DSOTAPKG);/.test(command))
+      if (/^BLEGW\$(GCHK|GFWINFO|GOTASTAT|OTABAUD|GSOTAPKG|DSOTAPKG);/.test(command))
         addLogTagged('tx', command, 'tag-tx', 'TX');
     }
     await writer.write(bytes);
   },
   reopen: et100Reopen, token: randCode, now: Date.now, sleep: et100Sleep,
   line: line => {
+    if (line.startsWith('ET100$INST;')) {
+      if(ET100Smp.parseInst(line))addLogTagged('rx',line,'tag-ota','INST');
+      return;
+    }
     if (/^AT\$PD=BLEGW\$(GSOTAPKG|DSOTAPKG);/.test(line)) addLogTagged('rx',line,'tag-ota','OTA');
     else if (line.trim()) processFrame(line.trim());
   },
   sensorPackage: et100ApplyPackage,
   event: text => addLog('sys', `ET-100：${text}`),
+  inst: value => { et100Visual.inst=value;et100RefreshVisual(); },
   imageState: images => {
     if (!Array.isArray(images)) return;
     const summary = images.map(s=>`slot ${s.slot} ${s.version} confirmed=${Boolean(s.confirmed)} pending=${Boolean(s.pending)}`).join(' · ');
@@ -9139,9 +9215,11 @@ const et100Client = new ET100Smp.Client({
     }
   },
   stage: text => {
+    if(text==='查詢裝置')et100Visual.inst=null;
     document.getElementById('et100-phase').textContent = text;
     et100Flow(({'上傳':'upload', '驗證 Candidate':'verify', '驗證 Sensor 套件':'sensor-verify', 'Test／重啟':'reset',
-      '安裝中':'waiting', '新版程式檢查中':'checking'})[text] || 'prepare');
+      '安裝中':'waiting', '新版程式檢查中':'checking','備份目前版本':'backup',
+      '驗證檔案':'install-check','檢查安裝映像':'install-verify'})[text] || 'prepare');
     et100Controls(); addLog('sys', `ET-100：${text}`);
   },
   identity: result => {
@@ -9246,13 +9324,14 @@ document.getElementById('et100-start').addEventListener('click', () => {
       return;
     }
     et100Device = {...et100Device, slot:outcome.slot};
-    et100Flow(outcome.kind === 'rollback' ? 'rollback' : 'confirmed');
+    et100Flow(outcome.kind === 'aborted' ? 'error' : outcome.kind === 'rollback' ? 'rollback' : 'confirmed');
     const result = document.getElementById('et100-result'); result.dataset.kind = outcome.kind;
-    result.textContent = outcome.kind === 'rollback' ? `推定已回滾：slot 0 ${outcome.slot.version}，已確認；請檢查裝置安裝 log` :
+    result.textContent = outcome.kind === 'aborted' ? `更新已放棄，保留原程式：${outcome.slot.version}，已確認` :
+      outcome.kind === 'rollback' ? `${outcome.verified?'已還原舊版':'推定已回滾'}：slot 0 ${outcome.slot.version}，已確認；請檢查裝置安裝 log` :
       outcome.kind === 'already' ? `裝置已是相同映像：${outcome.slot.version}，已確認` :
       `更新成功：${outcome.slot.version}，已確認 · ${((Date.now()-et100Started)/1000).toFixed(0)} s`;
     addLog('sys', `ET-100：${result.textContent}`);
-    document.getElementById('et100-phase').textContent = outcome.kind === 'rollback' ? '未完成新版更新' :
+    document.getElementById('et100-phase').textContent = ['rollback','aborted'].includes(outcome.kind) ? '未完成新版更新' :
       outcome.kind === 'already' ? '版本已確認' : '更新成功';
     et100RenderDevice();
   });

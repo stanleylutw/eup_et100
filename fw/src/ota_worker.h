@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "sensor_store.h"
+#include "inst_status.h"
 
 enum ota_transport { OTA_TRANSPORT_SERIAL, OTA_TRANSPORT_BLE, OTA_TRANSPORT_COUNT };
 /* tag: value given at submit (BLE: connection generation); the sender drops the
@@ -37,4 +38,8 @@ void ota_worker_relay_end(void);
 /* Package bytes (offset 0 = header), read by the worker task that owns the NOR.
  * Blocks the caller; 0 or -1 (error / 2 s timeout). */
 int ota_worker_sensor_read(uint32_t offset, void *data, size_t length);
+/* Cached diagnostic record; no NOR access by the caller. */
+bool ota_worker_inst_record(struct inst_record *);
+bool ota_worker_inst_save(const struct inst_record *);
+bool ota_worker_inst_pending(void);
 #endif

@@ -31,6 +31,22 @@ static volatile bool seen;
 static struct sensor_store sensor;
 static volatile bool delete_queued;
 static volatile int delete_result = -1;
+static struct inst_record inst_cached,inst_queued;
+static bool inst_valid;
+static volatile bool inst_pending;
+bool ota_worker_inst_record(struct inst_record *out)
+{
+    taskENTER_CRITICAL();*out=inst_cached;bool valid=inst_valid;taskEXIT_CRITICAL();
+    return valid;
+}
+bool ota_worker_inst_save(const struct inst_record *r)
+{
+    taskENTER_CRITICAL();
+    if (!worker || inst_pending) { taskEXIT_CRITICAL();return false; }
+    inst_queued=*r;__DMB();inst_pending=true;
+    taskEXIT_CRITICAL();xTaskNotifyGive(worker);return true;
+}
+bool ota_worker_inst_pending(void) { return inst_pending; }
 static struct {
     volatile bool pending;
     volatile int rc;
@@ -176,8 +192,21 @@ static void worker_task(void *argument)
     (void)argument;
     volatile uint32_t top_marker = 0;
     stack_low = (const uint8_t *)(((uintptr_t)&top_marker & ~3u) - WORKER_STACK_WORDS * 4u + SCAN_MARGIN);
+    struct inst_record loaded;
+    bool valid=!app_nor_prepare() && inst_record_read(env.nor,&loaded);
+    taskENTER_CRITICAL();
+    if (valid) inst_cached=loaded;
+    inst_valid=valid;taskEXIT_CRITICAL();
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (inst_pending) {
+            struct inst_record update=inst_queued;
+            bool saved=!app_nor_prepare() && !inst_record_write(env.nor,&update);
+            taskENTER_CRITICAL();
+            if (saved) { inst_cached=update;inst_valid=true; }
+            inst_pending=false;taskEXIT_CRITICAL();
+            stack_check();
+        }
         if (read_request.pending) {
             read_request.rc = ota_manager_sensor_read(&ota, read_request.offset, read_request.data,
                                                       read_request.length) ? -1 : 0;
@@ -198,6 +227,7 @@ static void worker_task(void *argument)
             bool reset = false;
             ota_manager_set_source(&ota, t == OTA_TRANSPORT_BLE ? OTA_BLE : OTA_RS232);
             size_t n = smp_server_process(&ops, s->data, s->length, response, sizeof response, &reset);
+            et100_boot_refresh();
             s->full = false;
             last_activity = xTaskGetTickCount();
             if (n && senders[t]) senders[t](response, n, s->tag);

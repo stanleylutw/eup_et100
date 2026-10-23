@@ -21,12 +21,24 @@ Request：`E9 55 01 cmd seq len payload sum8`。Response：`E9 55 01 cmd|0x80 se
 | `0x01 GET_FW_INFO` | 0x01 project `EUP_ET100`、0x02 hardware `ET100_EVB_DEV1.4`、0x03 firmware、0x04 build_time、0x05 build_id、0x06 git_commit、0x07 git_branch、0x08 ble_name_normal、0x09 ble_name_ota、0x0A release_note、0x0B metadata_schema `1`、**0x0C soc `fr3068e_c`**、0x0D protocol_version `1` |
 | `0x05 GET_DEVICE_ID` | 0x01 mac_string（BLE identity，例 `C0:32:32:32:59:03`，與 GCHK identity 同源） |
 | `0x07 GET_CAPABILITIES` | 0x01 flags（FW_INFO＋OTA_READY＋DEVICE_ID = `0x00000023`）、0x02 max_rx 244、0x03 max_tx 240、0x04 preferred_mtu（目前 MTU） |
+| `0x09 GET_OTA_STATUS`（v0.8.11） | 0x01 state（u8，boot kind：0 NONE、1 PENDING、2 CONFIRMED、3 BACKUP_READY、4 TRIAL、5 ROLLBACK_REQUIRED）、0x02 result（u8：0 NONE、1 RUNNING、2 INSTALLED、3 ABORTED、4 ROLLED_BACK、5 TIMEOUT、6 HALT、7 CONFIRMED）、0x03 code（LE32，[07 §7](07_installer_status.md) INST 結果碼）、0x04 txn（8 位大寫 hex 或 `-`）、0x05 running image 整檔 SHA-256（32 B）、0x06 firmware_version。boot state 尚不可讀時回 status `0x06 INTERNAL_ERROR`。只讀 RAM 快照，不讀 NOR；指令 ID 0x09 尚待與 gateway 協定擁有者確認分配 |
 | `0x7F PING` | 無 payload |
 | 其他 | status `0x01 UNKNOWN_COMMAND`；格式錯 `0x02`；版本錯 `0x05` |
 
 範例（PING）：送 `E9 55 01 7F 01 00 BF` → 收 `E9 55 01 FF 01 00 00 01 00 40`。
 
 字串取自 App image 內的 EUPFWV1 block，與 `dfu_application.zip` 內 image 的 EUPFWV1 是同一份格式，App 可直接比對「裝置」與「檔案」的 project／hardware_version。
+
+## 2a. RS232：`BLEGW$GOTASTAT`（v0.8.11）
+
+```text
+Host  → BLEGW$GOTASTAT;<token4>\r\n
+ET100 → AT$PD=BLEGW$GOTASTAT;1;<state>;<txn>;<result>;<code>;<firmware_version>;<token4>\r\n
+      → AT$PD=BLEGW$GOTASTAT;0;<token4>（boot state 尚不可讀）
+例      AT$PD=BLEGW$GOTASTAT;1;CONFIRMED;8755CE49;ROLLED_BACK;9;0.8.7-dev;Q001
+```
+
+`state`／`result` 為文字名稱（同 07 §5），`txn` 無記錄時為 `-`。不含完整 image hash，**不能單獨判定更新成功**（成功仍以 SMP image state 的完整 hash＋confirmed 為準）。
 
 ## 2. RS232：`BLEGW$GFWINFO`
 

@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "../include/eup_fw_info.h"
+#include "inst_status.h"
 
 #define EUP_META_MAX_REQUEST_PAYLOAD 244u
 #define EUP_META_MAX_RESPONSE_PAYLOAD 240u
@@ -22,6 +23,7 @@ struct eup_meta_identity {
     const struct eup_fw_info *info;
     uint8_t mac[6];        /* display order, e.g. C0:32:32:32:59:03 */
     uint16_t mtu;          /* current ATT MTU (23 if not negotiated) */
+    const struct inst_snapshot *ota; /* Cached only; callback must not access NOR. */
 };
 
 /* Result of one request: a response payload to be split into parts. */

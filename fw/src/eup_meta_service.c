@@ -1,5 +1,6 @@
 #include "eup_meta_service.h"
 #include "eup_meta_protocol.h"
+#include "boot_health.h"
 #include "fr30xx.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -77,6 +78,8 @@ static uint16_t server_callback(struct gatt_msg *msg)
             } else {
                 struct slot *s = &queue[(head + count) % 2];
                 struct eup_meta_identity id = { .info = &et100_fw_info, .mtu = mtu };
+                struct inst_snapshot status;
+                if (p && n>3 && p[3]==0x09 && et100_boot_status(&status)) id.ota=&status;
                 memcpy(id.mac, identity, sizeof id.mac);
                 eup_meta_handle(p, n, &id, &s->r);
                 s->chunk = eup_meta_chunk_max(mtu);

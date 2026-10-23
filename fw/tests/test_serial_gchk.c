@@ -49,6 +49,8 @@ static void capture(const char *data, size_t length, void *context)
 
 static struct sensor_store_status pkg;
 static int pkg_ok = 1;
+static struct inst_snapshot ota;
+static int ota_status(struct inst_snapshot *out) { *out=ota;return ota.ready; }
 static int pkg_status(struct sensor_store_status *out)
 {
     *out = pkg;
@@ -164,6 +166,13 @@ int main(void)
            "AT$PD=BLEGW$GFWINFO;1;PPPPPPPPPPPPPPPPPPPPPPPP;;;fr3068e_c;F002\r\n");
     p.fw_info = NULL;
     puts("PASS: GFWINFO from EUPFWV1, missing source, unterminated fields");
+    expect(&p,"BLEGW$GOTASTAT;O000\r\n","AT$PD=BLEGW$GOTASTAT;0;O000\r\n");
+    p.ota_status=ota_status;ota.ready=true;ota.state=BOOT_CONFIRMED;
+    expect(&p,"BLEGW$GOTASTAT;O001\r\n","AT$PD=BLEGW$GOTASTAT;1;CONFIRMED;-;-;0;;O001\r\n");
+    ota.has_record=true;ota.record.result=IR_ROLLED_BACK;ota.record.code=IC_TRIAL_TIMEOUT;
+    ota.record.hash[0]=0xab;p.fw_info=&fw;
+    expect(&p,"BLEGW$GOTASTAT;O002\r\n","AT$PD=BLEGW$GOTASTAT;1;CONFIRMED;AB000000;ROLLED_BACK;9;0.8.7-dev;O002\r\n");
+    p.fw_info=NULL;
     /* v0.8.8 GSOTAPKG / DSOTAPKG: eup_gateway rs232_cmd_handler.c formats */
     expect(&p, "BLEGW$GSOTAPKG;P000\r\n", "AT$PD=BLEGW$GSOTAPKG;0;UNSUPPORTED;P000\r\n");
     expect(&p, "BLEGW$DSOTAPKG;P001\r\n", "AT$PD=BLEGW$DSOTAPKG;0;UNSUPPORTED;P001\r\n");

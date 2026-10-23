@@ -83,6 +83,14 @@ const root=path.resolve(__dirname,'../..');
           } else if(key==='2/0/5')mock.reset=true;
           else throw Error('unexpected request '+key);
           mock.controller.enqueue(ET100Smp.frame(ET100Smp.packet((p[0]&7)+1,p[4]*256+p[5],p[7],p[6],response)));
+          if(key==='2/0/5'&&mock.instProtocol) {
+            const txn=Array.from(mock.file.sha.slice(0,4),v=>v.toString(16).padStart(2,'0')).join('').toUpperCase();
+            for(const [event,fields] of [['HELLO','0.8.11;PENDING'],['BACKUP','SKIP'],['WRITE',`${mock.file.bytes.length};${mock.file.bytes.length}`],['BOOT','TRIAL;9600']]) {
+              const raw=`ET100$INST;1;L;${event};${txn};${fields}`;
+              const crc=ET100Smp.crc16(new TextEncoder().encode(raw)).toString(16).toUpperCase().padStart(4,'0');
+              mock.controller.enqueue(new TextEncoder().encode(`${raw}*${crc}\r\n`));
+            }
+          }
         });
         mock.decoder.feed(bytes);
       };
@@ -194,11 +202,11 @@ const root=path.resolve(__dirname,'../..');
     assert.equal(await page.locator('#et100-flash-map [data-name="ROM B 資訊段"] small:last-child').isVisible(),true);
     assert.match(await page.locator('#et100-flash-map').textContent(),/1792 KB/);
     assert.match(await page.locator('#et100-nor-map').textContent(),/16 MB（EVB）/);
-    assert.match(await page.locator('#et100-nor-map').textContent(),/11.625 MB/);
+    assert.match(await page.locator('#et100-nor-map').textContent(),/11.6171875 MB/);
     assert.deepEqual(await page.locator('#et100-flash-map .et100-partition strong').allTextContents(),
       ['開機資訊','原廠 OTA 資訊','韌體安裝程式','主程式','系統設定','更新狀態']);
     assert.deepEqual(await page.locator('#et100-nor-map .et100-partition strong').allTextContents(),
-      ['下載紀錄','新版韌體暫存','舊版韌體備份','感測器更新套件','日誌與預留空間']);
+      ['下載紀錄','新版韌體暫存','舊版韌體備份','感測器更新套件','安裝結果紀錄','日誌與預留空間']);
     assert.match(await page.locator('#et100-flash-map [data-name="ROM A 資訊段"]').textContent(),/僅更新 Installer 時寫入/);
     assert.equal(await page.locator('#et100-viz select, #et100-viz details, #et100-viz ol, #et100-viz p').count(),0,'no extra selector, explanations or workflow list');
     const layouts=await page.evaluate(()=>[et100FlashPartitions,et100StoragePartitions('evb'),et100StoragePartitions('product')]);
@@ -328,7 +336,7 @@ const root=path.resolve(__dirname,'../..');
     }
     await page.setViewportSize({width:1440,height:1000});
     await page.evaluate(()=>{
-      mockSerial.file=et100File;et100Client.io.now=()=>mockSerial.clock;
+      mockSerial.file=et100File;mockSerial.instProtocol=true;et100Client.io.now=()=>mockSerial.clock;
       et100Client.io.sleep=async n=>{mockSerial.clock+=n;};
     });
     await page.locator('#et100-start').click();
@@ -343,6 +351,8 @@ const root=path.resolve(__dirname,'../..');
     assert.match(log,/SMP upload ACK/);
     assert.match(log,/SMP Test ACK/);
     assert.match(log,/SMP Reset ACK/);
+    assert.match(log,/ET100\$INST;1;L;HELLO;/);
+    assert.match(log,/備份目前版本/);
     assert.match(log,/slot 0 .*confirmed=false/);
     assert.match(log,/slot 0 .*confirmed=true/);
     assert.match(log,/更新成功：.*已確認/);

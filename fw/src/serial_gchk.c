@@ -305,6 +305,18 @@ static void handle_line(struct et100_serial_parser *p)
             if (!parsed) memset(next.macs, 0, sizeof next.macs);
             length = list_response(response, sizeof response, command, valid, &next, token);
         } else length = snprintf(response, sizeof response, "AT$PD=BLEGW$SMAXRPT;%u;%s;%s\r\n", valid, params, token);
+    } else if (strcmp(command, "GOTASTAT") == 0 && token == end + 1) {
+        struct inst_snapshot st;char txn[9];
+        if (!p->ota_status || !p->ota_status(&st))
+            length=snprintf(response,sizeof response,"AT$PD=BLEGW$GOTASTAT;0;%s\r\n",token);
+        else {
+            inst_txn(st.has_record ? st.record.hash : NULL,txn);
+            const struct eup_fw_info *i=p->fw_info;
+            length=snprintf(response,sizeof response,"AT$PD=BLEGW$GOTASTAT;1;%s;%s;%s;%lu;%.*s;%s\r\n",
+                inst_state_name(st.state),txn,st.has_record ? inst_result_name(st.record.result) : "-",
+                (unsigned long)(st.has_record ? st.record.code : 0),
+                i ? field_len(i->firmware_version,sizeof i->firmware_version) : 0,i ? i->firmware_version : "",token);
+        }
     } else if (strcmp(command, "GFWINFO") == 0 && token == end + 1) {
         const struct eup_fw_info *i = p->fw_info;
         if (i) {
@@ -594,6 +606,7 @@ static void serial_task(void *argument)
     et100_serial_init(&serial_parser, identity, serial_send, serial_uart);
     serial_parser.baud_supported = 1;
     serial_parser.fw_info = &et100_fw_info;
+    serial_parser.ota_status = et100_boot_status;
     struct sensor_store_status pkg;
     if (ota_worker_sensor_status(&pkg)) serial_parser.pkg_status = pkg_status;
     smp_serial_init(&smp_rx);
@@ -614,6 +627,12 @@ static void serial_task(void *argument)
 
     for (;;) {
         et100_boot_poll(storage_initialized);
+        char boot_line[INST_LINE_MAX+1];
+        size_t boot_length=et100_boot_line(boot_line,sizeof boot_line);
+        if (boot_length) {
+            serial_send(boot_line,boot_length,serial_uart);
+            et100_boot_line_sent();
+        }
         unsigned received = 0;
         /* Drain queued input before a potentially 200-ms UART transmission. */
         for (; received < RX_RING_SIZE; received++) {

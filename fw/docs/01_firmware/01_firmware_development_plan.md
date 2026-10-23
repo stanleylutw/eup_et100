@@ -353,7 +353,8 @@ Header＋installer 合計 128 KB，App 上限包含 App 驗證／封裝開銷。
 | ET100 Candidate | 0x020000..0x21FFFF | 2 MB |
 | ET100 Rollback | 0x220000..0x41FFFF | 2 MB |
 | Sensor OTA | 0x420000..0x45FFFF | 256 KB |
-| Logs／其他資料 | 0x460000..0x1FFFFFF | 27.625 MB |
+| Installer 結果／中斷計數（v0.8.11，雙 4 KB sector） | 0x460000..0x461FFF | 8 KB |
+| Logs／其他資料 | 0x462000..0x1FFFFFF | 27.6171875 MB |
 
 **Candidate／Rollback 設計意圖**：
 - Candidate 2 MB 須容納完整包裝，但內部 App slot 仍限 1792 KB（含 App image overhead），不能按 2 MB 目的區安裝

@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "sensor_store.h"
+#include "inst_status.h"
 
 struct eup_fw_info;
 
@@ -43,6 +44,7 @@ struct et100_serial_parser {
     unsigned char baud_supported;
     /* GFWINFO source (App EUPFWV1 block); NULL answers ";0;". */
     const struct eup_fw_info *fw_info;
+    int (*ota_status)(struct inst_snapshot *);
     /* v0.8.8 sensor package (format of eup_gateway GSOTAPKG/DSOTAPKG). pkg_status
      * NULL answers UNSUPPORTED. DSOTAPKG sets pkg_delete_request; the transport
      * queues the erase and answers with et100_serial_pkg_deleted(). */

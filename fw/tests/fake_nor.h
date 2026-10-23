@@ -2,7 +2,7 @@
 #define ET100_FAKE_NOR_H
 #include "nor_port.h"
 #include <setjmp.h>
-#define FAKE_NOR_SIZE 0x460000u
+#define FAKE_NOR_SIZE 0x462000u
 struct fake_nor {
     struct nor_port port;
     uint8_t *bytes, *used;

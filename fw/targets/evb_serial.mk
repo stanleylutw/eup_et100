@@ -6,7 +6,7 @@ LD := $(ET100_FW)/ld/evb_app.ld
 LDFLAGS += -L$(ET100_FW)/installer
 INC_PATH := -I"$(ET100_FW)/include" $(INC_PATH)
 INC_PATH += -I"$(ET100_FW)/third_party/tinycrypt/include"
-ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.8.10-dev\"
+ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.8.11-dev\"
 # DEVELOPMENT builds open an unauthenticated BLE SMP service (06 §6.1); clear for release.
 ET100_SMP_BLE_FLAGS ?= -DET100_SMP_BLE_OPEN=1
 CFLAGS += $(ET100_VERSION_FLAGS) $(ET100_TEST_FLAGS) $(ET100_SMP_BLE_FLAGS)
@@ -16,6 +16,9 @@ $(OBJECT_DIR)/boot_health.o: $(ET100_FW)/src/boot_health.c
 	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
 $(OBJECT_DIR)/boot_state.o: $(ET100_FW)/common/boot_state.c
 	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
+$(BASE_ElF): $(OBJECT_DIR)/inst_status.o
+$(OBJECT_DIR)/inst_status.o: $(ET100_FW)/common/inst_status.c
+	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
 $(OBJECT_DIR)/mcuboot_image.o: $(ET100_FW)/installer/mcuboot_image.c
 	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
 $(OBJECT_DIR)/sha256.o: $(TOP_DIR)/components/modules/mbedtls/library/sha256.c

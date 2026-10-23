@@ -1,9 +1,11 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.8.10
+Version: v0.8.11
 Last updated: 2026-10-23 Codex
 
 ## Revision History
+
+2026-10-23 v0.8.11（Claude review PASS；EVB 實機待 Stanley）：新增 Installer INST v1 狀態行、10% 節流、115200→9600 BOOT 交接、共用結果／三次中斷計數（NOR 0x460000–0x461FFF），不改 boot record v2。Installer 安裝期依進度餵 8 s WDT；App 新增 120 s 試運行期限、GOTASTAT 與 BLE 0x09 快照，NOR 存取仍只有 OTA worker。HTML 支援 INST／舊版回退，仍以 SMP 完整 hash、版本與 confirmed 判成功，Log 高度不變。實作與驗收範圍見 [07](../02_protocol/07_installer_status.md)、[18](../04_testing/18_installer_status.md)。實機全部交 Stanley，不能以 host 或 build PASS 代替 EVB PASS。 App `APP` 行只在試運行或有未回報的還原／放棄結果時送一次（S4，FlashDB 0x00030008 記已回報 txn）。
 
 2026-10-23 v0.8.10：新增 GLIST／SLIST（八筆 MAC）與 GMAXRPT／SMAXRPT（預設 3），CID／MAC 採 OR；FlashDB 新增獨立 key，GTIME 與回報筆數連動。HTML 新增 ET-100 固定 build 路徑選單、隔離選檔記憶及中文 Flash／NOR 圖表，自行縮放而不改共用 Log。Host／ARM／DFU／UI PASS；白名單實機驗收與獨立 review 尚待完成。後續實機由 Stanley、review 由 Claude 負責；本次 merge 不替代驗收。
 

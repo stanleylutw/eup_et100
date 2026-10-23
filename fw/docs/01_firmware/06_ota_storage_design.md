@@ -61,10 +61,11 @@ v0.8.3 起，專案自己的 `fw/include/fal_cfg.h`（排在 SDK includes 前）
 | ET100 Candidate | 0x020000 | 0x21FFFF | 2097152 | 2 MB |
 | ET100 Rollback | 0x220000 | 0x41FFFF | 2097152 | 2 MB |
 | Sensor OTA | 0x420000 | 0x45FFFF | 262144 | 256 KB |
-| Logs／其他資料 | 0x460000 | 0x1FFFFFF | 28966912 | 27.625 MB |
+| Installer 結果／中斷計數（雙 sector） | 0x460000 | 0x461FFF | 8192 | 8 KB |
+| Logs／其他資料 | 0x462000 | 0x1FFFFFF | 28958720 | 27.6171875 MB |
 | **合計** | 0x000000 | 0x1FFFFFF | **33554432** | **32 MB** |
 
-Logs／其他資料仍須在內部切 telemetry ring／diagnostics／wear reserve，不把全部 27.625 MB 宣稱可裝 30 天 raw CAN。原 24 MB telemetry 目標可保留，剩餘 3.625 MB 的用途待 record budget 審查。本規格取代舊 §5.3a 4 MB staging／1 MB config／3 MB reserve 的容量投影；主要 Settings 改放內建 Flash，必要擴充資料由 storage owner 另分區。
+Logs／其他資料仍須在內部切 telemetry ring／diagnostics／wear reserve，不把全部 27.6171875 MB 宣稱可裝 30 天 raw CAN。原 24 MB telemetry 目標可保留，剩餘 3.6171875 MB 的用途待 record budget 審查。本規格取代舊 §5.3a 4 MB staging／1 MB config／3 MB reserve 的容量投影；主要 Settings 改放內建 Flash，必要擴充資料由 storage owner 另分區。
 
 ### Sensor package 相容上限
 
@@ -105,6 +106,8 @@ App 完整驗證 Candidate 後，才向內建 state 原子提交 INSTALL_PENDING
 ### 一般開機不碰 NOR
 
 **Watchdog（D3，Stanley 2026-10-22 修訂）**：**App always runs the watchdog; installer arms it before the jump**。Installer 每次跳 App 前啟動約 60 秒 PMU watchdog；App 每次開機在 `pmu_init()` 返回後立即重新 arm，TRIAL／CONFIRMED 都持續定期清除，確認後不停止。這不要求一般開機初始化 NOR。已知盲窗是 SDK `pmu_init()` 內關掉 WDT clock 的期間，以及返回後緊接的重新 arm 指令；若卡在該函式內，不能保證 watchdog reset。重新 arm 之間不插入其他 App 初始化工作；不改 SDK、不宣稱盲窗已消除。
+
+v0.8.11 增補：App 試運行有 120 s 絕對期限，與主迴圈連續健康 30 s 分開計時；逾時先送狀態、停止餵狗、給 worker 最多 1 s 保存後主動 reset，一次試運行、不重試。Installer 在有界 NOR init／授權後啟動 8 s WDT，依完成的擦寫／讀取進展餵狗。結果／中斷計數放 NOR 0x460000–0x461FFF，boot record v2 100 bytes 不變。三次未完成重啟的 PENDING 安全放棄、BACKUP_READY 轉回滾，回滾不設次數上限；實際 I/O／驗證錯仍 fail-closed。一般 Installer CONFIRMED 開機仍不初始化 NOR；App 的 OTA worker 會讀 NOR 診斷快照。詳見 [07 協定](../02_protocol/07_installer_status.md)與 [18 測試交付](../04_testing/18_installer_status.md)，尚未由 Stanley 實機驗收。
 
 CONFIRMED 狀態：讀內建 state、驗內部 App 後直接啟動，不初始化／讀取 NOR 來決定版本。NOR 故障不能阻擋一份有效 confirmed App 的正常開機；App 啟動後仍可依 logging 功能需求初始化 NOR，這與 boot 決策分開。
 
@@ -180,7 +183,7 @@ FR3068：SMP server → OTA manager → download journal → NOR Candidate → i
 | 本草案 OTA 區 | 最高資料 end 0x45FFFF，全部低於 16 MB，可測 staging／rollback／sensor slot | 同 offset；先核對正式 routing／電源 |
 | 高地址驗證 | 不能驗產品 16 MB 邊界以上／4-byte addressing | 必測 0x01000000 以上與最高 sector 無 alias |
 
-Logs 從 0x460000 起，EVB 只能使用其 16 MB 實體範圍內的部分；不能照 ET100 32 MB end 擦寫。[08 內建 Flash 實測](../04_testing/08_evb_internal_flash_size.md)只屬 EP-C／debugger FLM 證據，不證明 E-C 的 XIP runtime erase 安全。
+v0.8.11 的 installer 結果／中斷計數使用 0x460000–0x461FFF，與完整 128 KB journal 分離；Logs 從 0x462000 起。EVB 只能使用其 16 MB 實體範圍內的部分，不能照 ET100 32 MB end 擦寫。[08 內建 Flash 實測](../04_testing/08_evb_internal_flash_size.md)只屬 EP-C／debugger FLM 證據，不證明 E-C 的 XIP runtime erase 安全。
 
 **v0.8.1 EVB U11 實測（2026-10-22，G1 與 T2–T7 PASS，T8 未做）**，詳見 [09 U11 NOR 報告](../04_testing/09_evb_nor_bringup.md)：
 

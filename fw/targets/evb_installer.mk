@@ -16,6 +16,9 @@ override SRC_FILES := $(TOP_DIR)/components/drivers/device/fr30xx/system_fr30xx.
  $(TOP_DIR)/components/modules/common/src/co_util.c \
  $(TOP_DIR)/components/modules/crc/crc32.c
 include Makefile
+# EVB loader/trial tools need human logs; production keeps the source default 0.
+ET100_INSTALLER_DEBUG ?= 1
+CFLAGS += $(ET100_TEST_FLAGS) -DET100_INSTALLER_DEBUG=$(ET100_INSTALLER_DEBUG)
 LD := $(ET100_FW)/installer/installer.ld
 LIB :=
 LDFLAGS += -L$(ET100_FW)/installer
@@ -23,6 +26,9 @@ INC_PATH += -I"$(ET100_FW)/common" -I"$(ET100_FW)/installer" -I"$(ET100_FW)/incl
 STUB_OBJECTS := main mcuboot_image candidate loader_frame install device jump transaction
 $(BASE_ElF): $(OBJECT_DIR)/boot_state.o
 $(OBJECT_DIR)/boot_state.o: $(ET100_FW)/common/boot_state.c
+	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
+$(BASE_ElF): $(OBJECT_DIR)/inst_status.o
+$(OBJECT_DIR)/inst_status.o: $(ET100_FW)/common/inst_status.c
 	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
 $(BASE_ElF): $(addprefix $(OBJECT_DIR)/stub_,$(addsuffix .o,$(STUB_OBJECTS))) $(OBJECT_DIR)/sha256.o $(OBJECT_DIR)/platform_util.o
 $(addprefix $(OBJECT_DIR)/stub_,$(addsuffix .o,$(STUB_OBJECTS))): $(OBJECT_DIR)/stub_%.o: $(ET100_FW)/installer/%.c
