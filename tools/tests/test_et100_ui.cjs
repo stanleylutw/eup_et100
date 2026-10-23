@@ -201,14 +201,14 @@ const root=path.resolve(__dirname,'../..');
     assert.equal(await page.locator('#flash-ota-viz').isVisible(),false);
     assert.match(await page.locator('#et100-flash-map').textContent(),/MCU 內建 Flash · 2 MB/);
     assert.match(await page.locator('#et100-flash-map').textContent(),/禁止擦除／寫入/);
-    assert.equal(await page.locator('#et100-flash-map [data-name="ROM B 資訊段"] small:last-child').isVisible(),true);
+    assert.equal(await page.locator('#et100-flash-map [data-name="ROM B 資訊段"] small:last-child').isVisible(),false);
     assert.match(await page.locator('#et100-flash-map').textContent(),/1792 KB/);
     assert.match(await page.locator('#et100-nor-map').textContent(),/16 MB（EVB）/);
     assert.match(await page.locator('#et100-nor-map').textContent(),/11\.6 MB/);
     assert.equal(await page.evaluate(()=>et100Capacity(32*1024*1024-0x462000)),'27.6 MB');
     assert.equal(await page.evaluate(()=>et100Capacity(2*1024*1024)),'2 MB');
     assert.deepEqual(await page.locator('#et100-flash-map .et100-partition strong').allTextContents(),
-      ['開機資訊','原廠 OTA 資訊','韌體安裝程式','主程式','系統設定','更新狀態']);
+      ['開機資訊','原廠 OTA 資訊','Bootloader','主程式','系統設定','更新狀態']);
     assert.deepEqual(await page.locator('#et100-nor-map .et100-partition strong').allTextContents(),
       ['下載紀錄','新版韌體暫存','舊版韌體備份','感測器更新套件','安裝結果紀錄','日誌與預留空間']);
     assert.match(await page.locator('#et100-flash-map [data-name="ROM A 資訊段"]').textContent(),/僅更新 Installer 時寫入/);
@@ -338,13 +338,17 @@ const root=path.resolve(__dirname,'../..');
     const partitionLayout=await page.locator('.et100-partition').evaluateAll(rows=>rows.map(row=>{
       const box=row.getBoundingClientRect(), capacity=row.querySelector('.et100-partition-capacity').getBoundingClientRect();
       const title=row.querySelector('.et100-partition-title').getBoundingClientRect();
-      const details=[...row.querySelectorAll(':scope > small:not([hidden])')].map(el=>el.getBoundingClientRect());
+      const details=[...row.querySelectorAll(':scope > small:not([hidden])')].filter(el=>getComputedStyle(el).display!=='none').map(el=>el.getBoundingClientRect());
       const bottom=Math.max(title.bottom,...details.map(el=>el.bottom));
       return {center:Math.abs((capacity.top+capacity.bottom-box.top-box.bottom)/2),
         contentCenter:Math.abs((title.top+bottom-box.top-box.bottom)/2),
         right:box.right-capacity.right, fits:row.scrollHeight<=row.clientHeight+1};
     }));
     assert.ok(partitionLayout.every(row=>row.center<2&&row.contentCenter<3&&row.right<12&&row.fits),'partition content and capacities vertically centered like GATT OTA; no clipped details');
+    assert.ok(await page.locator('.et100-partition').evaluateAll(rows=>rows.every(row=>
+      [...row.querySelectorAll('small')].every(el=>getComputedStyle(el).display==='none') &&
+      getComputedStyle(row.querySelector('.et100-partition-title')).justifyContent==='center')),
+      'ET-100 Flash/NOR maps show centered section names and right-side capacities only');
     assert.ok(positions.every((x,i)=>i===0||x>positions[i-1]),'desktop: file → NOR → MCU → status');
     await page.locator('.et100-viz-layout').screenshot({path:'/tmp/et100_memory_diagram.png'});
     for (const [width,height] of [[1920,900],[1440,900],[1366,768],[1280,800]]) {
@@ -383,6 +387,17 @@ const root=path.resolve(__dirname,'../..');
       assert.ok(await page.evaluate(()=>Math.abs(document.querySelector('.et100-viz-layout').getBoundingClientRect().left-
         document.querySelector('.et100-fit-frame').getBoundingClientRect().left)<1),`${width}x${height}: diagram starts at the standard left edge`);
       assert.ok(Math.abs(fit.a-fit.b)<1,`${width}x${height}: A/B info sections have equal height`);
+      assert.ok(fit.a<40 && fit.b<40,`${width}x${height}: both 4 KB sections stay compact`);
+      assert.ok(await page.evaluate(()=>{
+        const height=name=>document.querySelector(`#et100-flash-map [data-name="${name}"]`).getBoundingClientRect().height;
+        return Math.abs(height('Boot state')-height('ROM A 資訊段'))<1;
+      }),`${width}x${height}: 16 KB boot state uses the same compact height as 4 KB info`);
+      assert.ok(await page.evaluate(()=>{
+        const result=document.querySelector('#et100-nor-map [data-name="Installer 結果"]').getBoundingClientRect();
+        const info=document.querySelector('#et100-flash-map [data-name="ROM A 資訊段"]').getBoundingClientRect();
+        const logs=document.querySelector('#et100-nor-map [data-name="Logs／預留"]').getBoundingClientRect();
+        return Math.abs(result.height-info.height)<1 && logs.height>result.height;
+      }),`${width}x${height}: 8 KB result row is compact and reserved space receives more height`);
       assert.deepEqual(fit.clipped,[],`${width}x${height}: partition text fits`);
       if(width===1366) {
         await page.locator('.et100-viz-layout').screenshot({path:'/tmp/et100_memory_1366.png'});
@@ -524,6 +539,16 @@ const root=path.resolve(__dirname,'../..');
       await page.waitForFunction(()=>!et100Busy);
     }
     assert.equal(await page.evaluate(()=>mockSerial.opens.length),packageQueries,'repeated NOR queries do not reopen 9600');
+    const sharedNorHeights=await page.evaluate(()=>{
+      const mode=otaMode;
+      const heights=()=>[...document.querySelectorAll('#et100-nor-map .et100-partition')].map(row=>row.getBoundingClientRect().height);
+      const sensor=heights();
+      otaMode='et100';et100RefreshVisual();const self=heights();
+      otaMode=mode;et100RefreshVisual();const restored=heights();
+      return {sensor,self,restored};
+    });
+    assert.ok(sharedNorHeights.self.every((height,i)=>Math.abs(height-sharedNorHeights.sensor[i])<1 &&
+      Math.abs(height-sharedNorHeights.restored[i])<1),'Device RS232 and ET-100 self OTA use identical NOR partition heights');
     const snapshot=await page.evaluate(()=>{
       window.savedSensorVisual={file:et100File,visual:{...et100Visual},stored:{...et100StoredPackage}};
       et100File=null;et100Visual.off=null;et100Visual.stage='idle';et100RefreshVisual();

@@ -9,6 +9,7 @@
 #include "task.h"
 #include "fdb_app.h"
 #include "et100_fdb_keys.h"
+#include "system_status.h"
 #include <string.h>
 
 #define ACTIVE_MS 30000u
@@ -83,7 +84,9 @@ static int app_nor_prepare(void)
 {
     struct nor_port *nor = nor_qspi1_port();
     int rc = nor->init();
-    return rc ? rc : nor_qspi1_authorize_writes();
+    if (!rc) rc=nor_qspi1_authorize_writes();
+    et100_sys_set(SYS_NOR,rc ? 5 : 2);
+    return rc;
 }
 static void lock(void) { taskENTER_CRITICAL(); }
 static void unlock(void) { taskEXIT_CRITICAL(); }

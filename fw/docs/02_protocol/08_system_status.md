@@ -2,14 +2,14 @@
 
 | 項目 | 定義 |
 |---|---|
-| 狀態 | **DRAFT v4，待核准；尚未實作** |
+| 狀態 | **v0.9.0-dev 第一階段已實作，待獨立 review／Stanley 實機驗收；未凍結為量產介面** |
 | 日期 | 2026-10-23 |
 | 英文名稱 | ET-100 System Status Protocol |
 | 用途 | 開機原因通知、完整周邊盤點、周邊狀態變更 |
 | 適用 | App 韌體、RS232 debug、HTML Dash |
-| 本次範圍 | 只更新協定文件，不修改韌體／HTML／Installer |
+| 本次範圍 | App SYS＋HTML Dash；不修改 Installer／boot record／SDK |
 
-本文依 Stanley 確認的方向：**Type + Index,Status**。不傳英文名稱、Boot ID、Revision、Uptime、Age、Flags、Phase 或 Reason；由工具查表解碼。本文取代先前 DRAFT 的多欄位提案，尚未成為已發行介面。
+本文依 Stanley 確認的方向：**Type + Index,Status**。不傳英文名稱、Boot ID、Revision、Uptime、Age、Flags、Phase 或 Reason；由工具查表解碼。本文取代先前 DRAFT 的多欄位提案，尚未成為已發行介面。實作範圍以 §12 為準，registry 完整不表示所有 provider 已完成。
 相關：[硬體覆蓋矩陣](../01_firmware/03_hardware_coverage_matrix.md)、[裝置資訊](05_device_metadata.md)、[Installer 協定](07_installer_status.md)。
 
 ## 1. 主動訊息格式
@@ -134,7 +134,7 @@ Type=10 不表示整機 PASS；Type=2／3 也不能取代既有 SMP hash／versi
 
 ## 6. 唯讀完整查詢
 
-提案新增既有命令家族的查詢指令；與實際 parser 長度及命名衝突檢查通過後才能實作。
+v0.9.0-dev 新增既有命令家族的查詢指令；沿用目前 serial parser，含回覆最大長度與 token 檢查。
 
 ```text
 Host → BLEGW$GSYSSTAT;<token>\r\n
@@ -205,7 +205,7 @@ A001 為完整快照；A002 的 error=2 表示狀態服務尚未就緒。
 
 ## 10. HTML、BLE 與版本相容性
 
-- HTML Dash 依 Index 表顯示固定英文名稱，再依該周邊 Status 表顯示狀態；不用自由文字解析或平台猜測。
+- HTML Dash 依 Index 顯示固定「中文名稱 英文／型號」，例如「行動通訊 EG800Q-EU」；型號是板型設計標示，不是偵測結果。協定 English Name／Index 不變，狀態仍依 Status 表解碼，不用自由文字解析或平台猜測。
 - 顯示正常／等待／故障／未裝配／未支援等不同樣式，不能把非零 Status 全當正常或全當錯誤。每個已知 Status 的 UI 類別須在實作前登記。
 - 不改共用 Log 高度或 Flash 圖。BLE cmd ID／capability bit 尚未分配，需先與 gateway／App 協調。
 - 線上沒有版本欄位。此格式一旦凍結，既有 Type／Index／Status 不得重用或改義；破壞性修改須使用新前綴／新查詢指令，不能悄悄改 SYS。
@@ -220,4 +220,23 @@ A001 為完整快照；A002 的 error=2 表示狀態服務尚未就緒。
 4. 實機驗無卡、無網、未定位、CAN 無資料、I2C timeout、停用；不把等待當硬體故障，不讓自檢阻塞開機或 Watchdog。
 5. 每個 provider 需完成證據／期限／優先順序登記與板型配置審核；輸出無回授、RF 無診斷時不能宣稱物理功能正常。
 
-第一版建議先接 SYSTEM／SETTINGS／NOR／BLE／WATCHDOG／可靠 RESET；其他項保持真實 NOT_FITTED／UNSUPPORTED／UNKNOWN，不為完成清單做假驅動。GSYSSTAT 命名／parser 容量、開機原因來源、UART stack／queue 及量產權限均為施工前 gate。Stanley 核准與正式施工單完成後才改程式；本草案不是實作完成或硬體驗收聲明。
+Stanley 已授權 Codex 代寫施工單與實作第一階段。產品 provider、量產通知權限及可靠 reset／rollback 原因來源仍為後續 gate；本文件不是硬體全面驗收聲明。
+
+## 12. v0.9.0-dev 實作對照
+
+| Index | 第一階段來源／實際回報 | 有效範圍 |
+|---|---|---|
+| 01 SYSTEM | serial task 開始執行 → RUNNING | 只證明本 task 已執行，不是所有 task 自檢 |
+| 02 SETTINGS | FlashDB init 成功 → READY，失敗 → 共用 ERROR | 本次初始化證據，不執行額外測試寫入 |
+| 03 NOR | OTA worker 原有 prepare 成功 → READY，失敗 → IO_ERROR | 本次 prepare；不宣稱全容量掃描或偵測所有後續 I/O 故障 |
+| 04 BLE | GAP scan／adv start/end、master/slave connect/disconnect | 依已收到事件維護角色；多角色為 MULTI_ROLE，未細分手機與 Sensor |
+| 13 RS232_0 | EVB UART3 開始接收 → OPEN | 邏輯 debug transport，不能當產品 RS232 收發器／線束測試 |
+| 29 WATCHDOG | serial task 讀 PMU WDT enable bit → ARMED 或共用 ERROR | 不故意觸發 reset，也不宣稱已驗證所有 WDT clock 路徑 |
+| 30 RESET | UNKNOWN | 目前無經核准 reset cause binding |
+| 其他 | UNSUPPORTED | 未替產品板推測 NOT_FITTED，也未新增周邊驅動 |
+
+- boot Type：首輪 boot RAM 快照確定為 TRIAL 才送 2，否則送 0。其他 Type 是已保留的協定定義，第一階段不猜測、不以歷史 last_update 觸發 3。
+- 無新 task、無動態事件 queue；固定目前值／已報值各 33 bytes。serial task 排程主動行，每 500 ms 至多一行；五秒收集後全表。RX 半行／待處理、非 9600、SMP 30 秒活躍窗口、OTA worker 活躍或 Sensor relay 時暫停，恢復補全表。
+- 目前 provider 是本次初始化或 callback 事件證據，在本次開機有效；第一階段沒有替未實作產品 provider 建立定期量測／STALE timer。未來有時效資料時必須由對應 owner 主動設 STALE。
+- 查詢回覆僅讀 RAM，不重新探測。HTML 在 Dash 提供重新讀取，僅 FR3068 且版本 >=0.9.0（或已收到合法 SYS）才可查；查詢三秒逾時、CRC 異常或離線時不維持正常綠色。
+- host／C→JS byte 格式、mock browser 與 ARM App build 已驗證，詳見 [20 報告](../04_testing/20_system_status.md)。實機、stack high-water 及 UART 並行壓力由 Stanley 驗收，不能以模擬結果代替。

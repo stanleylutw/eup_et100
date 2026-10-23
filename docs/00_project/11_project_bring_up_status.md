@@ -6,6 +6,8 @@
 
 > 本檔是跨 HW + FW 的專案層級狀態儀表板。詳細技術文件連結分散在 [`docs/03_hardware/sch_analysis/`](../03_hardware/sch_analysis/) 與 [`fw/`](../../fw/)。
 
+> **v0.9.0（待獨立 review／Stanley 實機）**：App 新增 SYS／GSYSSTAT 33 項周邊狀態快照與 HTML Dash 解碼；僅接已有可靠來源，未實作周邊回 UNSUPPORTED、reset 原因 UNKNOWN。Host／JS／mock UI／ARM／DFU 通過，不代表 EG800／GNSS 等產品周邊已完成。沒有 Codex 燒錄／SWD；[20 報告](../../fw/docs/04_testing/20_system_status.md)列出交付與實機步驟。
+
 > **v0.8.10**：MAC 白名單／MAXRPT 指令、FlashDB 保存及 HTML 選檔／圖表完成；host／ARM／DFU／UI 測試 PASS。Stanley 已提供 0.8.10 App OTA confirmed 紀錄，白名單實機與 Claude 獨立 review 仍待完成；沒有由 Codex 執行 EVB 燒錄。本輪文件與程式一併提交，不代表硬體全面驗收。
 
 > **v0.8.12（Claude review PASS；EVB 實機待 Stanley）**：修正 GSENSOROTAFLOW `%012llX`（newlib-nano）並加 ARM nano 模擬測試；HTML 減少 port 重開。間歇無回覆／舊 token 根因待實機證據。

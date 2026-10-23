@@ -1,6 +1,7 @@
 #include "serial_gchk.h"
 #include "../include/eup_fw_info.h"
 #include "smp_server.h"
+#include "system_status.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -295,5 +296,17 @@ int main(void)
     expect(&p, "BLEGW$SMAXRPT;1;FAIL\r\n", "AT$PD=BLEGW$SMAXRPT;0;1;FAIL\r\n");
     assert(saved == controls_saves);
     puts("PASS: whitelist/MAXRPT commands, 8 slots, normalization, constraints, persistence codec corruption/reload/failure");
+    et100_sys_init();p.system_status=et100_sys_query;
+    char sys_expected[SYS_LINE_MAX+1];
+    assert(et100_sys_query("A001",0,sys_expected,sizeof sys_expected));
+    expect(&p,"BLEGW$GSYSSTAT;A001\r\n",sys_expected);
+    assert(et100_sys_query("A002",1,sys_expected,sizeof sys_expected));
+    expect(&p,"BLEGW$GSYSSTAT;extra;A002\r\n",sys_expected);
+    expect(&p,"BLEGW$GSYSSTAT;abcd\r\n","");
+    expect(&p,"BLEGW$GSYSSTAT;A!01\r\n","");
+    p.system_status=NULL;
+    assert(et100_sys_query("A003",2,sys_expected,sizeof sys_expected));
+    expect(&p,"BLEGW$GSYSSTAT;A003\r\n",sys_expected);
+    puts("PASS: GSYSSTAT full snapshot, CRC/token, malformed params, no hardware callback");
     return 0;
 }

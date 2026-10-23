@@ -1,9 +1,11 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.8.12
-Last updated: 2026-10-23 Claude
+Version: v0.9.0
+Last updated: 2026-10-23 Codex（Stanley 授權）
 
 ## Revision History
+
+2026-10-23 v0.9.0（待獨立 review／Stanley 實機）：新增 SYS Type＋Index,Status 狀態介面、33 項 registry、GSYSSTAT RAM 快照、CRC 與主動通知；接入既有 SYSTEM／FlashDB／NOR prepare／BLE GAP／UART／WDT 證據，其他 UNKNOWN／UNSUPPORTED，不新增產品周邊驅動。HTML Dash 新增完整狀態表、查詢與錯誤／離線處理，保留 OTA 圖與共用 Log。首版 boot 僅確證 TRIAL 送 2，其他送 UNKNOWN，不猜測 rollback/reset。未改 Installer／SDK／NVS／B-info，未操作硬體；見 [08 協定](../02_protocol/08_system_status.md)與 [20 報告](../04_testing/20_system_status.md)。
 
 2026-10-23 v0.8.12（Claude review PASS；EVB 實機待 Stanley）：修正 `GSENSOROTAFLOW` 的 `%012llX`（newlib-nano 不支援 `ll`，導致欄位錯誤、token 遺失，且錯位參數被當指標解參考，可能 fault）→ `%04lX%08lX`，協定格式不變；新增 ARM newlib-nano 模擬測試（unicorn）。HTML 同 baud 不再重開 port，真正重開後送 CRLF 重新同步。上傳後間歇無回覆／舊 token 的根因仍未證實。
 

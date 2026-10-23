@@ -1,4 +1,29 @@
-# REVIEW_REPORT — v0.8.12
+# REVIEW_REPORT — v0.9.0
+
+## Step 4 Codex 交付（2026-10-23，待獨立 review）
+
+Stanley 授權 Codex 代寫施工單及實作；branch `v0.9.0_system_status`，base `5cd3bfa`。**2026-10-23 Stanley 另行要求提交本分支；尚未獨立 review／merge／push，Codex 未操作 EVB／UART／SWD；實機由 Stanley 執行。**
+
+### 待分析的實機問題（尚未修復）
+
+見 [21 分析交接](docs/04_testing/21_sensor_ota_handoff_analysis.md)：上傳後 BUSY 的 30 秒活動窗口／其他拒絕條件、HTML 將啟動拒絕一律誤標 PACKAGE_INVALID，以及 connect_timeout 後卡在 cleanup，OTA 查詢仍 CONNECTING。請 Claude 分析並另立施工單，不將本次 commit 誤認成這些問題已解決。
+
+- 依 08 的 Type＋Index,Status 實作 33 項 SYS、完整／變更回報、GSYSSTAT RAM-only 查詢與 CRC。現有 providers 僅 SYSTEM／SETTINGS／NOR prepare／GAP BLE／UART／WDT；RESET UNKNOWN，其他 UNSUPPORTED，無假 READY／NOT_FITTED。
+- 同一 UART TX owner，2 Hz 合併／5 秒收集，bulk／RX 半行／非 9600 暫停；無新 task／heap queue，不改 SDK／Installer／NVS／boot record／B-info／OTA 成功條件。boot 僅可靠 TRIAL 送 Type 2，其他送 0，不用歷史 FAILED 猜本次 rollback。
+- HTML Dash 固定英文名／狀態碼表，CRC／token／未知碼／boot／離線／逾時處理、FR3068 版本 gate；保留 Gateway／Sensor／OTA 與共用 Log。BLE MULTI_ROLE 尚未細分手機／Sensor，屬規格現有限制。
+- SYS／原 host 全套、INST、C→JS 格式互通、SYS mock UI、既有 HTML／SMP／Sensor、DFU／ARM build 通過；僅既有 RWX warning。截圖已檢查桌機／手機無表格溢出，**不是實機驗收**。
+- 正常 App DFU 已產出，版本 0.9.0-dev；尺寸／指紋／資源與 Stanley 步驟見 [20 報告](docs/04_testing/20_system_status.md)。不需更新 Installer。serial task 靜態 frame 872 bytes 非完整 runtime stack 證明。
+
+### 請 reviewer 檢查
+
+1. C／JS 與 08 的全部 Index／Status／CRC／上限一致；新增檔案不能漏讀。
+2. RAM critical section、callback 多連線角色、OTA worker 唯一 NOR owner，以及 serial 輸出節流／bulk pause。
+3. HTML 查詢與 Type 11 競態／舊 token／boot 清除／未知碼／舊版 gate，正常 OTA／INST 不回歸。
+4. 第一階段不支援產品驅動、不推測 reset／rollback、不宣稱資料時效監測／物理回授；實機還需 stack high-water 與 UART 並行證據。
+
+---
+
+# v0.8.12 原 review（歷史）
 
 ## Step 5 Claude review（2026-10-23）— 結論：**PASS**（M1 已於 Step 6 修正並複驗：`grep -q` 版本在一般 bash 下 PASS）
 

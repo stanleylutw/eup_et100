@@ -1,4 +1,44 @@
-# IMPLEMENTATION_PLAN — v0.8.12 Sensor flow／Serial 交接修正
+# IMPLEMENTATION_PLAN — v0.9.0 系統／周邊狀態
+
+## Branch
+
+`v0.9.0_system_status`，base `v0.8.12_sensorflow_format`（5cd3bfa）。Stanley 已明確授權 Codex 代寫施工單、完成韌體與 HTML；Claude 後續 review，Stanley 負責實機。不自行 commit／merge／push，不存取 UART／SWD／EVB。
+
+## 規格與決策
+
+依 [08 SYS](docs/02_protocol/08_system_status.md)：`ET100$SYS;Type;Index,Status;...*CRC`，33 項、320-byte 上限、CRC-16/XMODEM；Type 10 完整快照、11 變更。查詢 GSYSSTAT 使用 token 包裝，只讀 RAM。新增介面跨模組，依 comm.md 升 minor 至 0.9.0-dev。
+
+- 只接現有證據：SYSTEM（serial task 執行）、SETTINGS（FlashDB init）、NOR（唯一 OTA worker 的 prepare 結果）、BLE（實際 GAP scan／adv／link 事件）、RS232_0（本 target UART3 已開啟）、WATCHDOG（PMU enable bit）。RESET 無可靠來源維持 UNKNOWN；其餘預設 UNSUPPORTED，不猜測 NOT_FITTED。
+- BLE 仍依核准表 1–6，兩種以上實際角色為 MULTI_ROLE；不擅自擴充手機／Sensor 子欄位。初始化／角色證據在本次開機有效，事件錯誤回 ERROR；失敗 scan 不影響仍有效的其他角色。
+- 不用歷史 FAILED 推測本次 rollback。首輪 boot snapshot 為 TRIAL 才通知 Type 2，否則 Type 0；不改 Installer 或 boot state。
+- serial task 送 SYS，既有 TX mutex 保護；無新 task、無 heap queue。每 500 ms 最多一行，5 秒收集後送全表，bulk 期間暫停，恢復補全表。pending 為固定 33-byte 已報值與目前值，不累積事件。
+- 第一版 provider 是初始化／事件狀態，不宣稱持續硬體掃描、全 Flash 驗證、RF 或線束診斷。尚無新資料的產品 provider 不冒充 READY。
+- HTML 在 Dash 增加獨立、未框成卡片的狀態表，完整 English Name／狀態名稱；不改共用 log、OTA 圖或 Gateway／Sensor 流程。不自動在 bulk 中查詢；只有已識別 FR3068 且版本 >=0.9.0 才開查詢。
+
+## 檔案範圍
+
+1. 新增 `fw/src/system_status.c/.h`：固定碼、快照、格式、節流；`fw/tests/test_system_status.c` 與 `fw/tools/test_system_status_host.sh`。
+2. `fw/src/serial_gchk.c/.h`：GSYSSTAT parser／RAM callback、serial task SYS 排程；`fw/tests/test_serial_gchk.c`。
+3. `fw/src/evb_serial_main.c`、`evb_serial_ble.c`、`ble_reporter.c`、`ota_worker.c`：既有 provider hook，不新增硬體操作。對應 `fw/tests/test_scan_lifecycle.c`、`test_app_gatt_server.c` 的 BLE event host test。
+4. `fw/targets/evb_serial.mk`、`fw/tools/test_evb_serial_host.sh`：新模組／版本／host regression。
+5. `tools/rs232_tester.html`、新增 `tools/et100_system_status.js`、`tools/tests/test_system_status.cjs`、`tools/tests/test_system_status_ui.cjs`；必要時修改既有 ET100 UI tests，保留既有功能。
+6. 本施工單、`fw/REVIEW_REPORT.md`、08 協定、平台計畫與 `docs/00_project/11_project_bring_up_status.md`；新增 `fw/docs/04_testing/20_system_status.md`，記錄 host／ARM／DFU 指紋及 Stanley 實機步驟，不預填 EVB PASS。
+
+## 驗收與停止點
+
+### Stanley 追加授權：OTA 資料通道視覺化
+
+同一分支完成 HTML 顯示：ET-100 RS232 上傳到 Candidate／Sensor 區、INST BACKUP 的 Flash App→NOR Rollback、INST WRITE 的 Candidate／Rollback→Flash App。只有已驗證的事件／ACK 能啟動動畫；ERASE／VERIFY／等待／錯誤不模擬資料搬移。遺失 START 時不推測 WRITE 來源；BACKUP SKIP 不動畫。最終決定：GATT 保留 Bluetooth，RS232／內部搬移用 FileText，固定四個、每趟四秒。只改 `tools/rs232_tester.html`、`tools/tests/test_et100_ui.cjs`、新增 `tools/tests/test_et100_transfer_ui.cjs` 及本施工單／20 報告，不改流程／協定／韌體／Log 或分區尺寸。
+
+### Stanley 追加授權：提交與分析交接（2026-10-23）
+
+Stanley 要求提交本分支並整理給 Claude 分析。新增 `fw/docs/04_testing/21_sensor_ota_handoff_analysis.md`，記錄 BUSY／PACKAGE_INVALID 誤標與 GATT cleanup 卡住的證據、待驗假設及建議；本次不修復這些行為，不 merge／push，不清除仍供 reviewer 使用的施工單／review。
+
+Host 驗證全 33 項、全部碼、CRC、精確格式與邊界、boot type、bulk 暫停恢復、合併／節流、查詢 token／壞輸入。JS 與 C 向量一致；Playwright mock 驗證 Dash table、部分更新、未知碼、CRC 錯、重連／boot 清除、timeout、舊韌體及 Gateway 不探測，桌機／手機無溢出。原 serial／SMP／relay／HTML 回歸；正常 ARM App build／DFU；完成停待 review。禁止 SDK／linker／Installer／boot record／NVS key 改動，0x08001000 保護不變。
+
+---
+
+# v0.8.12 原施工單（歷史）
 
 ## 本輪授權與分支
 

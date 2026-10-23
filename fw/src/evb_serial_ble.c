@@ -7,10 +7,12 @@
 #include "boot_health.h"
 #include "smp_ble.h"
 #include "eup_meta_service.h"
+#include "system_status.h"
 
 static adv_handle advertising;
 static uint8_t manager_service;
 static unsigned advertising_created;
+static uint32_t sys_links;
 static uint8_t local_name[]=ET100_APP_NAME;
 /* The SDK adds flags; the complete name fits its 28-byte advertising budget. */
 static uint8_t advertising_data[]={16,GAP_ADVTYPE_LOCAL_NAME_COMPLETE,
@@ -43,19 +45,35 @@ static uint16_t gap_callback(struct gap_event *event)
     smp_ble_gap(event);
 #endif
     switch(event->type) {
+    case GAP_EVT_SCAN_START:
+        et100_sys_ble(SYS_BLE_SCAN,!event->param.scan_start_status);
+        break;
+    case GAP_EVT_SCAN_END:
+        et100_sys_ble(SYS_BLE_SCAN,false);
+        break;
+    case GAP_EVT_ADV_END:
+        et100_sys_ble(SYS_BLE_ADV,false);
+        break;
     case GATT_EVT_PROFILE_ADDED:
         if(!event->param.profile_added_status && !advertising_created) {
             advertising_created=1;start_advertising();
         }
         break;
     case GAP_EVT_ADV_START:
+        et100_sys_ble(SYS_BLE_ADV,!event->param.adv_start.status);
         if(!event->param.adv_start.status) et100_boot_adv_started();
         if(!event->param.adv_start.status && et100_gatt_state()==0) et100_scan_start();
         break;
+    case GAP_EVT_MASTER_CONNECT:
     case GAP_EVT_SLAVE_CONNECT:
+        if (event->param.connect.conidx<32) sys_links |= 1u<<event->param.connect.conidx;
+        et100_sys_ble(SYS_BLE_LINK,sys_links!=0);
+        if (event->type==GAP_EVT_MASTER_CONNECT) break;
         gatt_mtu_exchange_req(manager_service,event->param.connect.conidx,247);
         break;
     case GAP_EVT_DISCONNECT:
+        if (event->param.disconnect.conidx<32) sys_links &= ~(1u<<event->param.disconnect.conidx);
+        et100_sys_ble(SYS_BLE_LINK,sys_links!=0);
         if(event->param.disconnect.local_role==LOCAL_ROLE_SLAVE && advertising_created &&
            !et100_app_server_active())
             gap_adv_start(advertising,0,0);

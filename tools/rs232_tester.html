@@ -533,6 +533,22 @@
   .dash-chart-fuel { color: var(--warn); }
   .dash-device canvas { display: block; width: 100%; height: 40px; }
   .dash-empty { padding: 44px 16px; text-align: center; color: var(--sub); font-size: 13px; border-block: 1px solid var(--border); }
+  .system-status-section[hidden] { display: none; }
+  .system-status-section { border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+  .system-status-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #system-status-refresh { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--accent); font-size: 18px; cursor: pointer; }
+  #system-status-refresh:disabled { color: var(--sub); cursor: default; opacity: .5; }
+  .system-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 20px; }
+  .system-status-row { display: grid; grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: 8px; min-height: 32px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .system-status-row > span { overflow-wrap: anywhere; min-width: 0; }
+  .system-status-index { color: var(--sub); font-variant-numeric: tabular-nums; }
+  .system-status-value { text-align: right; font-size: 11px; }
+  .system-status-value[data-kind="ready"] { color: var(--ok); }
+  .system-status-value[data-kind="error"] { color: var(--err); }
+  .system-status-value[data-kind="warning"] { color: var(--warn); }
+  .system-status-value[data-kind="waiting"], .system-status-value[data-kind="unknown"] { color: var(--sub); }
+  @media (max-width: 1100px) { .system-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { .system-status-grid { grid-template-columns: minmax(0, 1fr); } }
   .dash-can-strip { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
   .dash-can-heading h2 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
   .dash-can-heading > span { font-size: 11px; color: var(--sub); overflow-wrap: anywhere; }
@@ -1447,7 +1463,7 @@
   }
   .flash-viz-data > span { padding-right: 12px; }
   /* BLE OTA tube: a stage-wide overlay. An invisible guide curve links the Gateway
-     "Device OTA 暫存區" slot to the Device "Device 更新檔暫存區" slot; bluetooth icons
+     "Device OTA 暫存區" slot to the Device "Device 更新檔暫存區" slot; binary icons
      ride it (offset-path) only while writing to flash (step 9 UPLOADING). */
   .flash-viz-ble-overlay {
     position: absolute;
@@ -1473,7 +1489,7 @@
   .flash-viz-ble-stream {
     position: absolute;
     inset: 0;
-    color: var(--accent);
+    color: #34a853;
   }
   .flash-viz-ble-stream .flash-viz-ble-dot {
     position: absolute;
@@ -1485,9 +1501,10 @@
     opacity: 0; /* hidden unless the overlay is active (step 9 下載韌體至 Flash) */
   }
   .flash-viz-ble-stream .flash-viz-ble-dot svg { width: 16px; height: 16px; display: block; }
+  .flash-viz-ble-stream .flash-viz-ble-dot .dash-icon { display: block; width: 100%; height: 100%; margin: 0; color: inherit; }
   .flash-viz-ble-overlay.active .flash-viz-ble-dot {
     opacity: 1;
-    animation: flash-viz-flow-curve 3s linear infinite;
+    animation: flash-viz-flow-curve 4s linear infinite;
   }
   @keyframes flash-viz-flow-curve {
     from { offset-distance: 0%; }
@@ -2377,33 +2394,58 @@
   .et100-fit-frame { position: relative; width: 100%; height: 100%; overflow: hidden; }
   .et100-viz-layout { position: absolute; top: 0; left: 0; transform-origin: top left; display: grid; grid-template-columns: minmax(0, 7fr) minmax(260px, 3fr); gap: 10px; height: 348px; align-items: stretch; }
   .et100-viz-layout { --fs-xs: calc(12px * var(--et100-type-compensation, 1)); --fs-sm: calc(13px * var(--et100-type-compensation, 1)); --fs-md: calc(15px * var(--et100-type-compensation, 1)); }
-  .et100-diagram { display: grid; grid-template-columns: minmax(120px, .65fr) 48px minmax(0, 1.2fr) 64px minmax(0, 1.2fr); gap: 10px; align-items: stretch; min-width: 0; min-height: 0; }
+  .et100-diagram { position: relative; display: grid; grid-template-columns: minmax(120px, .65fr) 48px minmax(0, 1.2fr) 64px minmax(0, 1.2fr); gap: 10px; align-items: stretch; min-width: 0; min-height: 0; }
   .et100-memory { min-width: 0; min-height: 0; background: #353a42; border: 1px solid #111318; border-radius: 4px; overflow: hidden; color: #fff; display: flex; flex-direction: column; }
   .et100-memory h4 { margin: 0; padding: 9px 10px 7px; background: #111318; font-size: var(--fs-md); font-weight: 600; min-height: 39px; display: flex; align-items: center; overflow-wrap: anywhere; }
   .et100-partitions { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  #et100-flash-map .et100-partitions { display: grid; grid-template-rows: repeat(3, minmax(40px, 1fr)) minmax(56px, 1.6fr) repeat(2, minmax(40px, 1fr)); }
+  #et100-flash-map .et100-partitions { display: grid; grid-template-rows: repeat(2, 32px) minmax(40px, 1fr) minmax(56px, 3.6fr) minmax(40px, 1fr) 32px; }
+  #et100-flash-map .et100-partition:is([data-name="ROM A 資訊段"], [data-name="ROM B 資訊段"], [data-name="Boot state"]) { min-height: 0; }
   .et100-partition { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-content: center; gap: 2px 6px; padding: 4px 7px; border-top: 1px solid #d9dee5; min-height: 40px; flex: 1; font-size: var(--fs-sm); line-height: 1.25; overflow-wrap: anywhere; }
   .et100-partition[data-name="Candidate"], .et100-partition[data-name="Rollback"], .et100-partition[data-name="App"] { flex: 2; min-height: 48px; }
   .et100-partition[data-name="ROM B 資訊段"] { border-left: 4px solid var(--err); }
-  .et100-partition small { color: #aeb7c4; font-size: calc(11px * var(--et100-type-compensation, 1)); }
+  .et100-partition small { display: none !important; color: #aeb7c4; font-size: calc(11px * var(--et100-type-compensation, 1)); }
   .et100-partition > small { grid-column: 1; }
-  .et100-partition-title { grid-column: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; min-width: 0; }
+  .et100-partition-title { grid-column: 1; grid-row: 1; display: flex; align-items: center; justify-content: center; text-align: center; min-width: 0; }
   .et100-partition-title small { white-space: nowrap; }
-  .et100-partition-capacity { grid-column: 2; grid-row: 1 / 4; align-self: center; text-align: right; white-space: nowrap; }
+  .et100-partition-capacity { grid-column: 2; grid-row: 1; align-self: center; text-align: right; white-space: nowrap; }
   #et100-nor-map .et100-partition { min-height: min-content; }
+  #et100-nor-map .et100-partition[data-name="Installer 結果"] { flex: 0 0 32px; min-height: 0; }
+  #et100-nor-map .et100-partition[data-name="Logs／預留"] { flex: 2; }
   .et100-partition small[hidden] { display: none !important; }
-  .et100-partition:has(#et100-sensor-state:not([hidden])) { min-height: 56px; flex: 2; }
   .et100-partition[data-name="ROM B 資訊段"] small:last-child { display: block; }
   .et100-partition strong { font-size: var(--fs-sm); font-weight: 400; color: #f8fafc; }
   .et100-slot-image, .et100-slot-committed { position: absolute; left: 0; top: 0; bottom: 0; z-index: -1; }
   .et100-slot-image { background: #586370; }
-  .et100-slot-committed { background: #176f54; }
-  .et100-partition[data-active="true"] { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .et100-slot-committed { background: #34a853; }
+  #et100-nor-map [data-name="Rollback"] .et100-slot-committed { background: #176f54; }
+  #et100-transfer-overlay[data-route="backup"] .flash-viz-ble-stream { color: #176f54; }
+  .et100-partition:is([data-active="true"], [data-transfer-target="true"], [data-transfer-complete="true"]) { outline: 3px solid #34a853; outline-offset: -3px; }
+  .et100-operation-progress { grid-column: 1; grid-row: 2; text-align: center; color: #eef5f0; font-size: calc(11px * var(--et100-type-compensation, 1)); overflow-wrap: anywhere; }
+  .et100-operation-progress[hidden] { display: none; }
+  .et100-partition[data-operation-progress="true"] .et100-partition-capacity { grid-row: 1 / 3; }
+  .et100-partition-name { position: relative; display: inline-flex; min-width: 0; }
+  .et100-stage-tag { position: absolute; bottom: calc(100% - 4px); left: calc(100% + 4px); z-index: 2; isolation: isolate; padding: 3px 7px; border-radius: 4px; font-size: calc(12px * var(--et100-type-compensation, 1)); line-height: 1.2; color: #fff; white-space: nowrap; pointer-events: none; }
+  .et100-stage-tag[hidden] { display: none; }
+  .et100-stage-tag::before { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--stage-tag-bg); animation: et100-tag-breathe 2s ease-in-out infinite; }
+  .et100-stage-tag[data-kind="backup"] { --stage-tag-bg: #176f54; }
+  .et100-stage-tag[data-kind="install"] { --stage-tag-bg: #34a853; }
+  .et100-stage-tag[data-kind="success"] { --stage-tag-bg: #34a853; }
+  .et100-stage-tag[data-kind="success"]::before { animation: none; opacity: 1; }
+  .et100-stage-tag[data-kind="check"] { --stage-tag-bg: #e6b84a; color: #302609; }
+  @keyframes et100-tag-breathe { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+  .et100-transfer-overlay .flash-viz-ble-dot { width: calc(16px * var(--et100-type-compensation, 1)); height: calc(16px * var(--et100-type-compensation, 1)); }
+  @media (prefers-reduced-motion: reduce) {
+    .flash-viz-ble-overlay.active .flash-viz-ble-dot { animation: none; }
+    .et100-stage-tag::before { animation: none; opacity: 1; }
+  }
   .et100-route { display: flex; flex-direction: column; justify-content: center; gap: 8px; text-align: center; color: var(--sub); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+  /* Keep the existing channel geometry; only the binary overlay is visible. */
+  #et100-route-upload, #et100-route-install { visibility: hidden; }
   .et100-route b { font-size: 26px; font-weight: 400; line-height: 1; }
-  #et100-route-upload b { width: calc(100% + 20px); height: 18px; margin-inline: -10px; background: #111111; font-size: 0; }
+  #et100-route-upload b { width: calc(100% + 20px); height: 18px; margin-inline: -10px; visibility: hidden; font-size: 0; }
   .et100-route[data-active="true"] { color: var(--accent); }
   .et100-route[data-waiting="true"] { color: var(--warn); }
+  .et100-route[data-flow-active="true"] > * { visibility: hidden; }
   #et100-source { min-width: 0; }
   #et100-stats .flash-viz-info-header { flex-shrink: 0; }
   #et100-stats .flash-viz-info-table { grid-template-rows: none; grid-auto-rows: minmax(min-content, 1fr); min-height: 0; }
@@ -3420,6 +3462,15 @@
         </div>
         <dl class="dash-stats" id="dash-stats"></dl>
       </div>
+      <section class="system-status-section" id="system-status-section" aria-label="ET-100 系統狀態" hidden>
+        <div class="dash-section-heading">
+          <h2>ET-100 系統狀態</h2>
+          <div class="system-status-actions"><span id="system-status-summary">尚未讀取</span>
+            <button id="system-status-refresh" type="button" title="重新讀取系統狀態" aria-label="重新讀取系統狀態" onclick="querySystemStatus()">&#8635;</button>
+          </div>
+        </div>
+        <div id="system-status-grid" class="system-status-grid"></div>
+      </section>
       <div class="dash-can-strip">
         <div class="dash-can-heading"><h2><span id="dash-can-icon" aria-hidden="true"></span>CAN 車輛資料</h2><span id="dash-can-age"></span></div>
         <dl class="dash-can" id="dash-can"></dl>
@@ -3489,10 +3540,14 @@
                 <div id="et100-source-version" class="flash-viz-source-note"></div>
               </div>
             </div>
-            <div id="et100-route-upload" class="et100-route"><span>RS232<br>SMP</span><b aria-hidden="true">→</b><span id="et100-route-state">等待中</span></div>
+            <div id="et100-route-upload" class="et100-route" aria-hidden="true"><span>RS232<br>SMP</span><b aria-hidden="true">→</b><span id="et100-route-state">等待中</span></div>
             <div id="et100-nor-map" class="et100-memory"></div>
-            <div id="et100-route-install" class="et100-route"><span>安裝 →</span><b aria-hidden="true">⇄</b><span>← 備份</span><small>由 installer 執行</small></div>
+            <div id="et100-route-install" class="et100-route" aria-hidden="true"><span>安裝 →</span><b aria-hidden="true">⇄</b><span>← 備份</span><small>由 installer 執行</small></div>
             <div id="et100-flash-map" class="et100-memory"></div>
+            <div id="et100-transfer-overlay" class="flash-viz-ble-overlay et100-transfer-overlay" aria-hidden="true" hidden>
+              <svg class="flash-viz-pipe-curve"><path d=""></path></svg>
+              <span class="flash-viz-ble-stream"></span>
+            </div>
           </div>
           <div id="et100-stats" class="flash-viz-info">
             <div class="flash-viz-info-header">ET-100 OTA 更新狀態</div>
@@ -3674,6 +3729,7 @@
 </script>
 <script src="vendor/fflate.min.js"></script>
 <script src="sensor_ota_package.js"></script>
+<script src="et100_system_status.js"></script>
 <script id="et100-smp-core">
 'use strict';
 // ET-100 SMP 核心不依賴 DOM，離線測試與頁面共用。
@@ -4261,10 +4317,18 @@ function flashOtaSensorMac() {
 
 let flashOtaCurveObserver = null;
 
+function binaryTransferIcons(count=4, icon='fileText') {
+  return Array.from({length:count},(_,i)=>`<span class="flash-viz-ble-dot" style="offset-distance:${(i/count*100).toFixed(1)}%;animation-delay:-${(i*4/count).toFixed(3)}s">${dashboardIcon(icon)}</span>`).join('');
+}
+function binaryTransferSpacing(stream, icon='fileText') {
+  const count=4;
+  if(stream.childElementCount!==count)stream.innerHTML=binaryTransferIcons(count, icon);
+}
+
 // Recompute the BLE OTA tube: a gentle arc from the centre of the Gateway
 // "Device OTA 暫存區" slot (left panel) to the centre of the Device "Device 更新檔暫存區"
 // slot (right panel), in stage coordinates. The curve is invisible; it only provides the
-// offset-path the bluetooth icons ride during step 9 (下載韌體至 Flash).
+// offset-path the Bluetooth icons ride during step 9 (下載韌體至 Flash).
 function flashOtaUpdateCurve() {
   const stage = document.getElementById('flash-viz-stage');
   const svg = document.getElementById('flash-viz-pipe-curve');
@@ -4291,6 +4355,8 @@ function flashOtaUpdateCurve() {
   svg.setAttribute('preserveAspectRatio', 'none');
   const path = svg.querySelector('path');
   if (path) path.setAttribute('d', d);
+  const stream=document.getElementById('flash-viz-ble-stream');
+  if(path && stream)binaryTransferSpacing(stream, 'bluetooth');
   const offsetPath = `path("${d}")`;
   document.querySelectorAll('#flash-viz-ble-stream .flash-viz-ble-dot').forEach(dot => {
     dot.style.offsetPath = offsetPath;
@@ -4470,14 +4536,7 @@ function renderFlashOtaVisualization() {
   const bleOverlay = document.getElementById('flash-viz-ble-overlay');
   const bleStream = document.getElementById('flash-viz-ble-stream');
   if (bleStream && !bleStream.childElementCount) {
-    const icon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 7 10 10-5 5V2l5 5L7 17"/></svg>';
-    // Bluetooth icons ride the curved tube via CSS offset-path (see flashOtaUpdateCurve).
-    const DOTS = 6;
-    let dotsHtml = '';
-    for (let i = 0; i < DOTS; i++) {
-      dotsHtml += `<span class="flash-viz-ble-dot" style="offset-distance:${((i / DOTS) * 100).toFixed(1)}%;animation-delay:-${(i * 3 / DOTS).toFixed(3)}s">${icon}</span>`;
-    }
-    bleStream.innerHTML = dotsHtml;
+    bleStream.innerHTML = binaryTransferIcons(4, 'bluetooth');
   }
   if (bleOverlay) {
     // Tube visible only in GATT view; icons flow ONLY during step 9 (UPLOADING / 下載韌體至 Flash).
@@ -5959,6 +6018,7 @@ async function restoreAuthorizedSerialPort() {
 
 function setConnected(c) {
   connected = c;
+  if (!c) resetSystemStatus('離線');
   connectBtn.textContent = c ? '中斷' : '連線';
   connectBtn.classList.toggle('connected', c);
   bleQbtns.forEach(b => b.disabled = !c);
@@ -6549,7 +6609,7 @@ async function readLoop() {
 
 // ── frame parser ──
 function resyncProtocolFrame(raw) {
-  const markers = ['AT$PD=', 'ZSB;', 'T10:', 'T20:', 'T25:', 'OTA_DBG:', 'OTA_SUM:'];
+  const markers = ['ET100$SYS;', 'AT$PD=', 'ZSB;', 'T10:', 'T20:', 'T25:', 'OTA_DBG:', 'OTA_SUM:'];
   let start = raw.length;
 
   for (const marker of markers) {
@@ -6706,6 +6766,10 @@ function processFrame(raw) {
   }
   frameCount++;
   counter.textContent = frameCount + ' 筆';
+  if (raw.startsWith('ET100$SYS;') || raw.startsWith('AT$PD=BLEGW$GSYSSTAT;')) {
+    handleSystemStatus(raw);
+    return;
+  }
 
   if (raw.startsWith('AT$PD=BLEGW$GSOTAPROBE;') ||
       raw.startsWith('AT$PD=BLEGW$SOTAPROBE;') ||
@@ -6954,6 +7018,8 @@ function processFrame(raw) {
       flashOtaUpdateBoard(gchk.valid ? gchk.hwVer : '');
       renderGatewayVersionInfo();
       updateGatewayFeatureAvailability();
+      renderSystemStatus();
+      if(activeTab==='dash' && !systemStatus.complete)querySystemStatus();
       renderDfuPackageCard();
       const pseudo = [gchk.imei, gchk.vendor, '', gchk.hwVer, gchk.fwVer, gchk.state].join(';');
       parseType0(pseudo, null);
@@ -7981,6 +8047,8 @@ function dashboardRecent(entry, nowMs) {
  */
 function dashboardIcon(name) {
   const shapes = {
+    bluetooth: '<path d="m7 7 10 10-5 5V2l5 5L7 17"/>',
+    fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v6h6M8 13h8M8 17h6"/>',
     listRestart: '<path d="M21 5H3M7 12H3M7 19H3M12 18a5 5 0 0 0 9-3 4.5 4.5 0 0 0-4.5-4.5c-1.33 0-2.54.54-3.41 1.41L11 14M11 10v4h4"/>',
     panels: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18M9 21V9"/>',
     car: '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
@@ -7996,8 +8064,89 @@ function dashboardIcon(name) {
   return shapes[name] ? `<svg class="dash-icon" data-icon="${name}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${shapes[name]}</svg>` : '';
 }
 
+const systemStatus = new ET100System.State();
+let systemStatusSeen=false, systemStatusPending=null, systemStatusMessage='尚未讀取';
+function systemStatusSupported() {
+  if (!/fr3068/i.test(gatewayVersionInfo?.hwVer || '')) return false;
+  const v=String(gatewayVersionInfo?.fwVer || '').match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  return !!v && (Number(v[1])>0 || Number(v[2])>=9);
+}
+function systemStatusBusy() {
+  return et100Busy || ![OTA_STATE.IDLE,OTA_STATE.DONE].includes(otaState) ||
+    SENSOR_RELAY_ACTIVE_STATES.has(sensorRelay.state);
+}
+function resetSystemStatus(message='尚未讀取') {
+  if(systemStatusPending)clearTimeout(systemStatusPending.timer);
+  systemStatusPending=null;systemStatus.reset();systemStatusSeen=false;
+  systemStatusMessage=message;renderSystemStatus();
+}
+function renderSystemStatus() {
+  const section=document.getElementById('system-status-section');
+  const et100=systemStatusSeen || /fr3068/i.test(gatewayVersionInfo?.hwVer || '');
+  section.hidden=!et100;
+  const available=connected && (systemStatusSupported() || systemStatusSeen);
+  document.getElementById('system-status-refresh').disabled=!available || systemStatusBusy() || !!systemStatusPending;
+  document.getElementById('system-status-summary').textContent=!connected ? '離線' :
+    !available ? '韌體不支援 SYS' : systemStatusMessage;
+  const invalid=!connected || !available || /逾時|異常|失敗/.test(systemStatusMessage);
+  document.getElementById('system-status-grid').innerHTML=ET100System.registry.map(item=>{
+    const code=systemStatus.values[item.index-1];
+    const decoded=ET100System.describe(item.index,code);
+    const text=code===null ? 'UNKNOWN' : `${code} · ${decoded.status}`;
+    return `<div class="system-status-row" data-index="${item.index}"><span class="system-status-index">${String(item.index).padStart(2,'0')}</span><span class="system-status-name">${escHtml(item.label)}</span><span class="system-status-value" data-kind="${invalid?'unknown':decoded.kind}">${text}</span></div>`;
+  }).join('');
+}
+async function querySystemStatus() {
+  if(!connected || !writer || (!systemStatusSupported() && !systemStatusSeen) || systemStatusBusy() || systemStatusPending)return;
+  const token=randCode();
+  const pending={token,dirty:false,timer:null};
+  systemStatusPending=pending;systemStatusMessage='讀取中';
+  pending.timer=setTimeout(()=>{
+    if(systemStatusPending!==pending)return;
+    systemStatusPending=null;systemStatusMessage='查詢逾時';renderSystemStatus();
+  },3000);
+  renderSystemStatus();
+  try {
+    const command=`BLEGW$GSYSSTAT;${token}`;
+    addLogTagged('tx',command,'tag-tx','TX');
+    await writer.write(new TextEncoder().encode(command+'\r\n'));
+  } catch(error) {
+    if(systemStatusPending===pending) {
+      clearTimeout(pending.timer);systemStatusPending=null;
+      systemStatusMessage='讀取失敗';renderSystemStatus();
+    }
+  }
+}
+function handleSystemStatus(raw) {
+  addLogTagged('rx',raw,'tag-dbg','SYS');
+  const message=ET100System.parse(raw);
+  if(!message) {
+    systemStatusMessage='SYS 接收異常';renderSystemStatus();return;
+  }
+  if(message.token) {
+    if(!systemStatusPending || message.token!==systemStatusPending.token)return;
+    const pending=systemStatusPending;
+    clearTimeout(pending.timer);systemStatusPending=null;
+    if(message.error) {
+      systemStatusMessage=`讀取失敗 · ${message.error}`;renderSystemStatus();return;
+    }
+    if(pending.dirty) {
+      systemStatusMessage='狀態已變更';renderSystemStatus();
+      setTimeout(querySystemStatus,0);return;
+    }
+  } else if(message.type<8) {
+    const name=ET100System.types[message.type];
+    resetSystemStatus(name);systemStatusSeen=true;
+    systemStatus.apply(message);renderSystemStatus();return;
+  } else if(message.type===11 && systemStatusPending) systemStatusPending.dirty=true;
+  systemStatusSeen=true;systemStatus.apply(message);
+  systemStatusMessage=systemStatus.complete ? '已讀取 · 33 項' : '部分狀態';
+  renderSystemStatus();
+}
+
 function renderDashboard() {
   if (activeTab !== 'dash') return;
+  renderSystemStatus();
   const nowMs = Date.now();
   const entries = sensorSlots.map((entry, slot) => entry ? {entry, slot} : null).filter(Boolean);
   const connection = document.getElementById('dash-gateway-symbol');
@@ -8215,6 +8364,7 @@ function activateSidebarTab(nextTab, queryOtaState = true) {
   flashOtaSetVisible();
   updateGattControls();
   renderDashboard();
+  if(activeTab==='dash' && connected && !systemStatus.complete)querySystemStatus();
   if (queryOtaState && activeTab === 'ota' && connected) {
     send(`BLEGW$GSOTAPKG;${randCode()}`);
     if (sensorRelay.available) {
@@ -8850,7 +9000,78 @@ async function et100RefreshRelayPackage() {
   if (refreshed && et100RelayView()) sensorRelayDetectCapability();
 }
 const et100Sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-const et100Visual = {stage:'idle', off:null, base:null, firstAck:0, speed:0, elapsed:0, logBucket:-1, stateLog:''};
+const et100Visual = {stage:'idle', off:null, base:null, firstAck:0, speed:0, elapsed:0, logBucket:-1, stateLog:'', transfer:null, installMode:null, operations:{}};
+function et100InstVisual(value) {
+  et100Visual.inst=value;
+  et100Visual.transfer=null;
+  if(value.event==='HELLO') {et100Visual.installMode=null;et100Visual.operations={};}
+  if(value.event==='START') {
+    et100Visual.installMode=['INSTALL','RESUME','ROLLBACK'].includes(value.fields[0]) ? value.fields[0] : null;
+    et100Visual.operations={};
+  }
+  if(value.src==='L' && ['BACKUP','WRITE'].includes(value.event) && value.fields[0]!=='SKIP') {
+    const [done,total]=value.fields.map(Number);
+    const backup=value.event==='BACKUP';
+    const mode=et100Visual.installMode;
+    if(Number.isFinite(done) && Number.isFinite(total) && total>0 && done>=0 && done<=total && (backup || mode)) {
+      const progress={kind:backup?'backup':mode==='ROLLBACK'?'restore':'install',done,total};
+      et100Visual.operations[backup?'backup':'app']=progress;
+      if(done<total)et100Visual.transfer=progress;
+    }
+  }
+  et100RefreshVisual();
+}
+function et100TransferRoute() {
+  const stage=et100Visual.stage;
+  if(stage==='upload' && et100Visual.off!==null && et100Visual.off>0 && et100File && et100Visual.off<et100File.bytes.length)
+    return {kind:'upload',from:'#et100-source',to:`#et100-nor-map [data-name="${et100SensorTarget()?'Sensor OTA':'Candidate'}"]`};
+  if(['idle','prepare','upload','verify','sensor-verify','reset','checking','confirmed','rollback','error','cancelled','stored','deleted'].includes(stage))return null;
+  const kind=et100Visual.transfer?.kind;
+  if(kind==='backup')return {kind,from:'#et100-flash-map [data-name="App"]',to:'#et100-nor-map [data-name="Rollback"]'};
+  if(kind==='install' || kind==='restore')return {kind,from:`#et100-nor-map [data-name="${kind==='restore'?'Rollback':'Candidate'}"]`,to:'#et100-flash-map [data-name="App"]'};
+  return null;
+}
+function et100UpdateTransferCurve() {
+  const overlay=document.getElementById('et100-transfer-overlay');
+  const diagram=overlay.parentElement;
+  const route=et100TransferRoute();
+  const stop=()=>{overlay.hidden=true;overlay.classList.remove('active');overlay.dataset.route='';};
+  document.getElementById('et100-route-upload').dataset.flowActive='false';
+  document.getElementById('et100-route-install').dataset.flowActive='false';
+  diagram.querySelectorAll('[data-transfer-target]').forEach(row=>delete row.dataset.transferTarget);
+  if(!route || document.getElementById('et100-viz').hidden){stop();return;}
+  const start=document.querySelector(route.from),end=document.querySelector(route.to);
+  const base=diagram.getBoundingClientRect(),a=start.getBoundingClientRect(),b=end.getBoundingClientRect();
+  if(!base.width || !base.height || !a.width || !b.width){stop();return;}
+  // Convert rendered coordinates back into the scaled diagram's CSS coordinates.
+  const sx=diagram.offsetWidth/base.width,sy=diagram.offsetHeight/base.height;
+  let x1,y1,x2,y2,d;
+  if(b.left>=a.right || a.left>=b.right) {
+    const right=b.left>=a.right;
+    x1=((right?a.right:a.left)-base.left)*sx;y1=(a.top+a.height/2-base.top)*sy;
+    x2=((right?b.left:b.right)-base.left)*sx;y2=(b.top+b.height/2-base.top)*sy;
+    const dx=x2-x1;
+    d=`M${x1},${y1} C${x1+dx*.35},${y1} ${x2-dx*.35},${y2} ${x2},${y2}`;
+  } else {
+    // Stacked mobile panels: stay inside their gap, never draw through partition text.
+    const panelA=start.closest('.et100-memory,.flash-viz-source').getBoundingClientRect();
+    const panelB=end.closest('.et100-memory,.flash-viz-source').getBoundingClientRect();
+    const down=panelB.top>=panelA.bottom;
+    x1=(panelA.left+panelA.width/2-base.left)*sx;y1=((down?panelA.bottom:panelA.top)-base.top)*sy;
+    x2=(panelB.left+panelB.width/2-base.left)*sx;y2=((down?panelB.top:panelB.bottom)-base.top)*sy;
+    const dy=y2-y1;
+    d=`M${x1},${y1} C${x1},${y1+dy*.35} ${x2},${y2-dy*.35} ${x2},${y2}`;
+  }
+  const stream=overlay.querySelector('.flash-viz-ble-stream');
+  if(!stream.childElementCount)stream.innerHTML=binaryTransferIcons();
+  const path=overlay.querySelector('path');path.setAttribute('d',d);
+  binaryTransferSpacing(stream);
+  overlay.querySelector('svg').setAttribute('viewBox',`0 0 ${diagram.offsetWidth} ${diagram.offsetHeight}`);
+  stream.querySelectorAll('.flash-viz-ble-dot').forEach(dot=>dot.style.offsetPath=`path("${d}")`);
+  overlay.dataset.route=route.kind;overlay.hidden=false;overlay.classList.add('active');
+  document.getElementById(route.kind==='upload'?'et100-route-upload':'et100-route-install').dataset.flowActive='true';
+  end.dataset.transferTarget='true';
+}
 const et100FlashPartitions = [
   ['ROM A 資訊段', 0x08000000, 4096, '#738295', '僅更新 Installer 時寫入'],
   ['ROM B 資訊段', 0x08001000, 4096, '#D95C5C', '禁止擦除／寫入'],
@@ -8862,7 +9083,7 @@ const et100FlashPartitions = [
 // Stable internal keys keep progress routing independent of translated labels.
 const et100PartitionNames = {
   'ROM A 資訊段':'開機資訊', 'ROM B 資訊段':'原廠 OTA 資訊',
-  Installer:'韌體安裝程式', App:'主程式', 'Settings／KV':'系統設定', 'Boot state':'更新狀態',
+  Installer:'Bootloader', App:'主程式', 'Settings／KV':'系統設定', 'Boot state':'更新狀態',
   'Download journal':'下載紀錄', Candidate:'新版韌體暫存', Rollback:'舊版韌體備份',
   'Sensor OTA':'感測器更新套件', 'Installer 結果':'安裝結果紀錄', 'Logs／預留':'日誌與預留空間'
 };
@@ -8891,6 +9112,7 @@ function et100RenderStorage() {
     const legend = document.createElement('div'); legend.className = 'et100-partitions';
     for (const [name, start, bytes, color, note] of partitions) {
       const row = document.createElement('div'); row.className = 'et100-partition'; row.dataset.name = name;
+      const tag=document.createElement('span');tag.className='et100-stage-tag';tag.hidden=true;tag.setAttribute('role','status');
       const title = document.createElement('div'); title.className = 'et100-partition-title';
       const label = document.createElement('strong'); label.textContent = et100PartitionNames[name];
       const capacity = document.createElement('span'); capacity.className = 'et100-partition-capacity'; capacity.textContent = et100Capacity(bytes);
@@ -8904,7 +9126,15 @@ function et100RenderStorage() {
         state.id = name === 'Candidate' ? 'et100-candidate-state' : 'et100-sensor-state';
       }
       if (name === 'App') state.id = 'et100-app-state';
-      title.append(startLabel, label);
+      if (name==='Rollback' || name==='App') {
+        for(const className of ['et100-slot-image','et100-slot-committed']) {
+          const fill=document.createElement('span');fill.className=className;fill.style.width='0%';fill.setAttribute('aria-hidden','true');row.append(fill);
+        }
+        const progress=document.createElement('div');progress.className='et100-operation-progress';progress.hidden=true;
+        row.append(progress);
+      }
+      const nameAnchor=document.createElement('span');nameAnchor.className='et100-partition-name';nameAnchor.append(label,tag);
+      title.append(startLabel, nameAnchor);
       row.append(title, capacity, description);
       if (state.id) row.append(state);
       legend.append(row);
@@ -8941,6 +9171,21 @@ function et100RefreshVisual() {
   }
   document.getElementById('et100-app-state').textContent = et100Device ?
     `${et100Device.slot.version} · ${et100Device.slot.confirmed ? '已確認' : '未確認'}` : '尚未查詢';
+  for(const [name,key,capacity] of [['Rollback','backup',2*1024*1024],['App','app',1792*1024]]) {
+    const row=document.querySelector(`#${name==='App'?'et100-flash-map':'et100-nor-map'} [data-name="${name}"]`);
+    const progress=et100Visual.operations[key];
+    const field=row.querySelector('.et100-operation-progress');
+    const visible=!!progress && !sensor;
+    field.hidden=true;row.dataset.operationProgress='false';
+    row.querySelector('.et100-slot-image').style.width=`${visible?Math.min(100,progress.total/capacity*100):0}%`;
+    row.querySelector('.et100-slot-committed').style.width=`${visible?Math.min(100,progress.done/capacity*100):0}%`;
+    if(visible) {
+      const percent=Math.floor(progress.done/progress.total*100);
+      field.textContent=`${{backup:'備份',install:'寫入',restore:'還原'}[progress.kind]} ${progress.done.toLocaleString()} / ${progress.total.toLocaleString()} B · ${percent}%`;
+      field.setAttribute('role','progressbar');field.setAttribute('aria-label',`${name==='App'?'主程式':'舊版韌體備份'}${progress.kind==='restore'?'還原':progress.kind==='backup'?'備份':'寫入'}`);
+      field.setAttribute('aria-valuemin','0');field.setAttribute('aria-valuemax',String(progress.total));field.setAttribute('aria-valuenow',String(progress.done));
+    }
+  }
   const labels = {idle:'等待中', prepare:'準備傳輸', upload:'上傳中', verify:'驗證 Candidate', reset:'Test／重啟',
     backup:'備份目前版本', 'install-check':'驗證檔案', 'install-verify':'檢查安裝映像',
     waiting:'安裝中', checking:'新版程式檢查中', confirmed:'更新成功', rollback:'推定回滾', error:'流程停止', cancelled:'取消傳輸',
@@ -8949,6 +9194,34 @@ function et100RefreshVisual() {
   document.getElementById('et100-route-state').textContent = phase;
   document.getElementById('et100-route-upload').dataset.active = String(et100Visual.stage === 'upload');
   document.getElementById('et100-route-install').dataset.waiting = String(['reset','waiting'].includes(et100Visual.stage));
+  const transfer=et100TransferRoute();
+  document.querySelectorAll('#et100-viz .et100-stage-tag').forEach(tag=>tag.hidden=true);
+  let tagTarget=null,tagKind=null,tagText=null;
+  if(et100Visual.stage==='confirmed') {
+    tagTarget='#et100-flash-map [data-name="App"]';tagKind='success';tagText='更新成功';
+  } else if(transfer?.kind==='backup') {
+    tagTarget='#et100-nor-map [data-name="Rollback"]';tagKind='backup';tagText='備份';
+  } else if(transfer && ['install','restore'].includes(transfer.kind)) {
+    tagTarget='#et100-flash-map [data-name="App"]';tagKind='install';tagText=transfer.kind==='restore'?'還原中':'安裝中';
+  } else if(et100Visual.stage==='waiting' && et100Visual.inst?.event==='ERASE' && et100Visual.installMode) {
+    tagTarget='#et100-flash-map [data-name="App"]';tagKind='install';tagText=et100Visual.installMode==='ROLLBACK'?'還原中':'安裝中';
+  } else if(['checking','install-verify'].includes(et100Visual.stage)) {
+    tagTarget='#et100-flash-map [data-name="App"]';tagKind='check';tagText='檢查中';
+  } else if(['verify','install-check','sensor-verify'].includes(et100Visual.stage)) {
+    const partition=sensor?'Sensor OTA':et100Visual.installMode==='ROLLBACK'?'Rollback':'Candidate';
+    tagTarget=`#et100-nor-map [data-name="${partition}"]`;tagKind='check';tagText='檢查中';
+  }
+  if(tagTarget) {
+    const tag=document.querySelector(`${tagTarget} .et100-stage-tag`);
+    tag.dataset.kind=tagKind;tag.textContent=tagText;tag.hidden=false;
+  }
+  const routeLabel=document.getElementById('et100-route-install').querySelector('small');
+  routeLabel.textContent=transfer && transfer.kind!=='upload' ?
+    `${{backup:'備份',install:'寫入',restore:'還原'}[transfer.kind]} ${Math.floor(et100Visual.transfer.done/et100Visual.transfer.total*100)}%` :
+    ['reset','waiting'].includes(et100Visual.stage) ? '等待裝置狀態' : '由 installer 執行';
+  document.querySelector('#et100-flash-map [data-name="App"]').dataset.transferComplete=String(et100Visual.stage==='confirmed');
+  document.querySelector('#et100-nor-map [data-name="Sensor OTA"]').dataset.transferComplete=String(sensor && et100Visual.stage==='stored');
+  requestAnimationFrame(et100UpdateTransferCurve);
   const rows = [
     ['裝置版本', et100Device?.slot.version || '尚未查詢'], ['更新階段', phase],
     ['已提交進度', off === null ? '未知' : `${off.toLocaleString()} / ${bytes.toLocaleString()} B (${bytes ? (off/bytes*100).toFixed(1) : '0.0'}%)`],
@@ -8968,6 +9241,7 @@ function et100RefreshVisual() {
   }
 }
 function et100Flow(stage) {
+  if(stage==='idle' || stage==='prepare')et100Visual.operations={};
   et100Visual.stage = stage;
   if (et100Busy && et100Started) et100Visual.elapsed = Math.max(0,(Date.now()-et100Started)/1000);
   et100RefreshVisual();
@@ -8984,7 +9258,7 @@ function et100FitDiagram() {
   if (width <= 620) {
     layout.style.width = layout.style.height = layout.style.transform = layout.style.left = '';
     layout.style.removeProperty('--et100-type-compensation');
-    return;
+    requestAnimationFrame(et100UpdateTransferCurve);return;
   }
   if (!width || !height) return;
   const baseWidth = Math.max(1440, width);
@@ -8995,6 +9269,7 @@ function et100FitDiagram() {
   layout.style.height = `${height / scale}px`;
   layout.style.transform = `scale(${scale})`;
   layout.style.left = '0px';
+  requestAnimationFrame(et100UpdateTransferCurve);
 }
 new ResizeObserver(et100FitDiagram).observe(document.querySelector('.et100-fit-frame'));
 function et100Rows(id, rows) {
@@ -9227,7 +9502,7 @@ const et100Client = new ET100Smp.Client({
   },
   sensorPackage: et100ApplyPackage,
   event: text => addLog('sys', `ET-100：${text}`),
-  inst: value => { et100Visual.inst=value;et100RefreshVisual(); },
+  inst: et100InstVisual,
   imageState: images => {
     if (!Array.isArray(images)) return;
     const summary = images.map(s=>`slot ${s.slot} ${s.version} confirmed=${Boolean(s.confirmed)} pending=${Boolean(s.pending)}`).join(' · ');
@@ -9237,7 +9512,7 @@ const et100Client = new ET100Smp.Client({
     }
   },
   stage: text => {
-    if(text==='查詢裝置')et100Visual.inst=null;
+    if(text==='查詢裝置') {et100Visual.inst=null;et100Visual.transfer=null;et100Visual.installMode=null;et100Visual.operations={};}
     document.getElementById('et100-phase').textContent = text;
     et100Flow(({'上傳':'upload', '驗證 Candidate':'verify', '驗證 Sensor 套件':'sensor-verify', 'Test／重啟':'reset',
       '安裝中':'waiting', '新版程式檢查中':'checking','備份目前版本':'backup',
