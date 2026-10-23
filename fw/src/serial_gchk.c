@@ -48,6 +48,7 @@ void et100_serial_init(struct et100_serial_parser *p, const char *identity,
     p->context = context;
     p->gtime = ET100_GTIME_DEFAULT;
     p->cids[0] = 0x0639;
+    p->controls.maxrpt = 3;
 }
 
 void et100_serial_set_cid_storage(struct et100_serial_parser *p,
@@ -66,6 +67,77 @@ void et100_serial_set_storage(struct et100_serial_parser *p, int ready,
                seconds : ET100_GTIME_DEFAULT;
     p->save = save;
     p->storage_context = context;
+    if (p->controls.maxrpt > p->gtime) p->controls.maxrpt = (uint8_t)p->gtime;
+}
+
+static unsigned list_count(const struct et100_report_controls *c)
+{
+    static const uint8_t zero[6];
+    unsigned count = 0;
+    for (unsigned i = 0; i < 8; i++) count += memcmp(c->macs[i], zero, 6) != 0;
+    return count;
+}
+
+void et100_controls_encode(const struct et100_report_controls *c, uint8_t record[ET100_REPORT_CONTROLS_SIZE])
+{
+    record[0] = 'E'; record[1] = 'R'; record[2] = 1; record[3] = 0;
+    memcpy(record + 4, c->macs, 48);
+    record[52] = c->maxrpt;
+    for (unsigned i = 0; i < 49; i++) record[53 + i] = (uint8_t)~record[4 + i];
+}
+
+int et100_controls_decode(struct et100_report_controls *c,
+                          const uint8_t record[ET100_REPORT_CONTROLS_SIZE], uint16_t gtime)
+{
+    struct et100_report_controls next;
+    if (record[0] != 'E' || record[1] != 'R' || record[2] != 1 || record[3]) return 0;
+    for (unsigned i = 0; i < 49; i++)
+        if ((unsigned)(record[4 + i] ^ record[53 + i]) != 255) return 0;
+    memcpy(next.macs, record + 4, 48);
+    next.maxrpt = record[52];
+    if (!next.maxrpt || next.maxrpt > 15 || next.maxrpt > gtime ||
+        list_count(&next) > next.maxrpt) return 0;
+    *c = next;
+    return 1;
+}
+
+static int hex_digit(unsigned char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static int parse_list(char *params, struct et100_report_controls *c)
+{
+    memset(c->macs, 0, sizeof c->macs);
+    for (unsigned i = 0; i < 8; i++) {
+        if (!params) break; /* Gateway accepts omitted trailing empty slots. */
+        char *end = strchr(params, ';');
+        if (end) *end = 0;
+        size_t n = strlen(params);
+        if (n && n != 12) return 0;
+        for (unsigned j = 0; j < n / 2; j++) {
+            int hi = hex_digit(params[2*j]), lo = hex_digit(params[2*j+1]);
+            if (hi < 0 || lo < 0) return 0;
+            c->macs[i][j] = (uint8_t)((hi << 4) | lo);
+        }
+        params = end ? end + 1 : NULL;
+    }
+    return params == NULL; /* Reject excess fields rather than silently truncating. */
+}
+
+static int list_response(char *out, size_t capacity, const char *command, int valid,
+                         const struct et100_report_controls *c, const char *token)
+{
+    static const uint8_t zero[6];
+    char text[8][13] = {{0}};
+    for (unsigned i = 0; i < 8; i++)
+        if (memcmp(c->macs[i], zero, 6))
+            for (unsigned j = 0; j < 6; j++) snprintf(text[i] + j*2, 3, "%02X", c->macs[i][j]);
+    return snprintf(out, capacity, "AT$PD=BLEGW$%s;%u;%s;%s;%s;%s;%s;%s;%s;%s;%s\r\n",
+        command, valid, text[0], text[1], text[2], text[3], text[4], text[5], text[6], text[7], token);
 }
 
 static int parse_seconds(const char *text, uint16_t *result)
@@ -199,7 +271,7 @@ static void handle_line(struct et100_serial_parser *p)
             token[-1] = '\0';
         else
             params = "";
-        if (parse_seconds(params, &seconds) && p->storage_ready && p->save &&
+        if (parse_seconds(params, &seconds) && seconds >= p->controls.maxrpt && p->storage_ready && p->save &&
             p->save(seconds, p->storage_context) == 0) {
             p->gtime = seconds;
             valid = 1;
@@ -207,6 +279,32 @@ static void handle_line(struct et100_serial_parser *p)
         length = snprintf(response, sizeof(response),
                           "AT$PD=BLEGW$SGTIME;%u;%s;%s\r\n",
                           valid, params, token);
+    } else if (strcmp(command, "GLIST") == 0 && token == end + 1) {
+        length = list_response(response, sizeof response, command, p->storage_ready, &p->controls, token);
+    } else if (strcmp(command, "GMAXRPT") == 0 && token == end + 1) {
+        length = snprintf(response, sizeof response, "AT$PD=BLEGW$GMAXRPT;%u;%u;%s\r\n",
+                          p->storage_ready, p->controls.maxrpt, token);
+    } else if (strcmp(command, "SLIST") == 0 || strcmp(command, "SMAXRPT") == 0) {
+        struct et100_report_controls next = p->controls;
+        char *params = end + 1;
+        if (token != params) token[-1] = 0;
+        else params = "";
+        int is_list = strcmp(command, "SLIST") == 0;
+        uint16_t count = 0;
+        int parsed = is_list ? parse_list(params, &next) : parse_seconds(params, &count);
+        if (!is_list && parsed && count <= 15) next.maxrpt = (uint8_t)count;
+        int valid = parsed && (is_list || count <= 15) &&
+            next.maxrpt <= p->gtime && list_count(&next) <= next.maxrpt &&
+            p->storage_ready && p->save_controls &&
+            p->save_controls(&next, p->storage_context) == 0;
+        if (valid) {
+            p->controls = next;
+            p->cid_revision++;
+        }
+        if (is_list) {
+            if (!parsed) memset(next.macs, 0, sizeof next.macs);
+            length = list_response(response, sizeof response, command, valid, &next, token);
+        } else length = snprintf(response, sizeof response, "AT$PD=BLEGW$SMAXRPT;%u;%s;%s\r\n", valid, params, token);
     } else if (strcmp(command, "GFWINFO") == 0 && token == end + 1) {
         const struct eup_fw_info *i = p->fw_info;
         if (i) {
@@ -404,6 +502,22 @@ static int save_cids(const uint16_t cids[4], void *context)
     return cid_record_read(verify) && memcmp(record, verify, 20) == 0 ? 0 : -1;
 }
 
+static int controls_read(uint8_t record[ET100_REPORT_CONTROLS_SIZE])
+{
+    return flashdb_get_length(ET100_FDB_REPORT_KEY) == ET100_REPORT_CONTROLS_SIZE &&
+        flashdb_get(ET100_FDB_REPORT_KEY, record, ET100_REPORT_CONTROLS_SIZE) == ET100_REPORT_CONTROLS_SIZE;
+}
+
+static int save_controls(const struct et100_report_controls *c, void *context)
+{
+    uint8_t record[ET100_REPORT_CONTROLS_SIZE], verify[ET100_REPORT_CONTROLS_SIZE];
+    (void)context;
+    et100_controls_encode(c, record);
+    if (controls_read(verify) && !memcmp(record, verify, sizeof record)) return 0;
+    if (flashdb_set(ET100_FDB_REPORT_KEY, record, sizeof record) != FDB_NO_ERR) return -1;
+    return controls_read(verify) && !memcmp(record, verify, sizeof record) ? 0 : -1;
+}
+
 /* 2 KB holds a full SMP request burst (~1.4 KB encoded) between task polls. */
 #define RX_RING_SIZE 2048
 #define SMP_IDLE_MS 30000
@@ -488,7 +602,12 @@ static void serial_task(void *argument)
         save_gtime, NULL);
     if (storage_initialized) load_cids(serial_parser.cids);
     et100_serial_set_cid_storage(&serial_parser, serial_parser.cids, save_cids);
-    et100_scan_configure(serial_parser.cids, serial_parser.gtime, 1);
+    uint8_t controls_record[ET100_REPORT_CONTROLS_SIZE];
+    if (storage_initialized && controls_read(controls_record))
+        (void)et100_controls_decode(&serial_parser.controls, controls_record, serial_parser.gtime);
+    serial_parser.save_controls = save_controls;
+    et100_scan_configure(serial_parser.cids, serial_parser.gtime,
+        serial_parser.controls.macs, serial_parser.controls.maxrpt, 1);
     unsigned cid_revision = serial_parser.cid_revision;
     uart_receive_IT(serial_uart, &rx_byte, 1);
     et100_gatt_poll(serial_send, serial_uart);
@@ -534,6 +653,7 @@ static void serial_task(void *argument)
             }
             if (value == '\n') {
                 et100_scan_configure(serial_parser.cids, serial_parser.gtime,
+                                  serial_parser.controls.macs, serial_parser.controls.maxrpt,
                                   cid_revision != serial_parser.cid_revision);
                 cid_revision = serial_parser.cid_revision;
             }

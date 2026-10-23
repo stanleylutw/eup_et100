@@ -83,6 +83,8 @@ int main(void)
     check_checksum();
 
     et100_reporter_init(&r, all, 15, 0);
+    uint8_t macs[8][6] = {{0}};
+    et100_reporter_controls(&r, macs, 15, 0);
     for (unsigned i = 0; i < 40; i++) {
         second[0] = (uint8_t)i;
         assert(et100_reporter_receive(&r, second, 0, -30, sensor, sizeof(sensor), i));
@@ -91,6 +93,32 @@ int main(void)
     for (unsigned i = 0; i < 15; i++)
         emitted += et100_reporter_poll(&r, 15000 + i * 1000, out, sizeof(out)) != 0;
     assert(emitted == 15);
+
+    et100_reporter_controls(&r, macs, 2, 30000);
+    for (unsigned i = 0; i < 5; i++) {
+        second[0] = (uint8_t)i;
+        assert(et100_reporter_receive(&r, second, 0, -30, sensor, sizeof sensor, 30001));
+    }
+    assert(et100_reporter_poll(&r, 45000, out, sizeof out));
+    assert(et100_reporter_poll(&r, 46000, out, sizeof out));
+    assert(!et100_reporter_poll(&r, 47000, out, sizeof out));
+    /* Changing controls drops pending batches/cache, no stale reports leak. */
+    et100_reporter_controls(&r, macs, 1, 47000);
+    assert(!et100_reporter_poll(&r, 62000, out, sizeof out));
+    for (unsigned j = 0; j < 6; j++) macs[0][j] = mac[5-j];
+    et100_reporter_controls(&r, macs, 1, 63000);
+    assert(et100_reporter_receive(&r, mac, 0, -50, other, sizeof other, 63001));
+    assert(!et100_reporter_receive(&r, second, 0, -50, sensor, sizeof sensor, 63001));
+    assert(et100_reporter_poll(&r, 78000, out, sizeof out));
+    assert(strstr(out, "AABBCCDDEEFF;FC0D"));
+    et100_reporter_init(&r, defaults, 15, 0);
+    et100_reporter_controls(&r, macs, 3, 0);
+    assert(et100_reporter_receive(&r, mac, 0, -50, other, sizeof other, 1)); /* MAC only */
+    assert(et100_reporter_receive(&r, second, 0, -50, sensor, sizeof sensor, 1)); /* CID only */
+    assert(!et100_reporter_receive(&r, second, 0, -50, other, sizeof other, 1));
+    assert(et100_reporter_receive(&r, mac, 0, -50, mixed, sizeof mixed, 1));
+    assert(et100_reporter_poll(&r, 15000, out, sizeof out));
+    assert(strstr(out, ";3906;")); /* Matching service CID wins over unmatched manufacturer. */
 
     uint32_t seed = 1;
     for (unsigned sample = 0; sample < 5000; sample++) {

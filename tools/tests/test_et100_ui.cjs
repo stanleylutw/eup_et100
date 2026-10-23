@@ -101,6 +101,76 @@ const root=path.resolve(__dirname,'../..');
     assert.ok(await page.evaluate(()=>mockSerial.requests.some(s=>s.startsWith('BLEGW$GGTIME;'))),'ET-100 must send normal BLE commands');
     assert.match(await page.locator('#log').textContent(),/AT\$PD=BLEGW\$GGTIME;1;37;/,'ASCII response must reach normal parser through SMP decoder');
     await page.locator('[data-tab="ota"]').click();
+    assert.equal(await page.locator('#et100-dfu-path').count(),0,'no misleading static path hint');
+    await page.locator('#et100-pick-file').click();
+    assert.equal(await page.locator('#et100-build-menu').isVisible(),true);
+    assert.equal(await page.locator('#et100-build-menu [role="menuitem"]').count(),2);
+    assert.match(await page.locator('[data-et100-build="build"]').textContent(),/fw\/build_serial\/output/);
+    await page.locator('#et100-load-section').screenshot({path:'/tmp/et100_build_picker_menu.png'});
+    await page.locator('#et100-pick-file').click();
+    assert.equal(await page.locator('#et100-build-menu').isVisible(),false);
+    const rootChecks=await page.evaluate(async()=>{
+      const picker=window.showDirectoryPicker, record=et100RootRecord;
+      const gateway=gatewayBuildRootHandle, sensor=sensorBuildRootHandle;
+      const paths=[], actions=[], ids=[];
+      let stored=null, missing=false;
+      const root={queryPermission:async()=> 'granted',
+        async getDirectoryHandle(name){paths.push(name);if(missing)throw Error('missing');return this;},
+        async getFileHandle(name){paths.push(name);return {getFile:async()=>new File(['dfu'],name)};}};
+      try {
+        et100BuildRootHandle=null;
+        et100RootRecord=async(action,handle)=>{
+          actions.push([action,ET100_BUILD_ROOT_KEY]);
+          if(action==='put')stored=handle;
+          if(action==='delete')stored=null;
+          return stored;
+        };
+        window.showDirectoryPicker=async options=>{ids.push(options.id);return root;};
+        const first=await getEt100DfuFile();
+        et100BuildRootHandle=null; // Simulate a reload using the persisted handle.
+        const second=await getEt100DfuFile();
+        missing=true;
+        let error='';try{await getEt100DfuFile();}catch(err){error=err.message;}
+        return {paths,actions,ids,names:[first.name,second.name],error,cleared:et100BuildRootHandle===null&&stored===null,
+          isolated:gateway===gatewayBuildRootHandle&&sensor===sensorBuildRootHandle};
+      } finally {window.showDirectoryPicker=picker;et100RootRecord=record;et100BuildRootHandle=null;}
+    });
+    assert.deepEqual(rootChecks.ids,['eup-et100-root']);
+    assert.deepEqual(rootChecks.names,['dfu_application.zip','dfu_application.zip']);
+    assert.deepEqual(rootChecks.paths.slice(0,8),['fw','build_serial','output','dfu_application.zip','fw','build_serial','output','dfu_application.zip']);
+    assert.ok(rootChecks.actions.every(([,key])=>key==='eup-et100-root'));
+    assert.equal(rootChecks.cleared,true);assert.equal(rootChecks.isolated,true);
+    assert.match(rootChecks.error,/eup_et100 專案根目錄/);
+    const pickerChecks=await page.evaluate(async()=>{
+      const original=window.showOpenFilePicker, options=[], loaded=[];
+      try {
+        window.showOpenFilePicker=async opts=>{
+          options.push(opts);
+          return [{getFile:async()=>new File(['test'],'test.zip')}];
+        };
+        for (const target of ['et100','sensor','gateway'])
+          await chooseOtaLocalFile(target,'et100-file',file=>loaded.push(file.name));
+        await chooseOtaLocalFile('et100','et100-file',()=>loaded.push('stale'),()=>false);
+        window.showOpenFilePicker=async()=>{throw new DOMException('cancel','AbortError');};
+        await chooseOtaLocalFile('et100','et100-file',()=>loaded.push('cancelled'));
+        const input=document.getElementById('et100-file'), click=input.click;
+        let fallback=0;
+        input.click=()=>{fallback++;};
+        try {
+          window.showOpenFilePicker=undefined;
+          await chooseOtaLocalFile('et100','et100-file',()=>loaded.push('fallback'));
+          window.showOpenFilePicker=async()=>{throw new DOMException('blocked','SecurityError');};
+          await chooseOtaLocalFile('sensor','et100-file',()=>loaded.push('blocked'));
+        } finally {input.click=click;}
+        return {options,loaded,fallback};
+      } finally {window.showOpenFilePicker=original;}
+    });
+    assert.deepEqual(pickerChecks.options.map(o=>o.id),['et100-dfu','sensor-dfu','gateway-dfu','et100-dfu']);
+    assert.deepEqual(pickerChecks.loaded,['test.zip','test.zip','test.zip']);
+    assert.equal(pickerChecks.fallback,2);
+    assert.deepEqual(pickerChecks.options[0].types[0].accept,{'application/zip':['.zip'],'application/octet-stream':['.bin']});
+    assert.deepEqual(pickerChecks.options[1].types[0].accept,{'application/zip':['.zip']});
+    assert.deepEqual(pickerChecks.options[2].types[0].accept,{'application/octet-stream':['.bin']});
     const sections=await page.evaluate(()=>({
       load:document.getElementById('et100-load-section').getBoundingClientRect(),
       version:document.getElementById('et100-version-section').getBoundingClientRect(),
@@ -125,6 +195,11 @@ const root=path.resolve(__dirname,'../..');
     assert.match(await page.locator('#et100-flash-map').textContent(),/1792 KB/);
     assert.match(await page.locator('#et100-nor-map').textContent(),/16 MB（EVB）/);
     assert.match(await page.locator('#et100-nor-map').textContent(),/11.625 MB/);
+    assert.deepEqual(await page.locator('#et100-flash-map .et100-partition strong').allTextContents(),
+      ['開機資訊','原廠 OTA 資訊','韌體安裝程式','主程式','系統設定','更新狀態']);
+    assert.deepEqual(await page.locator('#et100-nor-map .et100-partition strong').allTextContents(),
+      ['下載紀錄','新版韌體暫存','舊版韌體備份','感測器更新套件','日誌與預留空間']);
+    assert.match(await page.locator('#et100-flash-map [data-name="ROM A 資訊段"]').textContent(),/僅更新 Installer 時寫入/);
     assert.equal(await page.locator('#et100-viz select, #et100-viz details, #et100-viz ol, #et100-viz p').count(),0,'no extra selector, explanations or workflow list');
     const layouts=await page.evaluate(()=>[et100FlashPartitions,et100StoragePartitions('evb'),et100StoragePartitions('product')]);
     for(const [i,parts] of layouts.entries()) {
@@ -204,15 +279,53 @@ const root=path.resolve(__dirname,'../..');
     await page.locator('#et100-flash-map').scrollIntoViewIfNeeded();
     await page.screenshot({path:'/tmp/et100_memory_desktop.png'});
     await page.setViewportSize({width:1920,height:1200});
-    assert.equal(Math.round((await page.locator('.et100-viz-layout').boundingBox()).height),348,'desktop diagram has fixed compact height');
-    assert.ok((await page.locator('.et100-diagram').boundingBox()).height<=349,'diagram must not grow past fixed frame');
+    assert.ok((await page.locator('.et100-viz-layout').boundingBox()).height<=460,'desktop diagram stays compact');
+    assert.ok((await page.locator('.et100-diagram').boundingBox()).height<=461,'diagram must not grow past fixed frame');
     assert.equal(await page.locator('#et100-viz').evaluate(el=>el.scrollHeight>el.clientHeight+1),false,'desktop diagram fits visualization panel');
     for (const id of ['et100-flash-map','et100-nor-map','et100-stats']) {
       assert.equal(await page.locator('#'+id).evaluate(el=>el.scrollHeight>el.clientHeight+1),false,`${id} contents fit compact frame`);
     }
     const positions=await page.evaluate(()=>['et100-source','et100-nor-map','et100-flash-map','et100-stats'].map(id=>document.getElementById(id).getBoundingClientRect().left));
+    const partitionLayout=await page.locator('.et100-partition').evaluateAll(rows=>rows.map(row=>{
+      const box=row.getBoundingClientRect(), capacity=row.querySelector('.et100-partition-capacity').getBoundingClientRect();
+      return {center:Math.abs((capacity.top+capacity.bottom-box.top-box.bottom)/2),
+        right:box.right-capacity.right, fits:row.scrollHeight<=row.clientHeight+1};
+    }));
+    assert.ok(partitionLayout.every(row=>row.center<2&&row.right<12&&row.fits),'capacities right-aligned and vertically centered; no clipped details');
     assert.ok(positions.every((x,i)=>i===0||x>positions[i-1]),'desktop: file → NOR → MCU → status');
     await page.locator('.et100-viz-layout').screenshot({path:'/tmp/et100_memory_diagram.png'});
+    for (const [width,height] of [[1920,900],[1440,900],[1366,768],[1280,800]]) {
+      await page.setViewportSize({width,height});
+      await page.waitForFunction(()=>{
+        const frame=document.querySelector('.et100-fit-frame').getBoundingClientRect();
+        const diagram=document.querySelector('.et100-viz-layout').getBoundingClientRect();
+        return diagram.width>0&&diagram.bottom<=frame.bottom+1&&diagram.right<=frame.right+1;
+      });
+      const fit=await page.evaluate(()=>{
+        const viz=document.getElementById('et100-viz');
+        const log=document.querySelector('.log-wrap');
+        const currentLog=log.getBoundingClientRect().height;
+        viz.hidden=true;
+        const sharedLog=log.getBoundingClientRect().height;
+        viz.hidden=false;
+        const frame=viz.querySelector('.et100-fit-frame').getBoundingClientRect();
+        const diagram=viz.querySelector('.et100-viz-layout').getBoundingClientRect();
+        const a=document.querySelector('[data-name="ROM A 資訊段"]').getBoundingClientRect();
+        const b=document.querySelector('[data-name="ROM B 資訊段"]').getBoundingClientRect();
+        return {overflow:viz.scrollHeight>viz.clientHeight+1,a:a.height,b:b.height,currentLog,sharedLog,
+          fits:diagram.top>=frame.top-1&&diagram.left>=frame.left-1&&diagram.bottom<=frame.bottom+1&&diagram.right<=frame.right+1,
+          clipped:[...viz.querySelectorAll('.et100-partition')].filter(row=>row.scrollHeight>row.clientHeight+1).map(row=>row.dataset.name)};
+      });
+      assert.equal(fit.overflow,false,`${width}x${height}: complete diagram fits available panel`);
+      assert.ok(Math.abs(fit.currentLog-fit.sharedLog)<1,`${width}x${height}: shared log height must not change for ET-100`);
+      assert.equal(fit.fits,true,`${width}x${height}: scaled diagram stays inside its frame`);
+      assert.ok(Math.abs(fit.a-fit.b)<1,`${width}x${height}: A/B info sections have equal height`);
+      assert.deepEqual(fit.clipped,[],`${width}x${height}: partition text fits`);
+      if(width===1366) {
+        await page.locator('.et100-viz-layout').screenshot({path:'/tmp/et100_memory_1366.png'});
+        await page.screenshot({path:'/tmp/et100_fixed_log_desktop.png'});
+      }
+    }
     await page.setViewportSize({width:1440,height:1000});
     await page.evaluate(()=>{
       mockSerial.file=et100File;et100Client.io.now=()=>mockSerial.clock;
@@ -289,6 +402,7 @@ const root=path.resolve(__dirname,'../..');
     assert.equal(await page.locator('#et100-sensor-menu').isVisible(),false);
     assert.equal(await page.locator('#et100-start').isDisabled(),true,'self image must not become sensor package');
     const beforeWrongZip=await page.evaluate(()=>mockSerial.requests.length);
+    assert.equal(await page.locator('#et100-build-menu').isVisible(),false,'Sensor target must not show ET-100 build menu');
     await page.locator('#et100-file').setInputFiles(path.join(root,'fw/build_serial/output/dfu_application.zip'));
     await page.waitForFunction(()=>document.getElementById('et100-file-info').textContent.includes('檔案無效'));
     assert.equal(await page.locator('#et100-start').isDisabled(),true);

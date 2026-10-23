@@ -9,20 +9,31 @@ void et100_reporter_init(struct et100_reporter *r, const uint16_t cids[4],
     memcpy(r->cids, cids, sizeof(r->cids));
     r->gtime = gtime >= 1 && gtime <= 1800 ? gtime : 15;
     r->cycle_ms = now;
+    r->maxrpt = r->gtime < 3 ? (uint8_t)r->gtime : 3;
+}
+
+void et100_reporter_controls(struct et100_reporter *r, const uint8_t macs[8][6],
+                              uint8_t maxrpt, uint32_t now)
+{
+    if (!maxrpt || maxrpt > 15 || maxrpt > r->gtime) return;
+    if (r->maxrpt == maxrpt && !memcmp(r->macs, macs, sizeof r->macs)) return;
+    memcpy(r->macs, macs, sizeof r->macs);
+    r->maxrpt = maxrpt;
+    memset(r->cache, 0, sizeof r->cache);
+    r->batch_length = r->batch_index = 0;
+    r->cycle_ms = now;
 }
 
 static int allowed(const struct et100_reporter *r, const uint8_t *data)
 {
-    unsigned active = 0;
     uint16_t id = data[0] | ((uint16_t)data[1] << 8);
     for (unsigned i = 0; i < 4; i++) {
         if (r->cids[i]) {
-            active++;
             if (r->cids[i] == id)
                 return 1;
         }
     }
-    return active == 0;
+    return 0;
 }
 
 int et100_reporter_receive(struct et100_reporter *r, const uint8_t mac[6],
@@ -38,6 +49,19 @@ int et100_reporter_receive_details(struct et100_reporter *r, const uint8_t mac[6
 {
     if(details) memset(details,0,sizeof(*details));
     const uint8_t *mfg = NULL, *svc = NULL, *name = NULL;
+    const uint8_t *mfg_any = NULL, *svc_any = NULL;
+    size_t mfg_any_len = 0, svc_any_len = 0;
+    unsigned filters = 0, mac_match = 0;
+    static const uint8_t zero[6];
+    for (unsigned i = 0; i < 4; i++) filters += r->cids[i] != 0;
+    for (unsigned i = 0; i < 8; i++) {
+        if (!memcmp(r->macs[i], zero, 6)) continue;
+        filters++;
+        unsigned match = 1;
+        for (unsigned j = 0; j < 6; j++)
+            if (r->macs[i][j] != mac[5-j]) match = 0;
+        mac_match |= match;
+    }
     size_t mfg_len = 0, svc_len = 0, name_len = 0;
     uint8_t payload[31];
     if (!ad || length > 31 || rssi < -127 || rssi > 20)
@@ -50,6 +74,8 @@ int et100_reporter_receive_details(struct et100_reporter *r, const uint8_t mac[6
             return 0;
         uint8_t kind = ad[offset + 1];
         const uint8_t *value = ad + offset + 2;
+        if (n >= 3 && kind == 0xff && !mfg_any) { mfg_any = value; mfg_any_len = n - 1; }
+        if (n >= 3 && kind == 0x16 && !svc_any) { svc_any = value; svc_any_len = n - 1; }
         if (n >= 3 && (kind == 0xff || kind == 0x16) && allowed(r, value)) {
             if (kind == 0xff && !mfg) { mfg = value; mfg_len = n - 1; }
             if (kind == 0x16 && !svc) { svc = value; svc_len = n - 1; }
@@ -59,6 +85,11 @@ int et100_reporter_receive_details(struct et100_reporter *r, const uint8_t mac[6
             name_len = n - 1 > 12 ? 12 : n - 1;
         }
         offset += n + 1;
+    }
+    /* Gateway semantics: CID OR MAC, with CID-matched payload preferred. */
+    if (!mfg && !svc && (!filters || mac_match)) {
+        mfg = mfg_any; mfg_len = mfg_any_len;
+        svc = svc_any; svc_len = svc_any_len;
     }
     const uint8_t *value = mfg ? mfg : svc;
     size_t n = mfg ? mfg_len : svc_len;
@@ -130,7 +161,7 @@ size_t et100_reporter_poll(struct et100_reporter *r, uint32_t now,
     if ((uint32_t)(now - r->cycle_ms) >= (uint32_t)r->gtime * 1000) {
         r->cycle_ms = now;
         r->batch_length = r->batch_index = 0;
-        unsigned limit = r->gtime < ET100_REPORT_BATCH ? r->gtime : ET100_REPORT_BATCH;
+        unsigned limit = r->maxrpt;
         for (unsigned count = 0; count < limit; count++) {
             int best = -1;
             for (unsigned i = 0; i < ET100_REPORT_CACHE; i++)
@@ -180,7 +211,8 @@ volatile unsigned et100_scan_reports, et100_scan_accepted;
 static uint32_t scan_attempt_ms;
 static unsigned scan_attempted;
 
-void et100_scan_configure(const uint16_t cids[4], uint16_t gtime, int clear)
+void et100_scan_configure(const uint16_t cids[4], uint16_t gtime,
+                          const uint8_t macs[8][6], uint8_t maxrpt, int clear)
 {
     uint32_t now = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
     taskENTER_CRITICAL();
@@ -193,6 +225,8 @@ void et100_scan_configure(const uint16_t cids[4], uint16_t gtime, int clear)
         reporter.cycle_ms = now;
         reporter.batch_length = reporter.batch_index = 0;
     }
+    /* Publish CID, MAC and batch limit atomically to the BLE callback. */
+    et100_reporter_controls(&reporter, macs, maxrpt, now);
     taskEXIT_CRITICAL();
 }
 

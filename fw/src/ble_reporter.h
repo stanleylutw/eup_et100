@@ -17,6 +17,7 @@ struct et100_report_entry {
 };
 struct et100_reporter {
     uint16_t cids[4], gtime;
+    uint8_t macs[8][6], maxrpt;
     uint32_t cycle_ms, sent_ms;
     unsigned sent_valid;
     struct et100_report_entry cache[ET100_REPORT_CACHE];
@@ -24,6 +25,7 @@ struct et100_reporter {
     unsigned batch_length, batch_index;
 };
 void et100_reporter_init(struct et100_reporter *, const uint16_t[4], uint16_t, uint32_t);
+void et100_reporter_controls(struct et100_reporter *, const uint8_t[8][6], uint8_t, uint32_t);
 int et100_reporter_receive(struct et100_reporter *, const uint8_t[6], uint8_t,
                            int8_t, const uint8_t *, size_t, uint32_t);
 int et100_reporter_receive_details(struct et100_reporter *, const uint8_t[6], uint8_t,
@@ -31,7 +33,7 @@ int et100_reporter_receive_details(struct et100_reporter *, const uint8_t[6], ui
 size_t et100_reporter_poll(struct et100_reporter *, uint32_t, char *, size_t);
 
 /* RTOS adapter: all cache access is serialized with short critical sections. */
-void et100_scan_configure(const uint16_t[4], uint16_t, int);
+void et100_scan_configure(const uint16_t[4], uint16_t, const uint8_t[8][6], uint8_t, int);
 void et100_scan_poll(void (*send)(const char *, size_t, void *), void *);
 void et100_scan_start(void);
 struct gap_event;

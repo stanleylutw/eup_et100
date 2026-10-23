@@ -103,7 +103,7 @@
 - **1V8 與 3V3 域分區待確認**：舊筆記把 PB12-PB15/PC0-PC7 歸為 1V8，v0.4.9 未提供逐 GPIO 的 voltage-bank map 或 SWD pinmux。需確認 target VTref，不能直接斷言 JLINK 為 1V8 或其餘 pin 全為 3V3。
 - **TCXO 選用**：SX20Y024000BC1T009 是 24MHz ±2ppm TCXO，給 BT core 需求的高精度；MCU core clock 由內部 PLL 從 24MHz 倍頻到 156MHz。
 - **UART4 專門給 software debug**：圖面註記「UART4 115200bps 专用于软件调试，客户现场：Police 读取版本信息」—— 這是**出廠後保留給警方（或客戶服務人員）讀版本/log 的介面**，走 Sheet 2 LTE 的 debug UART 線分流，實際接到 LTE_DBG 的 1V8 TP0201/02/03。
-- **UART3 標示 CAN、UART1 標示 CAN**：圖面左側標籤「UART3_9600bps」「CAN」「UART2_9600bps」—— UART3 腳位（PB4, PB5）實際接 MCU_RS232_RXD2/TXD2 給 Sheet 5 第二顆 UM3221；CAN 腳位（PB7, PB6）接 MCU_CAN_RXD/TXD。**圖面標籤有誤導**，實際以 net name 為準。
+- **UART3 標示 CAN、UART1 標示 CAN**：圖面左側標籤「UART3_9600bps」「CAN」「UART2_9600bps」—— UART3 腳位（PB4, PB5）實際接 MCU_RS232_RXD2/TXD2 給 Sheet 5 第二顆 UM3221；CAN 腳位 PB6（pin 17）= MCU_CAN_RXD、PB7（pin 18）= MCU_CAN_TXD。**圖面標籤有誤導**，實際以 net name 為準。
 
 ---
 
@@ -154,8 +154,8 @@
 | 13 | VDD_IO3V3 | MCU_3V3 | 3V3 IO rail |
 | 14 | PB4 | MCU_RS232_RXD2 | ← Sheet 5 U0502 R1OUT |
 | 15 | PB5 | MCU_RS232_TXD2 | → Sheet 5 U0502 T1IN |
-| 16 | PB6 | MCU_CAN_RXD | ← Sheet 5 SIT1042 |
-| 17 | PB7 | MCU_CAN_TXD | → Sheet 5 SIT1042 |
+| 17 | PB6 | MCU_CAN_RXD | ← Sheet 5 SIT1042（2026-10-23 依 SCH p.1 更正腳號，原誤記 16） |
+| 18 | PB7 | MCU_CAN_TXD | → Sheet 5 SIT1042（原誤記 17） |
 | 18 | PB8 | MCU_RS232_TXD1 | → Sheet 5 U0501 |
 | 19 | PB9 | MCU_RS232_RXD1 | ← Sheet 5 U0501 |
 | 20 | PB10/BT_PA14 | SWCLK | JLINK clock；實際 package pin number 仍以原圖／datasheet 為準 |

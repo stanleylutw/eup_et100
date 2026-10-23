@@ -1,10 +1,12 @@
 # ET-100 Project Bring-up — 已完成項目總覽
 
 **起算日期**：2026-10-01
-**最後更新**：2026-10-21
+**最後更新**：2026-10-23
 **維護者**：Stanley（Eupfin） + Claude Code + Codex
 
 > 本檔是跨 HW + FW 的專案層級狀態儀表板。詳細技術文件連結分散在 [`docs/03_hardware/sch_analysis/`](../03_hardware/sch_analysis/) 與 [`fw/`](../../fw/)。
+
+> **v0.8.10**：MAC 白名單／MAXRPT 指令、FlashDB 保存及 HTML 選檔／圖表完成；host／ARM／DFU／UI 測試 PASS。Stanley 已提供 0.8.10 App OTA confirmed 紀錄，白名單實機與 Claude 獨立 review 仍待完成；沒有由 Codex 執行 EVB 燒錄。本輪文件與程式一併提交，不代表硬體全面驗收。
 
 > **2026-10-02 規格同步**：FR3068E-C 原廠 v0.4.9 為 2 MB Flash、512 KB SRAM、QFN80、2 組 CAN、AEC-Q100「否」；BT core 是 32-bit RISC @48 MHz。現有 SDK linker 配置另計，host build 不代表已在硬體上運行。來源：[FR306x 開發參考](../03_hardware/fr306x_reference/README.md)。
 

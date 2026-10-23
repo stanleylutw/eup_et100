@@ -258,7 +258,7 @@
 
 <h3>Q12-P1 — CAN STB 經 I2C IO Expander 的延遲</h3>
 
-<p><strong>背景</strong>：Sheet 5 SIT1042 的 STB pin 由 Sheet 11 AW9523 的 P1_8 控制（經 I2C bus）。wake from standby 的延遲 =（I2C transaction 時間）典型 1-5ms。J1939 診斷服務要求 STB low 到 bus 可用 &lt;10µs，可能漏接首幀。</p>
+<p><strong>背景</strong>：Sheet 5 SIT1042 的 STB pin 由 Sheet 11 AW9523 的 P1_6 控制（經 I2C bus）。wake from standby 的延遲 =（I2C transaction 時間）典型 1-5ms。J1939 診斷服務要求 STB low 到 bus 可用 &lt;10µs，可能漏接首幀。</p>
 
 <p><strong>問題 Q12</strong>：建議 MCU_CAN_STB 由 MCU GPIO 直控、不經 AW9523，可行？</p>
 

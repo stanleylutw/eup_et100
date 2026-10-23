@@ -13,6 +13,12 @@ struct eup_fw_info;
 typedef void (*et100_serial_send_fn)(const char *, size_t, void *);
 typedef int (*et100_serial_save_fn)(uint16_t, void *);
 typedef int (*et100_serial_save_cids_fn)(const uint16_t[4], void *);
+#define ET100_REPORT_CONTROLS_SIZE 102
+struct et100_report_controls {
+    uint8_t macs[8][6]; /* Display order, unlike the BLE SDK address bytes. */
+    uint8_t maxrpt;
+};
+typedef int (*et100_serial_save_controls_fn)(const struct et100_report_controls *, void *);
 
 struct et100_serial_parser {
     char line[ET100_SERIAL_LINE_MAX];
@@ -29,6 +35,8 @@ struct et100_serial_parser {
     uint16_t cids[4];
     unsigned cid_revision;
     et100_serial_save_cids_fn save_cids;
+    struct et100_report_controls controls;
+    et100_serial_save_controls_fn save_controls;
     /* OTABAUD: baud requested by the host, applied by the transport after the
      * response is transmitted (0 = none). Only 9600 and 115200 are accepted. */
     uint32_t baud_request;
@@ -54,5 +62,7 @@ void et100_serial_storage_ready(int);
 void et100_serial_pkg_deleted(struct et100_serial_parser *, int rc);
 void et100_serial_set_cid_storage(struct et100_serial_parser *, const uint16_t[4],
                                   et100_serial_save_cids_fn);
+void et100_controls_encode(const struct et100_report_controls *, uint8_t[ET100_REPORT_CONTROLS_SIZE]);
+int et100_controls_decode(struct et100_report_controls *, const uint8_t[ET100_REPORT_CONTROLS_SIZE], uint16_t);
 
 #endif

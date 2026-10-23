@@ -30,13 +30,13 @@
 | MCU_GNSS_3V3          | 7 (U0701 output)             | 1 (MCU 3V3 rails), 12 (D1201 input) | 3.3V | 300mA | 無 (常開) | — |
 | GNSS_3V3              | 12 (D1201 cathode)           | 12 (J1201 pin 7)              | ~3.0V | 300mA | 無（但子板 LDO EN 可切）| GNSS_LDO_EN (AW9523 P1_3) |
 | VDD_3V3               | 7 (U0702 output)             | 3 (G-Sensor 3V3), 4 (LED_3V3 via R0401), 5 (RS232 EN pull-up), 8 (Charger status pull-up) | 3.3V | 300mA | ✓ | VDD_3V3_EN (AW9523 P1_4) |
-| VDD_PP_3V3            | 5 (Q0501 PMOS drain)         | 5 (3 顆 UM3221 VCC)           | ~5V (命名誤) | 300mA | ✓ | VDD_PP_3V3_EN (AW9523 P0_6) |
+| VDD_PP_3V3            | 5 (Q0501 PMOS drain，輸入 VDD_3V3) | 5 (3 顆 UM3221 VCC、CAN_VIO_3V3) | 3.3V | 300mA | ✓ | VDD_PP_3V3_EN (AW9523 P0_2) |
 | BUZZER_3V3            | 7 (U0703 output)             | 4 (U0401 buzzer VCC)          | 3.3V | 100mA | ✓ | BUZZER_3V3_EN (AW9523 P0_7) |
 | NFC_1V8               | 7 (U0704 output)             | 1 (MCU 1V8 域), 3 (G-Sensor 1V8), 10 (PN7160 VDD_PAD) | 1.8V | 300mA | ✓ | NFC_1V8_EN (AW9523 P0_5) |
 | NFC_VDD               | 10 (via R1001 ← VDD_5V_PP)   | 10 (PN7160 VDD_A/D/UP/TX/VBAT) | ~5V | 1A | 無 | — |
 | LED_3V3               | 4 (R0401 ← VDD_3V3)          | 4 (4 顆 LED anode)            | 3.3V | 25mA | 由 VDD_3V3_EN 間接控 | — |
 | CAN_5V                | 5 (R0521 ← VDD_5V_PP)        | 5 (U0504 VCC)                 | ~5V | 100mA | 無 | — |
-| CAN_VIO_3V3           | 5 (VDD_PP_3V3 的 pull-up)    | 5 (U0504 VIO)                 | ~5V | 10mA | 由 VDD_PP_3V3_EN 間接控 | — |
+| CAN_VIO_3V3           | 5 (VDD_PP_3V3 經 R0550 0R)   | 5 (U0504 VIO、R0522 STB 上拉、R0521 0R→TXD 疑誤) | 3.3V | 10mA | 由 VDD_PP_3V3_EN 間接控 | — |
 | LTE_EXT_1V8           | 2 (EG800Q-EU VDD_EXT output) | 3 (SIM VCC path), 11 (UART shift 高側), 13 (U1301 tuner VDD) | 1.8V | 50mA | 由 LTE 開機間接控 | — |
 
 ---
@@ -45,23 +45,26 @@
 
 | AW9523 Pin | Net | Source | Sink | 用途 |
 |:-:|---|:-:|---|---|
-| P0_2 | DC_DET          | Sheet 11 Q1109 collector | AW9523 input | 外部 DC 存在偵測 |
-| P0_3 | PWR_SW_CTRL     | AW9523 output | Sheet 11 Q1108 base/gate 側 | Output pin 控制 |
-| P0_4 | GNSS_VBAT_EN    | AW9523 output | Sheet 12 Q1202 base       | GNSS 備援電 |
-| P0_5 | NFC_1V8_EN      | AW9523 output | Sheet 7 U0704 EN           | NFC 1V8 LDO |
-| P0_6 | VDD_PP_3V3_EN   | AW9523 output | Sheet 5 Q0502 base         | RS232 power switch |
-| P0_7 | BUZZER_3V3_EN   | AW9523 output | Sheet 7 U0703 EN           | 蜂鳴器 LDO |
 | P1_0 | MCU_RS232_EN1   | AW9523 output | Sheet 5 U0501 EN           | RS232 第 1 顆 EN |
 | P1_1 | MCU_RS232_EN2   | AW9523 output | Sheet 5 U0502 EN           | RS232 第 2 顆 EN |
 | P1_2 | MCU_RS232_EN0   | AW9523 output | Sheet 5 U0503 EN           | RS232 第 3 顆 EN |
-| P1_3 | GNSS_LDO_EN     | AW9523 output | Sheet 12 J1201 pin 6 → 子板 LDO EN | GNSS 子板主 VDD |
-| P1_4 | VDD_3V3_EN      | AW9523 output | Sheet 7 U0702 EN           | 3V3 LDO |
-| P1_5 | MCU_WAKE_LTE_3V3| AW9523 output | Sheet 11 Q1106 base        | 經 shift 到 LTE WAKE |
-| P1_6 | MCU_CHA_EN      | AW9523 output | Sheet 8 U0801 EN           | 充電器啟停 |
-| P1_7 | ACC_INT_OUT     | AW9523 output | Sheet 11 Q1110 base        | 對外 ACC 輸出 |
-| P1_8 | MCU_CAN_STB     | AW9523 output | Sheet 5 U0504 STB          | CAN 待機 |
-| INTN | EXP_INTN        | AW9523 output | Sheet 1 MCU GPIO (PD3)     | AW9523 中斷通知 |
-| RSTN | EXP_RST         | Sheet 1 MCU GPIO (PB15)    | AW9523 input               | AW9523 reset |
+| P1_3 | GNSS_LDO_EN     | AW9523 output | Sheet 12                   | GNSS 電源 |
+| P0_0 | GNSS_VBAT_EN    | AW9523 output | Sheet 12                   | GNSS VBAT |
+| P0_1 | —               | —             | —                          | NC |
+| P0_2 | VDD_PP_3V3_EN   | AW9523 output | Sheet 5 Q0502 base         | RS232＋CAN VIO 電源開關 |
+| P0_3 | PWR_SW_CTRL     | AW9523 output | Sheet 11 Q1108             | 外部電源輸入開關 |
+| P0_4 | VDD_3V3_EN      | AW9523 output | Sheet 7                    | VDD_3V3 |
+| P0_5 | NFC_1V8_EN      | AW9523 output | Sheet 7                    | NFC 1V8 |
+| P0_6 | DC_DET          | Sheet 11 Q1109 | AW9523 input              | 外部 DC 存在偵測 |
+| P0_7 | BUZZER_3V3_EN   | AW9523 output | Sheet 7                    | 蜂鳴器電源 |
+| P1_4 | MCU_WAKE_LTE_3V3| AW9523 output | Sheet 11 BJT shift         | MCU 喚醒 LTE |
+| P1_5 | MCU_CHA_EN      | AW9523 output | Sheet 8 charger EN         | 充電器致能 |
+| P1_6 | MCU_CAN_STB     | AW9523 output | Sheet 5 U0504 STB          | CAN 待機 |
+| P1_7 | ACC_INT_OUT     | AW9523 output | Sheet 11 Q1110             | 對外 ACC 輸出 |
+| INTN | EXP_INTN        | AW9523 output | Sheet 1（MCU 腳位待查）     | AW9523 中斷通知 |
+| RSTN | EXP_RST         | Sheet 1 MCU PD3 (pin 40) | AW9523 input    | AW9523 reset |
+
+> 2026-10-23 依 SCH p.11 逐腳重新核對（先前版本 P0_0／P0_2／P0_4／P0_6／P1_4–P1_6 錯位、列了不存在的 P1_8、RSTN 誤記 PB15）。I2C 位址 AD1=AD0=1 → 0x5B。
 
 ---
 
@@ -88,7 +91,7 @@
 | UART0 | PB (RS232_TXD0 ← Sheet 1 → Sheet 5 U0503 T1IN) | Sheet 5 U0503 R1OUT → MCU | 外部 RS232_0 (via J0901 pin 23/24) | 115200 | 3V3 |
 | UART1 | PB8 → Sheet 5 U0501 T1IN | Sheet 5 U0501 R1OUT → PB9 | 外部 RS232_1 (via J0901 pin 11/24?) | 9600 | 3V3 |
 | UART2 | PB5 → Sheet 5 U0502 T1IN | Sheet 5 U0502 R1OUT → PB4 | 外部 RS232_2 (via J0901 pin 13/15) | 9600 | 3V3 |
-| UART3 | — | — | CAN 共用 pin（實際用 PB6/PB7 給 CAN）| — | 3V3 |
+| UART3 | — | — | 圖面標籤誤導；CAN 實際用 PB6 (pin 17) RX／PB7 (pin 18) TX | — | 3V3 |
 | UART4 | PA13 → Sheet 11 shift → Sheet 2 LTE | Sheet 2 LTE → Sheet 11 shift → PA12 | LTE AT command | 115200 | **1V8 ↔ 3V3** |
 | UART5 | PD4 → Sheet 12 J1201 pin 4 | Sheet 12 J1201 pin 3 → PD5 | GNSS NMEA | 115200 | 3V3 |
 
