@@ -6,11 +6,12 @@
 **提案書對照 / Proposal Ref**：Eupfin_Tracker_Product_Proposal V1.8 (2026.08.28)
 **提出者 / From**：EUPFIN Technology Co., Ltd.
 **日期 / Date**：2026-10-21
-**版本 / Rev**：V1.4（NOR staging 修訂；Markdown，HTML／PDF 尚未同步，不可直接當已重產寄送版）
+**版本 / Rev**：V1.5（CAN 介面逐腳核對；Markdown，HTML／PDF 尚未同步，不可直接當已重產寄送版）
 
 **修訂紀錄 / Revision History**：
 | Rev | Date | Change |
 |:-:|:-:|---|
+| V1.5 | 2026-10-23 | 依 SCH p.1／p.5／p.11 逐腳核對 CAN 介面：**新增 Q49（🔴 R0521 0Ω 把 MCU_CAN_TXD 接到 3.3V）、Q50（CAN controller pinmux）、Q51（EXP_INTN 的 MCU 腳位）、Q52（CAN VIO 與 RS232 共用電源開關）**；**撤回 Q15**（VDD_PP_3V3 確為 3.3V）；修正 Q12（STB 為 AW9523 P1_6）、Q33（AD0／AD1 為上拉）；HTML／PDF 未同步 |
 | V1.4 | 2026-10-21 | 補充單 App＋外部 NOR staging 候選、三種更新入口、Q43-5 ROM／installer 與 header CRC 範圍、Q48-6 FR3068E-C Flash／runtime write 確認；納入 EP-C EVB 容量量測依據，HTML／PDF 未同步 |
 | V1.0 | 2026-10-01 | Initial release (38 題) |
 | V1.1 | 2026-10-01 | ① 修正 MCU vendor name: Fibocom → **Freqchip (富芮坤)** ② 新增 P0-FW 8 題（Q39-Q46）針對 Eupfin 自行開發韌體的前提條件 |
@@ -218,7 +219,7 @@
 
 ### Q12-P1 — CAN STB 經 I2C IO Expander 的延遲
 
-**背景**：Sheet 5 SIT1042 的 STB pin 由 Sheet 11 AW9523 的 P1_8 控制（經 I2C bus）。wake from standby 的延遲 =（I2C transaction 時間）典型 1-5ms。J1939 診斷服務要求 STB low 到 bus 可用 <10µs，可能漏接首幀。
+**背景**：Sheet 5 SIT1042 的 STB pin 由 Sheet 11 AW9523 的 P1_6 控制（經 I2C bus）。wake from standby 的延遲 =（I2C transaction 時間）典型 1-5ms。J1939 診斷服務要求 STB low 到 bus 可用 <10µs，可能漏接首幀。
 
 **問題 Q12**：建議 MCU_CAN_STB 由 MCU GPIO 直控、不經 AW9523，可行？
 
@@ -258,11 +259,9 @@
 
 ---
 
-### Q15-P1 — 命名錯誤：VDD_PP_3V3 實際 ≈ 5V
+### Q15-P1 — 命名錯誤：VDD_PP_3V3 實際 ≈ 5V ~~[WITHDRAWN V1.5]~~
 
-**背景**：Sheet 5 Q0501 PMOS 從 VDD_5V_PP (5V) 開關到下游 UM3221 VCC。輸出 net 命名為 `VDD_PP_3V3`，但實際載 5V 而非 3.3V。
-
-**問題 Q15**：請修正 net name（例如 `VDD_PP_SW` 或 `VDD_RS232_5V`）避免後續 Firmware/Test team 誤讀。
+**V1.5 撤回原因**：Eupfin 重新核對 Sheet 5：Q0501 PMOS 的輸入是 `VDD_3V3`（不是 `VDD_5V_PP`），`VDD_PP_3V3` 確實是 3.3V，命名正確。此題為 Eupfin 先前讀圖錯誤，**不需回覆**。
 
 **Quectel 回覆**：
 
@@ -333,6 +332,37 @@
 **背景**：EG800Q HW Design 要求 PWRKEY 用 **open-collector** 驅動，拉低 ≥500ms 開機。SCH Sheet 2 中 PWRKEY 由 MCU 直接驅動或經 BJT 不明確。
 
 **問題 Q21**：請確認 PWRKEY 的實際 drive 架構。若是 MCU GPIO 推挽直 drive，VIL 可能無法達 EG800Q 的 0.5V 要求。
+
+**Quectel 回覆**：
+
+
+---
+
+### Q49-P1 — R0521 0Ω 把 MCU_CAN_TXD 直接接到 3.3V 🔴（V1.5 新增）
+
+**背景**：Sheet 5「CAN转换器」區，R0521（**0R** +/-5% 1/16W）一端接 `CAN_VIO_3V3`、另一端接 `MCU_CAN_TXD`（= FR3068E-C PB7，pin 18，經 R0524 0R 到 U0504 SIT1042 TXD pin 1）。0Ω 等於把 TXD 硬接到 3.3V：
+
+- MCU 驅動 TXD 為低（dominant）時，PB7 直接短路到 CAN_VIO_3V3，可能損傷 MCU IO 或 VDD_PP_3V3 開關；
+- SIT1042 的 TXD 恆為高（recessive），**ET-100 無法在 CAN bus 上發送**（含 J1939 request、ACK 以外的任何 frame）。
+
+同區 R0522 為 4.7K（STB 上拉），推測 R0521 原意是 TXD 上拉，阻值誤填為 0R。
+
+**問題 Q49-1**：R0521 的設計意圖為何？正確阻值應為多少（例如 4.7K–10K），或應為 NM？
+
+**問題 Q49-2**：請確認 EVT 樣品的實際 BOM 與貼片。若已以 0R 貼片，請說明處理方式（重工移除／更換）。
+
+**Quectel 回覆**：
+
+
+---
+
+### Q50-P1 — CAN controller 與 PB6／PB7 的 pinmux（V1.5 新增）
+
+**背景**：Sheet 1 將 `MCU_CAN_RXD` 接 FR3068E-C **PB6（pin 17）**、`MCU_CAN_TXD` 接 **PB7（pin 18）**。FR306x 規格書 v0.4.9 p.7 記載 FR3068E-C 有 2 組 CAN FD，但規格書沒有 alternate-function 對照表。Freqchip SDK 範例中 CAN 使用 `GPIO_FUNCTION_5`（PA4／PA5 → CAN0、PA10／PA11 → CAN3），無法直接推出 PB6／PB7 屬於哪一組。圖面左側另有「UART3_9600bps／CAN／UART2_9600bps」標籤，與實際 net 不完全一致。
+
+**問題 Q50-1**：PB6／PB7 對應 FR3068E-C 的哪一組 CAN controller（CAN0／CAN1／…）？alternate function 編號為何？
+
+**問題 Q50-2**：請提供 FR3068E-C 完整 pinmux（alternate-function）表，或確認 Quectel 參考韌體的 CAN 初始化設定（pin、function、controller、bit-rate、clock）。
 
 **Quectel 回覆**：
 
@@ -470,6 +500,33 @@ Quectel 是否同意納入 EVT 交付範圍？
 **背景**：EG800Q-EU 108 pin 中 >40 支 RESERVED。本 SCH 全部 NC，階段 B 判斷符合 reference design。
 
 **問題 Q31**：請提供 EG800Q-EU reference design，確保 RESERVED pin 處理（NC vs pull-down vs GND）全部符合。
+
+**Quectel 回覆**：
+
+
+---
+
+### Q51-P2 — AW9523 EXP_INTN 的 MCU 腳位（V1.5 新增）
+
+**背景**：Sheet 11 U1101 AW9523 的 INTN（pin 22）經 R1145 0R 接 net `EXP_INTN`，並標示跨頁 [1]（R1137 4.7K 上拉 MCU_3V3）。但 Sheet 1 MCU U0101 上找不到 `EXP_INTN` 這個 net（`EXP_RST` 在 PD3 pin 40、`EXP_I2C5_SCL／SDA` 在 PD6／PD7 都找得到）。DC_DET（P0_6）等輸入變化需靠 INTN 通知 MCU。
+
+**問題 Q51**：`EXP_INTN` 接到 MCU 哪一支腳？若漏接，請於下一版補上（需可作為 GPIO 中斷輸入）。
+
+**Quectel 回覆**：
+
+
+---
+
+### Q52-P2 — CAN transceiver VIO 與 RS232 共用電源開關（V1.5 新增）
+
+**背景**：Sheet 5 `CAN_VIO_3V3`（SIT1042 VIO）來自 `VDD_PP_3V3`（R0550 0R），而 `VDD_PP_3V3` 是 3 顆 RS232 UM3221 的開關電源（Q0501，由 AW9523 P0_2 `VDD_PP_3V3_EN` 控制）。STB 上拉 R0522 也接在 `CAN_VIO_3V3`。因此：
+
+- 關閉 RS232 電源省電時，CAN transceiver 也失去 VIO，無法以 standby 模式偵測 bus wake-up；
+- 開機預設（AW9523 reset 後 P0_2 狀態）若為關，CAN 在韌體初始化 AW9523 前完全不可用。
+
+**問題 Q52-1**：CAN VIO 與 RS232 共用開關是否為刻意設計？產品是否需要「RS232 關、CAN standby 可被 bus 喚醒」的模式？若需要，請建議修改（例如 VIO 改接常電 3V3）。
+
+**問題 Q52-2**：AW9523 reset 後 P0_2、P1_6 的預設輸出狀態與 Quectel 參考韌體的初始化順序為何？
 
 **Quectel 回覆**：
 
@@ -656,7 +713,9 @@ Quectel 是否同意納入 EVT 交付範圍？
 
 ### Q33-P3 — AW9523 I2C 位址
 
-**問題 Q33**：AW9523 的 AD0/AD1 pin 都接 GND，I2C 位址 = ?（0x58？請提供最終位址）
+**V1.5 更正背景**：重新核對 Sheet 11：AD1（pin 24）經 R1141、AD0（pin 18）經 R1140 各 100K **上拉** MCU_3V3，下拉 R1142／R1144 為 NM → AD1=AD0=1，依 AW9523 位址規則推得 7-bit 位址 **0x5B**（原題誤寫「接 GND」）。
+
+**問題 Q33**：請確認 AD1=AD0=1、量產 BOM 不貼 R1142／R1144，I2C 7-bit 位址為 0x5B。
 
 **Quectel 回覆**：
 
@@ -731,10 +790,10 @@ Quectel 是否同意納入 EVT 交付範圍？
 |:-:|:-:|---|---|
 | P0 | 10 | SOW 簽署前 | SOW |
 | **P0-FW** | **7**（Q40/Q42-Q45/Q47/Q48） | **SOW 簽署前** | **Eupfin FW 專案關鍵能力** |
-| P1 | 11 + Q39（降級） = **12** | 2 週內 | EVT 板 tape-out |
-| P2 | 10 + Q41（降級） = **11** | 1 個月內 | DVT 樣品 |
+| P1 | 11 + Q39（降級）+ Q49／Q50（V1.5）− Q15（撤回） = **13** | 2 週內 | EVT 板 tape-out |
+| P2 | 10 + Q41（降級）+ Q51／Q52（V1.5） = **13** | 1 個月內 | DVT 樣品 |
 | P3 | 7 + Q46（降級） = **8** | 隨 EVT 報告 | — |
-| **合計** | **48** | | |
+| **合計** | **51**（編號至 Q52，Q15 撤回） | | |
 
 ---
 

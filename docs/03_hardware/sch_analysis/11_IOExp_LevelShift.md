@@ -30,29 +30,30 @@
 |---|---|---|
 | U1101 | AW9523BTQR | I2C 16-ch IO expander, 3.3V, 100mA max per pin |
 
-**AW9523 pin 分配**（從 SCH 讀出）：
+**AW9523 pin 分配**（2026-10-23 依 SCH p.11 逐腳重新核對；先前版本多處錯位）：
 
-| AW9523 Pin | Net | 方向 | 用途 |
-|:-:|---|:-:|---|
-| P1_0 | MCU_RS232_EN1 | out | Sheet 5 第 1 顆 RS232 EN |
-| P1_1 | MCU_RS232_EN2 | out | Sheet 5 第 2 顆 RS232 EN |
-| P1_2 | MCU_RS232_EN0 | out | Sheet 5 第 3 顆 RS232 EN |
-| P1_3 | GNSS_LDO_EN | out | Sheet 12 GNSS 子板 LDO EN |
-| P0_5 | NFC_1V8_EN | out | Sheet 7 U0704 EN |
-| P1_4 | VDD_3V3_EN | out | Sheet 7 U0702 EN |
-| P0_7 | BUZZER_3V3_EN | out | Sheet 7 U0703 EN |
-| P0_6 | VDD_PP_3V3_EN | out | Sheet 5 RS232_3V3 power switch EN |
-| P0_3 | PWR_SW_CTRL | out | 本 sheet Q1108 PFET gate |
-| P0_2 | DC_DET | in | 本 sheet DC 偵測 |
-| P0_4 | GNSS_VBAT_EN | out | Sheet 12 Q1201 GNSS backup PMOS |
-| P1_5 | MCU_WAKE_LTE_3V3 | out | 本 sheet 經 BJT shift → MCU_WAKE_LTE 1V8 |
-| P1_6 | MCU_CHA_EN | out | Sheet 8 charger EN（鏡像備援） |
-| P1_7 | ACC_INT_OUT | out | 本 sheet BJT 推對外 ACC 輸出 |
-| P1_8 | MCU_CAN_STB | out | Sheet 5 CAN STB |
-| AD1/AD0 | GND | — | I2C 位址設定（都接 GND → 位址 0x58 或類似，查 datasheet） |
-| INTN | EXP_INTN | out | → Sheet 1 MCU 中斷通知任一 input 變化 |
-| RSTN | EXP_RST | in | ← Sheet 1 MCU reset AW9523 |
-| SCL/SDA | EXP_I2C5_SCL/SDA | — | ↔ Sheet 1 MCU |
+| AW9523 Pin | IC pin | Net | 方向 | 用途 |
+|:-:|:-:|---|:-:|---|
+| P1_0 | 1 | MCU_RS232_EN1 | out | Sheet 5 U0501 EN |
+| P1_1 | 2 | MCU_RS232_EN2 | out | Sheet 5 U0502 EN |
+| P1_2 | 3 | MCU_RS232_EN0 | out | Sheet 5 U0503 EN |
+| P1_3 | 4 | GNSS_LDO_EN | out | Sheet 12 GNSS 電源 |
+| P0_0 | 5 | GNSS_VBAT_EN | out | Sheet 12 GNSS VBAT |
+| P0_1 | 6 | — | — | 未接（NC） |
+| P0_2 | 7 | VDD_PP_3V3_EN | out | Sheet 5 RS232／CAN 3V3 電源開關 |
+| P0_3 | 8 | PWR_SW_CTRL | out | 本 sheet 外部電源輸入開關（Q1108） |
+| P0_4 | 10 | VDD_3V3_EN | out | Sheet 7 VDD_3V3 |
+| P0_5 | 11 | NFC_1V8_EN | out | Sheet 7 NFC 1V8 |
+| P0_6 | 12 | DC_DET | **in** | 本 sheet 外部電源插入偵測 |
+| P0_7 | 13 | BUZZER_3V3_EN | out | Sheet 7 蜂鳴器電源 |
+| P1_4 | 14 | MCU_WAKE_LTE_3V3 | out | 本 sheet 經 BJT → MCU 喚醒 LTE |
+| P1_5 | 15 | MCU_CHA_EN | out | Sheet 8 charger IC 致能 |
+| P1_6 | 16 | MCU_CAN_STB | out | Sheet 5 CAN 待機（R0522 上拉 → 預設 standby） |
+| P1_7 | 17 | ACC_INT_OUT | out | 本 sheet 對外 ACC 數位訊號輸出 |
+| AD1／AD0 | 24／18 | — | — | 各經 100K（R1141／R1140）上拉 MCU_3V3，下拉 R1142／R1144 NM → **AD1=AD0=1，7-bit I2C 位址 0x5B**（0x58＋AD1AD0，待 AW9523 datasheet 確認） |
+| INTN | 22 | EXP_INTN | out | R1137 4.7K 上拉、R1145 0R → Sheet 1（MCU 腳位在 p.1 未找到，待查） |
+| RSTN | 23 | EXP_RST | in | R1135 4.7K 上拉；← Sheet 1 MCU **PD3（pin 40）** |
+| SCL／SDA | 19／20 | EXP_I2C5_SCL／SDA | — | ↔ Sheet 1 MCU PD6／PD7 |
 
 > **注意**：pin 編號 P0_X / P1_X 用的是 AW9523 的 datasheet 命名；SCH 上寫的是 `P0_X` / `P1_X` 格式，實際對應 I2C register bit。階段 B 查 AW9523 datasheet 核對 register map。
 

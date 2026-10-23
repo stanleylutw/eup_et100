@@ -140,8 +140,11 @@ Sheet 13 U1301 MXD8544AE 4 條 RF path 分別對應哪些 band 的 matching，SC
 Sheet 14 圖面紅字。等效 748pF 數學 OK，但 ESL 略變，EVT 必測讀距。
 **責任**：EVT 測試 + 必要時換料。
 
-### 🆕 N6. VDD_PP_3V3 命名錯誤（🟢 低）
-Sheet 5 net 命名 `VDD_PP_3V3` 但實際載 5V（RS232 chip VCC）。影響閱讀不影響功能。
+### 🆕 N6. ~~VDD_PP_3V3 命名錯誤~~（已撤銷，2026-10-23）
+重新核對 SCH p.5：PMOS 輸入是 `VDD_3V3`，`VDD_PP_3V3` 確實是 3.3V，命名正確。
+
+### 🆕 N6b. R0521 0Ω 把 MCU_CAN_TXD 綁在 3.3V（🔴 高，2026-10-23）
+Sheet 5 R0521（0R）跨接 CAN_VIO_3V3 與 MCU_CAN_TXD：MCU PB7 拉低發送時直接短路到 3.3V，transceiver TXD 恆為 recessive，CAN 無法發送且可能損傷 IO。疑為 TXD pull-up 誤填 0R（應 4.7K–10K 或 NM），需向 Quectel 確認並改 BOM。
 **責任**：Quectel 改 net name。
 
 ### 🆕 N7. 5 支 ACC_INT_OUT 共用一個 BJT collector（🟠）
