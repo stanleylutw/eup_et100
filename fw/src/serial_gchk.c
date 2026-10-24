@@ -445,6 +445,7 @@ void et100_serial_feed(struct et100_serial_parser *p, uint8_t byte)
 extern const struct eup_fw_info et100_fw_info;
 #include "semphr.h"
 #include "smp_ble.h"
+#include "serial_report_tx.h"
 
 static int storage_initialized;
 
@@ -550,12 +551,17 @@ static struct et100_serial_parser serial_parser;
 
 static SemaphoreHandle_t tx_lock;   /* serial task and OTA worker both transmit */
 
-static void serial_send(const char *data, size_t length, void *context)
+static void serial_write_locked(const char *data, size_t length, void *context)
 {
     UART_HandleTypeDef *uart = context;
-    if (tx_lock) xSemaphoreTake(tx_lock, portMAX_DELAY);
     uart_transmit(uart, (void *)data, length);
     while (!uart->UARTx->USR.TFE) {}
+}
+
+static void serial_send(const char *data, size_t length, void *context)
+{
+    if (tx_lock) xSemaphoreTake(tx_lock, portMAX_DELAY);
+    serial_write_locked(data, length, context);
     if (tx_lock) xSemaphoreGive(tx_lock);
 }
 
@@ -565,6 +571,47 @@ static TickType_t smp_last;
 static int smp_seen;
 static uint32_t uart_baud = 9600;
 static TickType_t baud_since;
+
+static bool report_try_lock(void *context)
+{
+    (void)context;
+    return !tx_lock || xSemaphoreTake(tx_lock, 0) == pdPASS;
+}
+
+static void report_unlock(void *context)
+{
+    (void)context;
+    if (tx_lock) xSemaphoreGive(tx_lock);
+}
+
+static bool report_paused(bool system, void *context)
+{
+    (void)context;
+    taskENTER_CRITICAL();
+    bool paused = rx_head != rx_tail || rx_overflow ||
+        smp_serial_busy(&smp_rx) || smp_rx.in_packet;
+#if defined(ET100_SMP_BLE_OPEN) && ET100_SMP_BLE_OPEN
+    paused |= smp_ble_receiving();
+#endif
+    paused |= ota_worker_active();
+    if (system) paused |= sensor_ota_job_busy() || serial_parser.length || serial_parser.discard;
+    taskEXIT_CRITICAL();
+    if (system && paused)
+        (void)et100_sys_poll((uint32_t)xTaskGetTickCount()*portTICK_PERIOD_MS,true,NULL,0);
+    return paused;
+}
+
+static void report_system(void *context)
+{
+    char line[SYS_LINE_MAX+1];
+    size_t n = et100_sys_poll((uint32_t)xTaskGetTickCount()*portTICK_PERIOD_MS,false,line,sizeof line);
+    if (n) serial_write_locked(line,n,context);
+}
+
+static void report_beacon(void *context)
+{
+    et100_scan_poll(serial_write_locked,context);
+}
 
 static void smp_line_out(const char *data, size_t length, void *context)
 {
@@ -637,7 +684,9 @@ static void serial_task(void *argument)
     et100_sys_set(SYS_SYSTEM,2);
 
     bool sys_boot_checked=false;
-    char sys_line[SYS_LINE_MAX+1];
+    const struct et100_report_tx report_tx = {
+        report_try_lock, report_unlock, report_paused, serial_uart
+    };
     for (;;) {
         et100_boot_poll(storage_initialized);
         if (!sys_boot_checked) {
@@ -674,6 +723,7 @@ static void serial_task(void *argument)
             smp_serial_expire(&smp_rx, (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
             int smp = smp_serial_feed(&smp_rx, (uint8_t)value, &packet, &packet_length);
             if (smp) {
+                ota_worker_smp_activity();
                 smp_last = xTaskGetTickCount();
                 smp_seen = 1;
                 if (smp == 2) (void)ota_worker_submit(OTA_TRANSPORT_SERIAL, packet, packet_length, 0);
@@ -702,13 +752,10 @@ static void serial_task(void *argument)
         int deleted = ota_worker_sensor_deleted();
         if (deleted >= 0) et100_serial_pkg_deleted(&serial_parser, deleted);
         TickType_t now = xTaskGetTickCount();
+        smp_serial_expire(&smp_rx, (uint32_t)now * portTICK_PERIOD_MS);
         int smp_active = smp_seen && (TickType_t)(now - smp_last) < pdMS_TO_TICKS(SMP_IDLE_MS);
-        bool sys_paused=smp_active || ota_worker_active() || sensor_ota_job_busy() ||
-            uart_baud!=9600 || serial_parser.length || serial_parser.discard || rx_head!=rx_tail;
-        size_t sys_length=et100_sys_poll((uint32_t)now*portTICK_PERIOD_MS,sys_paused,sys_line,sizeof sys_line);
-        if (sys_length) serial_send(sys_line,sys_length,serial_uart);
-        /* Pause unsolicited Type-1 reports while any SMP client (UART or BLE) is active. */
-        if (!smp_active && !ota_worker_active()) et100_scan_poll(serial_send, serial_uart);
+        et100_report_tx_poll(&report_tx,true,report_system);
+        et100_report_tx_poll(&report_tx,false,report_beacon);
         /* OTABAUD fallback: return to 9600 after 30 s without SMP traffic. */
         if (uart_baud != 9600 && !smp_active &&
             (TickType_t)(now - baud_since) >= pdMS_TO_TICKS(SMP_IDLE_MS))

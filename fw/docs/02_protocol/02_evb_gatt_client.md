@@ -1,7 +1,7 @@
 # DEV1.4 Gateway-style GATT Client
 
-Version: v0.2.1
-日期：2026-10-24；v0.9.2 生命周期補同步（命令表保留 0.6 baseline）
+Version: v0.3
+日期：2026-10-24；現行韌體：0.9.3-dev（命令表保留 0.6 baseline）
 狀態：host tests／ARM build 通過；真實 sensor GATT 驗收待 Stanley 操作。
 
 ## 範圍
@@ -52,7 +52,16 @@ GSENSORCMD fields 為 `<MAC>;<CMD>;<sensor_status>;<payload_hex>`；大於 64 by
 
 已知 Minor：relay retry backoff 1200 ms 短於 quiet 2000 ms，quiet 內的 `-EBUSY` 可能消耗一次 attempt；原 review 接受延後修正，本版沒有修改 job retry，也沒有新增 BLE stack／整機自動 reset。
 
-成功 ADV_START 後才允許 scanner。IDLE／WAIT_ADV 驅動掃描恢復；至少一秒重試間隔，pending 超過三秒可重試。`et100_scan_status`：FF 未要求、FE 等待、FD 同步錯誤、0 成功、`0x200|status` 非同步啟動失敗、`0x100|status` 結束。GATT owner 釋放後恢復掃描，自動工作冷卻五秒；原 peripheral profile 保留，但並行仍待實測。
+### 掃描生命週期（v0.9.3）
+
+成功 ADV_START 後才允許 scanner。IDLE／WAIT_ADV 要求 interval 40／window 30；一般手動／auto GATT 認證完成、非 exclusive READY 才要求 connected profile：interval 40／window 10（25 ms／6.25 ms），維持 general discovery、LE 1M、duration=0、duplicate filtering 關閉。exclusive Sensor relay／probe 不啟用 connected scan。cleanup 切回 normal，原本自動工作冷卻五秒及取消 quiet 不變。
+
+- 每次一般 session 最多送一筆 connected start；API 拒絕、非零 START 或中途 END 後，本 session 不自動重試。掃描失敗不輸出 CF、不主動斷開一般 GATT。
+- SDK API 回 0 只表示接受請求；收到成功 START 才算 ACTIVE。profile 切換先 stop 並等 END，pending 期間不重複排入操作。
+- START 等待三秒無事件，先嘗試 stop 同步，不直接重送 start；stop 拒絕最多每秒重試。stop 接受但三秒無 END 時保留不確定的 pending 並等待事件，不盲目重啟；這不阻塞 GATT ownership 清理，也沒有新增 stack／整機 reset。
+- `et100_scan_status`：FF 未要求、FE 等 START、FD 同步啟動拒絕、0 事件確認 active、`0x200|status` START 失敗、`0x100|status` END；FC 等 STOP、FA 缺 END、F9 stop API 拒絕、FB 為 start timeout 進入同步前的暫態。`et100_scan_diag` 提供 phase、desired／issued／active window、計數與最近錯誤，皆為 RAM 診斷，不改線上格式。
+
+其他 Beacon 的接收與 Type-1 仍依 CID／MAC／GTIME／MAXRPT，不取代目前 GATT owner；SMP 的 UART 停報規則另見 [04](04_smp_serial_ota.md)。Host fake／ARM build 已驗證程式策略，Controller 射頻並行、接收率與 GATT 延遲尚待 Stanley 實機驗收，見 [24](../04_testing/24_gatt_scan_resume.md)。
 
 ## 保存與資源
 

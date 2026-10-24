@@ -9,10 +9,15 @@ void smp_reassembly_reset(struct smp_reassembly *r)
     r->expected = 0;
 }
 
-int smp_reassembly_add(struct smp_reassembly *r, const uint8_t *p, size_t n, uint32_t now_ms)
+void smp_reassembly_expire(struct smp_reassembly *r, uint32_t now_ms)
 {
     if (r->length && (uint32_t)(now_ms - r->last_ms) > REASSEMBLY_TIMEOUT_MS)
         smp_reassembly_reset(r);
+}
+
+int smp_reassembly_add(struct smp_reassembly *r, const uint8_t *p, size_t n, uint32_t now_ms)
+{
+    smp_reassembly_expire(r, now_ms);
     r->last_ms = now_ms;
     if (!p || !n) return -1;
     if (!r->length) {
@@ -80,15 +85,27 @@ static uint16_t server_callback(struct gatt_msg *msg)
         } else if (msg->att_idx == CCC && n == 2 && p[1] == 0 && p[0] <= 1) {
             subscribed = p[0];
         } else if (msg->att_idx == VALUE) {
+            taskENTER_CRITICAL();
+            ota_worker_smp_activity();
             int done = smp_reassembly_add(&rx, p, n, now_ms());
             if (done < 0) et100_smp_ble_drops++;
             if (done == 1) {
                 if (!ota_worker_submit(OTA_TRANSPORT_BLE, rx.data, rx.length, generation)) et100_smp_ble_drops++;
                 smp_reassembly_reset(&rx);
             }
+            taskEXIT_CRITICAL();
         }
     }
     return result;
+}
+
+int smp_ble_receiving(void)
+{
+    taskENTER_CRITICAL();
+    smp_reassembly_expire(&rx, now_ms());
+    int receiving = rx.length != 0;
+    taskEXIT_CRITICAL();
+    return receiving;
 }
 
 uint8_t smp_ble_add_service(void)

@@ -12,9 +12,11 @@ uint32_t ulTaskNotifyTake(BaseType_t clear, uint32_t timeout);
 void NVIC_SystemReset(void);
 int flashdb_del(uint32_t key);
 #include "../src/ota_worker.c"
+#include "../src/smp_serial.c"
 
 static uint32_t ticks, cycles;
 static int operation, processed;
+static unsigned reply_lines, replies;
 static jmp_buf cycle_end;
 uint32_t xTaskGetTickCount(void) { return ticks; }
 void vTaskDelay(uint32_t n) { ticks += n; }
@@ -59,7 +61,29 @@ size_t smp_server_process(const struct smp_ops *o,const uint8_t *p,size_t n,uint
     processed++;
     if (operation==1) { ota.session=false;ota.owner_ms=ticks; }
     if (operation==2) { ota.session=true;ota.owner_ms=ticks; }
+    if (operation==3 || operation==4) {
+        ticks+=4000;assert(ota_worker_active());
+        size_t length=operation==3?600:13;
+        memset(r,0,length);
+        if (operation==4) {
+            const uint8_t error[]={3,0,0,5,0,1,0,1,0xa1,0x62,'r','c',1};
+            memcpy(r,error,sizeof error);
+        }
+        return length;
+    }
     return 0;
+}
+static void reply_line(const char *data,size_t length,void *context)
+{
+    (void)data;(void)length;(void)context;
+    assert(response_in_flight && !smp_in_flight && ota_worker_active());
+    ticks+=4000;assert(ota_worker_active());reply_lines++;
+}
+static void reply(const uint8_t *data,size_t length,uint32_t tag)
+{
+    (void)tag;replies++;
+    assert(response_in_flight && ota_worker_active());
+    assert(!smp_serial_encode(data,length,reply_line,NULL));
 }
 static void process(void)
 { cycles=0;if (!setjmp(cycle_end)) worker_task(NULL); }
@@ -85,5 +109,37 @@ int main(void)
     ticks=UINT32_MAX-100;request(2,OTA_TRANSPORT_SERIAL);
     ticks=100;request(0,OTA_TRANSPORT_BLE);assert(!ota_worker_relay_begin());
     ticks=29899;assert(ota_worker_relay_begin());ota_worker_relay_end();
+    /* Report quiet time is independent of the unchanged NOR ownership rules. */
+    ticks=100000;ota_worker_smp_activity();
+    ticks+=2999;assert(ota_worker_active());ticks++;assert(!ota_worker_active());
+    senders[OTA_TRANSPORT_SERIAL]=senders[OTA_TRANSPORT_BLE]=reply;
+    for (unsigned t=0;t<OTA_TRANSPORT_COUNT;t++) {
+        request(3,(enum ota_transport)t);
+        uint32_t finished=ticks;
+        assert(reply_lines>1 && ota_worker_active());
+        ticks=finished+2999;assert(ota_worker_active());
+        ticks=finished+3000;assert(!ota_worker_active());
+        request(4,(enum ota_transport)t);
+        ticks+=3000;assert(!ota_worker_active());
+    }
+    /* Queued requests stay busy even if the worker is delayed over 3 s. */
+    operation=0;assert(ota_worker_submit(OTA_TRANSPORT_SERIAL,(uint8_t[]){0},1,0));
+    ticks+=4000;assert(ota_worker_active());process();
+    ticks+=3000;assert(!ota_worker_active());
+    ticks=UINT32_MAX-100;request(3,OTA_TRANSPORT_BLE);
+    uint32_t finished=ticks;
+    ticks=finished+2999;assert(ota_worker_active());
+    ticks=finished+3000;assert(!ota_worker_active());
+    assert(replies==5);
+    ticks=UINT32_MAX-100;request(0,OTA_TRANSPORT_SERIAL);
+    ticks=2898;assert(ota_worker_active());ticks=2899;assert(!ota_worker_active());
+    /* Back-to-back read-only SMP traffic keeps reports quiet, never a NOR hold. */
+    ticks=200000;
+    for (unsigned i=0;i<20;i++) {
+        request(0,OTA_TRANSPORT_SERIAL);ticks+=10;
+        assert(ota_worker_active() && ota_worker_relay_begin());ota_worker_relay_end();
+    }
+    ticks+=2989;assert(ota_worker_active());ticks++;assert(!ota_worker_active());
     puts("PASS worker handoff: same-tick finish, queries, open upload hold, queue/in-flight/delete/duplicate, wrap, unchanged activity");
+    puts("PASS report gate: UART/BLE RX, queued/slow processing, whole multiline response, 3s quiet, failure/no reply and wrap");
 }

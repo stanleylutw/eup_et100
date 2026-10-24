@@ -8,7 +8,10 @@ cc "${cc_flags[@]}" -DET100_SERIAL_HOST_TEST -DET100_SYS_HOST_TEST -Ifw/src \
     fw/src/serial_gchk.c fw/src/system_status.c fw/common/inst_status.c fw/tests/test_serial_gchk.c -o /tmp/et100_serial_test
 cc "${cc_flags[@]}" -DET100_SERIAL_HOST_TEST -Ifw/src \
     fw/src/ble_reporter.c fw/tests/test_ble_reporter.c -o /tmp/et100_ble_reporter_test
+cc "${cc_flags[@]}" -DET100_SERIAL_HOST_TEST -DET100_SYS_HOST_TEST -Ifw/src \
+    fw/src/ble_reporter.c fw/src/system_status.c fw/tests/test_serial_report_tx.c -o /tmp/et100_serial_report_tx_test
 cc "${cc_flags[@]}" "${includes[@]}" fw/tests/test_scan_lifecycle.c -o /tmp/et100_scan_lifecycle_test
+cc "${cc_flags[@]}" "${includes[@]}" fw/tests/test_smp_ble_activity.c -o /tmp/et100_smp_ble_activity_test
 cc "${cc_flags[@]}" "${includes[@]}" -Ifw/third_party/tinycrypt/include \
     fw/tests/test_gatt_client.c fw/src/eup_aiot_uuid_client.c \
     fw/src/eup_aiot_metadata.c fw/src/eup_aiot_auth.c \
@@ -39,7 +42,9 @@ smp_image=${ET100_SIGNED_IMAGE:-fw/build_serial/output/et100.signed.bin}
 [[ -f "$smp_image" ]] || { echo "missing $smp_image: run fw/tools/build_evb_serial.sh first" >&2; exit 1; }
 /tmp/et100_serial_test
 /tmp/et100_ble_reporter_test
+/tmp/et100_serial_report_tx_test
 /tmp/et100_scan_lifecycle_test
+/tmp/et100_smp_ble_activity_test
 /tmp/et100_gatt_test
 /tmp/et100_status_led_test
 /tmp/et100_app_manager_test

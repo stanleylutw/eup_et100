@@ -6,6 +6,8 @@
 
 > 本檔是跨 HW + FW 的專案層級狀態儀表板。詳細技術文件連結分散在 [`docs/03_hardware/sch_analysis/`](../03_hardware/sch_analysis/) 與 [`fw/`](../../fw/)。
 
+> **v0.9.3（Codex 自我複查無 Critical／Major；獨立 review／EVB 待驗收）**：一般已認證、非 exclusive GATT 連線要求低占空比掃描其他 Beacon，實際 RF 並行尚未證實；Sensor OTA exclusive 不啟用。UART／BLE SMP 的 Beacon／SYS 回報暫停改為收包／排隊／處理／整包回覆期間＋3 秒，逐行 TX 仲裁修正 M1；OTABAUD 與 NOR owner 的 30 秒保護不變。程式已提交 `77ba471`，本輪沒有燒錄／SWD；見 [24 掃描報告](../../fw/docs/04_testing/24_gatt_scan_resume.md)、[25 回報恢復報告](../../fw/docs/04_testing/25_smp_report_resume.md)。
+
 > **2026-10-24 v0.9.2 Step 7 補同步**：補上通用 GATT 的取消釋放／quiet 規則與 `4c67d9d` 的 Dash 預設頁、系統／Gateway 資訊、33 項狀態／SCH PDF、GSM 選埠／連線分離及 Flash UI 文件。只有文件回填，不改 firmware／HTML；一般 GATT 仍停掃、SMP 回報保護仍 30 秒。舊 firmware Claude review 不視為涵蓋後續 UI，mock browser 不替代 EVB；見 [26 報告](../../fw/docs/04_testing/26_v092_step7_backfill.md)。
 
 > **v0.9.0（待獨立 review／Stanley 實機）**：App 新增 SYS／GSYSSTAT 33 項周邊狀態快照與 HTML Dash 解碼；僅接已有可靠來源，未實作周邊回 UNSUPPORTED、reset 原因 UNKNOWN。Host／JS／mock UI／ARM／DFU 通過，不代表 EG800／GNSS 等產品周邊已完成。沒有 Codex 燒錄／SWD；[20 報告](../../fw/docs/04_testing/20_system_status.md)列出交付與實機步驟。

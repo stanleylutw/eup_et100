@@ -210,6 +210,9 @@ volatile unsigned et100_scan_status = 0xff;
 volatile unsigned et100_scan_reports, et100_scan_accepted;
 static uint32_t scan_attempt_ms;
 static unsigned scan_attempted;
+volatile struct et100_scan_diagnostics et100_scan_diag = {.desired_window = 30};
+static uint32_t scan_operation_ms, scan_stop_attempt_ms;
+static unsigned scan_stop_attempted, connected_scan, connected_scan_attempted;
 
 void et100_scan_configure(const uint16_t cids[4], uint16_t gtime,
                           const uint8_t macs[8][6], uint8_t maxrpt, int clear)
@@ -240,9 +243,20 @@ void et100_scan_poll(void (*send)(const char *, size_t, void *), void *context)
     if (length) send(output, length, context);
 }
 
+void et100_scan_connected_mode(int enabled)
+{
+    taskENTER_CRITICAL();
+    if (connected_scan != !!enabled) {
+        connected_scan = !!enabled;
+        connected_scan_attempted = 0;
+        et100_scan_diag.desired_window = enabled ? 10 : 30;
+    }
+    taskEXIT_CRITICAL();
+}
+
 void et100_scan_start(void)
 {
-    static gap_scan_param_t params = {
+    gap_scan_param_t params = {
         /* Use the SDK central example's discovery mode to avoid host-side
          * filtering of general-discoverable packets in observer modes. */
         .scan_type = GAP_SCAN_TYPE_GEN_DISC,
@@ -252,24 +266,98 @@ void et100_scan_start(void)
     };
     uint32_t now = (uint32_t)xTaskGetTickCount() * portTICK_PERIOD_MS;
     taskENTER_CRITICAL();
-    unsigned status = et100_scan_status;
-    if (status == 0 || (scan_attempted && (uint32_t)(now - scan_attempt_ms) < 1000) ||
-        (status == 0xfe && (uint32_t)(now - scan_attempt_ms) < 3000)) {
+    unsigned phase = et100_scan_diag.phase;
+    if (phase == ET100_SCAN_START_PENDING) {
+        if ((uint32_t)(now - scan_operation_ms) < 3000) {
+            taskEXIT_CRITICAL(); return;
+        }
+        et100_scan_diag.start_timeouts++;
+        et100_scan_diag.phase = phase = ET100_SCAN_UNCERTAIN;
+        et100_scan_status = 0xfb;
+    }
+    if (phase == ET100_SCAN_STOP_PENDING) {
+        if ((uint32_t)(now - scan_operation_ms) >= 3000 && et100_scan_status != 0xfa) {
+            et100_scan_diag.stop_timeouts++;
+            et100_scan_status = 0xfa;
+        }
         taskEXIT_CRITICAL(); return;
     }
-    scan_attempt_ms = now; scan_attempted = 1; et100_scan_status = 0xfe;
+    if (phase == ET100_SCAN_ACTIVE && et100_scan_diag.active_window == et100_scan_diag.desired_window) {
+        taskEXIT_CRITICAL(); return;
+    }
+    unsigned stop = phase == ET100_SCAN_ACTIVE || phase == ET100_SCAN_UNCERTAIN;
+    if (stop) {
+        if (scan_stop_attempted && (uint32_t)(now - scan_stop_attempt_ms) < 1000) {
+            taskEXIT_CRITICAL(); return;
+        }
+        scan_stop_attempt_ms = scan_operation_ms = now; scan_stop_attempted = 1;
+        et100_scan_diag.phase = ET100_SCAN_STOP_PENDING;
+        et100_scan_diag.stop_requests++;
+        et100_scan_status = 0xfc;
+    } else {
+        if ((connected_scan && connected_scan_attempted) ||
+            (scan_attempted && (uint32_t)(now - scan_attempt_ms) < 1000)) {
+            taskEXIT_CRITICAL(); return;
+        }
+        scan_attempt_ms = scan_operation_ms = now; scan_attempted = 1;
+        if (connected_scan) connected_scan_attempted = 1;
+        params.scan_window = (uint16_t)et100_scan_diag.desired_window;
+        et100_scan_diag.issued_window = params.scan_window;
+        et100_scan_diag.phase = ET100_SCAN_START_PENDING;
+        et100_scan_diag.start_requests++;
+        et100_scan_status = 0xfe;
+    }
     taskEXIT_CRITICAL();
-    ble_api_err_t result = gap_scan_start(&params);
+    /* Publish pending first: the SDK may invoke its callback before returning. */
+    ble_api_err_t result = stop ? gap_scan_stop() : gap_scan_start(&params);
     taskENTER_CRITICAL();
-    if (result != BLE_API_ERR_NO_ERR && et100_scan_status == 0xfe) et100_scan_status = 0xfd;
+    if (stop) {
+        et100_scan_diag.last_stop_rc = result;
+        if (result != BLE_API_ERR_NO_ERR) {
+            et100_scan_diag.stop_failed++;
+            if (et100_scan_diag.phase == ET100_SCAN_STOP_PENDING) {
+                et100_scan_diag.phase = ET100_SCAN_UNCERTAIN;
+                et100_scan_status = 0xf9;
+            }
+        }
+    } else {
+        et100_scan_diag.last_start_rc = result;
+        if (result != BLE_API_ERR_NO_ERR) {
+            et100_scan_diag.start_failed++;
+            if (et100_scan_diag.phase == ET100_SCAN_START_PENDING) {
+                et100_scan_diag.phase = ET100_SCAN_STOPPED;
+                et100_scan_status = 0xfd;
+            }
+        }
+    }
     taskEXIT_CRITICAL();
 }
 
 void et100_scan_event(struct gap_event *event)
 {
-    if (event->type == GAP_EVT_SCAN_START) et100_scan_status = event->param.scan_start_status ?
-        0x200 | event->param.scan_start_status : 0;
-    if (event->type == GAP_EVT_SCAN_END) et100_scan_status = 0x100 | event->param.scan_end_status;
+    taskENTER_CRITICAL();
+    if (event->type == GAP_EVT_SCAN_START) {
+        unsigned status = event->param.scan_start_status;
+        et100_scan_diag.last_start_status = status;
+        if (et100_scan_diag.phase == ET100_SCAN_START_PENDING ||
+            et100_scan_diag.phase == ET100_SCAN_STOP_PENDING ||
+            et100_scan_diag.phase == ET100_SCAN_UNCERTAIN) {
+            if (status) et100_scan_diag.start_failed++;
+            else et100_scan_diag.start_success++;
+            et100_scan_diag.active_window = status ? 0 : et100_scan_diag.issued_window;
+            if (et100_scan_diag.phase != ET100_SCAN_STOP_PENDING) {
+                et100_scan_diag.phase = status ? ET100_SCAN_STOPPED : ET100_SCAN_ACTIVE;
+                et100_scan_status = status ? 0x200 | status : 0;
+            }
+        } else et100_scan_diag.unexpected_events++;
+    }
+    if (event->type == GAP_EVT_SCAN_END) {
+        et100_scan_diag.last_end_status = event->param.scan_end_status;
+        et100_scan_diag.phase = ET100_SCAN_STOPPED;
+        et100_scan_diag.active_window = 0;
+        et100_scan_status = 0x100 | event->param.scan_end_status;
+    }
+    taskEXIT_CRITICAL();
     if (event->type != GAP_EVT_ADV_REPORT || !event->param.adv_rpt) return;
     struct gap_evt_adv_report *report = event->param.adv_rpt;
     /* Only complete legacy advertising; never merge scan responses into payload. */

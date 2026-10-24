@@ -1,5 +1,7 @@
 # 04 — 更新協定：SMP over serial（v0.8.5）與 BLE（v0.8.6）
 
+Version: v0.9.3；最後更新：2026-10-24 Codex（Stanley 授權 Step 7）。本版只有回報排程變更，wire format 不變，實機相容性待驗收。
+
 日期：2026-10-22；分支 `v0.8.5_ota_manager_smp_serial`；實作：Claude Code（comm.md 備用規則）。
 適用：ET-100 RS232 更新入口；EVB 開發用 **UART3**（DAPLink VCOM），與 GCHK ASCII 協定共用同一條 UART。
 
@@ -12,7 +14,18 @@
 | 預設 | 9600 8N1，無 flow control |
 | 更新用 | 115200 8N1（以 `OTABAUD` 切換，§4） |
 | 與 GCHK 共存 | SMP 每行以 `0x06 0x09`（新封包）或 `0x04 0x14`（續行）開頭；ASCII 指令（`BLEGW$…\r\n`）照常處理 |
-| SMP 期間 | 裝置暫停主動的 Type-1 掃描回報，最後一個 SMP 封包後 30 秒恢復 |
+| SMP 期間 | 暫停 Type-1／SYS 主動回報：收包、排隊、處理與整包回覆期間＋最後活動／回覆完成後 3 秒；細節見 §1.1 |
+
+### 1.1 主動回報保護（v0.9.3）
+
+- UART 每個 SMP byte、BLE 每個 SMP VALUE write 均記活動，包含尚未組成完整請求的資料；worker queued／processing／整包 response sending 任一存在就暫停 UART 主動回報。成功、失敗或 sender 送出失敗返回後，都從回覆結束重新計 3 秒；新請求重新延長，不在封包間幾毫秒的空檔恢復。
+- 3 秒是解除回報暫停的條件，不是 SMP 必要等待，也不代表 PC 已收到成功回覆。Type-1 恢復後仍依 GTIME／MAXRPT 排程，沒有新 Beacon 不捏造資料；SYS 則依既有節流補最新完整快照，即使狀態未變也可能送 Type=10，之後才恢復變更通知。
+- UART 半行 200 ms、半包 2 秒及 BLE 半包 2 秒的既有 expiry 會被週期性檢查，無下一個 byte／write 也能清除。異常半包的緩衝從最後 RX 計算，不額外疊加 3 秒；未完成的 NOR 上傳／續傳資料不因此刪除。
+- 每筆主動行先非阻塞取得 TX mutex，再查 SMP／RX ring／half-packet gate，通過後才產生該行；SYS 送出後的 Beacon 要重新檢查，不能沿用舊快照。已取得發送權的一行可完整送完，下一行可延後且不消耗待送狀態。mutex 不只保護回報：worker 的整包回覆旗標跨越所有 UART 多行／BLE notifications。
+- UART／BLE SMP 都會暫停 UART Type-1／SYS；這不呼叫 BLE 停掃，不保證減少掃描射頻負載。SYS 不因目前為 115200 而額外停報，使用目前 baud。
+- **分開保留**：OTABAUD 仍依 UART SMP idle **30 秒**回 9600（§4）；跨 transport 的 NOR mutating owner 30 秒與 relay 狀態 gate 不改。SMP 唯讀查詢延長的是回報用 3 秒，不延長未完成上傳的 mutating owner；ASCII 查詢不延長 SMP 緩衝。
+
+驗證與產物見 [25 報告](../04_testing/25_smp_report_resume.md)。Host／ARM 通過不等於第三方 client／115200 實體 UART／BLE 並行已驗收；工具若兩筆請求間隔超過 3 秒，應能區分主動文字行與 SMP framing。
 
 ## 2. Framing（與 Zephyr／smpclient 相同）
 
