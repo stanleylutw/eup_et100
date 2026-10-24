@@ -12,7 +12,7 @@
 #include "system_status.h"
 #include <string.h>
 
-#define ACTIVE_MS 30000u
+#define REPORT_QUIET_MS 3000u
 
 struct slot {
     volatile bool full;
@@ -30,6 +30,7 @@ static uint8_t response[SMP_SERIAL_MAX_PACKET];
 static volatile TickType_t last_activity;
 static volatile bool seen;
 static bool smp_in_flight, upload_open;
+static bool response_in_flight;
 static uint32_t upload_changed_ms;
 static struct sensor_store sensor;
 static volatile bool delete_queued;
@@ -103,9 +104,22 @@ static void publish_upload(void)
     taskEXIT_CRITICAL();
 }
 
+void ota_worker_smp_activity(void)
+{
+    taskENTER_CRITICAL();
+    last_activity = xTaskGetTickCount();
+    seen = true;
+    taskEXIT_CRITICAL();
+}
+
 bool ota_worker_active(void)
 {
-    return seen && (TickType_t)(xTaskGetTickCount() - last_activity) < pdMS_TO_TICKS(ACTIVE_MS);
+    taskENTER_CRITICAL();
+    bool active = smp_in_flight || response_in_flight ||
+        (seen && (TickType_t)(xTaskGetTickCount() - last_activity) < pdMS_TO_TICKS(REPORT_QUIET_MS));
+    for (unsigned t = 0; t < OTA_TRANSPORT_COUNT; t++) active |= slots[t].full;
+    taskEXIT_CRITICAL();
+    return active;
 }
 
 bool ota_worker_sensor_status(struct sensor_store_status *out)
@@ -180,8 +194,7 @@ bool ota_worker_submit(enum ota_transport transport, const uint8_t *packet, size
     s->tag = tag;
     __DMB();
     s->full = true;
-    last_activity = xTaskGetTickCount();
-    seen = true;
+    ota_worker_smp_activity();
     xTaskNotifyGive(worker);
     return true;
 }
@@ -249,11 +262,16 @@ static void worker_task(void *argument)
             et100_boot_refresh();
             publish_upload();
             taskENTER_CRITICAL();
+            response_in_flight = true;
             s->full = false;
             smp_in_flight = false;
-            last_activity = xTaskGetTickCount();
             taskEXIT_CRITICAL();
             if (n && senders[t]) senders[t](response, n, s->tag);
+            /* Keep the report gate across every line/notification in the reply. */
+            taskENTER_CRITICAL();
+            last_activity = xTaskGetTickCount();
+            response_in_flight = false;
+            taskEXIT_CRITICAL();
             stack_check();
             if (reset) {
                 vTaskDelay(pdMS_TO_TICKS(100));   /* last UART byte / BLE notify out */

@@ -23,7 +23,10 @@ void ota_worker_start(const ota_worker_send_fn send[OTA_TRANSPORT_COUNT], bool s
 bool ota_worker_submit(enum ota_transport transport, const uint8_t *packet, size_t length, uint32_t tag);
 /* Lowest observed free bytes in the worker stack (0xA5 fill scan). */
 extern volatile uint32_t et100_ota_stack_free;
-/* True while any transport exchanged SMP within the last 30 s. */
+/* Call for each received SMP byte/write, including incomplete requests. */
+void ota_worker_smp_activity(void);
+/* Pause unsolicited UART reports while SMP is queued/processing/sending or
+ * within 3 s of the last receive/completed response. Not a NOR ownership gate. */
 bool ota_worker_active(void);
 /* v0.8.8 sensor package (RS232 GSOTAPKG/DSOTAPKG). status: false = unsupported. */
 bool ota_worker_sensor_status(struct sensor_store_status *out);

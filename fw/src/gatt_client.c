@@ -562,10 +562,12 @@ static void session(void)
         if (result && cancel_requested) result = -ECANCELED;
         goto cleanup;
     }
+    et100_scan_connected_mode(1);
     uint32_t activity = now_ms();
     uint8_t metadata_cmd = 1;
     while (connected && !cancel_requested && !output_fault &&
         (uint32_t)(now_ms()-activity) < 30000) {
+        et100_scan_start();
         if (request_pending) {
             int ok = command(request.command, request.payload, request.length, 2000);
             if (ok) { activity = now_ms(); update_metadata_cache(request.command); }
@@ -582,6 +584,7 @@ static void session(void)
     if (output_fault) event("CF", "uart_backpressure");
     else if (!cancel_requested && connected) event("TO", "idle");
 cleanup:
+    et100_scan_connected_mode(0);
     drain_begin();
     discovering_smp = 0; smp_sink = NULL; smp_handle = 0;
     if (request_pending) complete_request(0);

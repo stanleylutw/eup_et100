@@ -17,6 +17,8 @@ struct smp_reassembly {
     uint32_t last_ms;
 };
 void smp_reassembly_reset(struct smp_reassembly *r);
+/* Periodic expiry also works when no further write arrives. */
+void smp_reassembly_expire(struct smp_reassembly *r, uint32_t now_ms);
 /* Append one write. Returns 1 when a complete packet is in r->data (length
  * r->length; caller must reset after use), 0 if more is needed, -1 if the
  * write was dropped (malformed/oversize). Partial packets older than 2 s
@@ -27,6 +29,8 @@ int smp_reassembly_add(struct smp_reassembly *r, const uint8_t *p, size_t n, uin
 struct gap_event;
 uint8_t smp_ble_add_service(void);
 void smp_ble_gap(struct gap_event *event);
+/* Serial task poll: expire abandoned fragments and report current RX state. */
+int smp_ble_receiving(void);
 /* Send one SMP response packet as notifications of at most MTU-3 bytes each.
  * Blocks the caller (OTA worker) until every segment completes. */
 int smp_ble_send(const uint8_t *packet, size_t length, uint32_t tag);

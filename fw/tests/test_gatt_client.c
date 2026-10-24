@@ -15,6 +15,7 @@ static size_t durable_size;
 static int db_fail, scenario, ready_step, restored, auth_writes, stop_calls;
 static unsigned pending_stop_end, pending_stop_status, stop_end_events, connect_events;
 static unsigned sys_ble_status;
+static unsigned scan_connected_profile, connected_scan_calls;
 void et100_sys_set(unsigned index, unsigned status) { assert(index==SYS_BLE);sys_ble_status=status; }
 static jmp_buf worker_exit;
 volatile unsigned et100_scan_status;
@@ -38,7 +39,24 @@ static void capture(const char *data,size_t n,void *ctx)
   captured_size+=n;captured[captured_size]=0; }
 static void drain_output(void)
 { uintptr_t old=current_task;current_task=1;while(queue_count)et100_gatt_poll(capture,NULL);current_task=old; }
-void et100_scan_start(void) { et100_scan_status=0;restored++; }
+void et100_scan_connected_mode(int enabled)
+{
+    if(enabled) assert(connected && state==READY && !exclusive && auth_writes);
+    scan_connected_profile=!!enabled;
+}
+void et100_scan_start(void)
+{
+    if(scan_connected_profile) {
+        assert(connected && state==READY && !exclusive);
+        connected_scan_calls++;
+        /* A different connectable beacon must not replace the current owner. */
+        struct gap_evt_adv_report ad={0};ad.evt_type=GAP_SCAN_EVT_CONN_UNDIR;
+        memcpy(ad.addr.addr.addr,(uint8_t[]){6,5,4,3,2,1},6);
+        struct gap_event e={.type=GAP_EVT_ADV_REPORT};e.param.adv_rpt=&ad;
+        et100_gatt_gap(&e);assert(state==READY && connected);
+        et100_scan_status=scenario==17 ? 0x204 : 0;
+    } else { et100_scan_status=0;restored++; }
+}
 size_t flashdb_get_length(uint32_t key) { assert(key==AUTO_KEY);return durable_size; }
 size_t flashdb_get(uint32_t key,uint8_t *data,uint32_t length)
 { assert(key==AUTO_KEY);if(length<durable_size)return 0;memcpy(data,durable_auto,durable_size);return durable_size; }
@@ -184,6 +202,7 @@ static void reset_test(int mode)
     pending_stop_end=pending_stop_status=stop_end_events=connect_events=0;
     scan_resume_pending=scan_stop_pending=connection_end_seen=radio_ready=0;cooldown_valid=0;request_pending=0;
     scenario=mode;ready_step=restored=auth_writes=stop_calls=0;ticks=0;captured_size=0;captured[0]=0;
+    scan_connected_profile=connected_scan_calls=0;
     current_task=1;db_fail=0;et100_gatt_init(1);et100_gatt_poll(capture,NULL);et100_gatt_add_profile();
 }
 static void run_session(int mode)
@@ -196,6 +215,19 @@ static void run_session(int mode)
     current_task=1;drain_output();assert(state==IDLE && !connected && !initiating);
     assert(strstr(captured,"G1;8;DC;AABBCCDDEEFF;"));
 }
+static void auto_scan_test(void)
+{
+    reset_test(0);
+    memcpy(auto_macs[0],(uint8_t[]){0xaa,0xbb,0xcc,0xdd,0xee,0xff},6);
+    struct gap_evt_adv_report ad={0};ad.evt_type=GAP_SCAN_EVT_CONN_UNDIR;
+    for(unsigned i=0;i<6;i++)ad.addr.addr.addr[i]=auto_macs[0][5-i];
+    struct gap_event e={.type=GAP_EVT_ADV_REPORT};e.param.adv_rpt=&ad;et100_gatt_gap(&e);
+    assert(state==WAIT_ADV && !manual && matched);
+    current_task=2;if(!setjmp(worker_exit))worker(NULL);
+    current_task=1;drain_output();
+    assert(state==IDLE && !connected && connected_scan_calls>0 && !scan_connected_profile);
+    puts("PASS normal GATT scan: manual/auto after auth, other beacon cannot change owner, scan failure retains session");
+}
 /* ---- v0.8.9 relay hooks ---- */
 static int stages[8], stage_count, run_calls, run_result, hook_calls, matched_calls;
 static void stage_fn(enum et100_gatt_stage s,int result,void *ctx)
@@ -206,6 +238,7 @@ static int run_fn(void *ctx)
 {
     (void)ctx;run_calls++;smp_got_len=0;
     assert(state==READY && connected && exclusive);
+    assert(!scan_connected_profile && !connected_scan_calls);
     struct eup_gatt_metadata m;
     /* All eight metadata commands are read before run(); the cache answers for target only. */
     for(unsigned c=1;c<=8;c++) assert(cmd_writes[c]==1);
@@ -410,11 +443,15 @@ int main(void)
     assert(!memcmp(cipher,expected,16));
     uint8_t packet[48];assert(eup_uuid_build_request(0x7f,1,NULL,0,packet,sizeof(packet))==7);
     struct eup_uuid_response parsed;assert(eup_uuid_parse_response(packet,7,&parsed)<0);
-    run_session(0);assert(auth_writes==1 && strstr(captured,"G1;8;AP;"));
+    run_session(0);assert(auth_writes==1 && strstr(captured,"G1;8;AP;") && connected_scan_calls>0 && !scan_connected_profile);
     assert(strstr(captured,"AT$PD=BLEGW$GSENSORCMD;1;AABBCCDDEEFF;7F;00;;PING"));
     assert(strstr(captured,"AT$PD=BLEGW$SSENSORCFG;1;AABBCCDDEEFF;01;03;CONF"));
     assert(restored>0);
     run_session(1);assert(auth_writes==1 && strstr(captured,"G1;8;AF;") && !strstr(captured,"G1;8;AP;"));
+    assert(!connected_scan_calls && !scan_connected_profile);
+    run_session(17);assert(connected_scan_calls>0 && !scan_connected_profile);
+    assert(strstr(captured,"G1;8;AP;") && !strstr(captured,"G1;8;CF;"));
+    auto_scan_test();
     run_session(2);assert(auth_writes==0 && !strstr(captured,"G1;8;AP;"));
     run_session(3);assert(auth_writes==0 && restored>0);
     run_session(4);assert(strstr(captured,"disconnect_drain_timeout") && restored>0);

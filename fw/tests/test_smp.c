@@ -140,6 +140,20 @@ static void test_framing(void)
     const char gchk[] = "BLEGW$GCHK;J082\r\n";
     for (size_t i = 0; i < sizeof gchk - 1; i++) { const uint8_t *o; size_t n; assert(smp_serial_feed(&s, (uint8_t)gchk[i], &o, &n) == 0); }
     assert(s.timeouts == 1 && !smp_serial_busy(&s));
+    /* Periodic expiry without another RX byte; include continuation-gap wrap. */
+    smp_serial_init(&s);
+    smp_serial_expire(&s, UINT32_MAX-100);
+    memset(packet,0,sizeof packet);
+    lines_len=0;smp_serial_encode(packet,sizeof packet,sink,NULL);
+    for (size_t i=0;i<lines_len;i++) {
+        const uint8_t *o;size_t n;
+        smp_serial_feed(&s,lines[i],&o,&n);
+        if (lines[i]=='\n') break;
+    }
+    assert(!smp_serial_busy(&s) && s.in_packet);
+    smp_serial_expire(&s,1899);assert(s.in_packet);
+    smp_serial_expire(&s,1900);
+    assert(!s.in_packet && !smp_serial_busy(&s) && s.timeouts==1);
     assert(smp_crc16_xmodem((const uint8_t *)"123456789", 9) == 0x31c3);
     puts("PASS framing");
 }
@@ -822,6 +836,9 @@ static void test_reassembly(void)
     uint8_t big[8] = { 0, 0, 0x04, 0x00 };                         /* 8 + 1024 > 1024 */
     smp_reassembly_reset(&r);
     assert(smp_reassembly_add(&r, big, 8, 0) == -1);
+    assert(smp_reassembly_add(&r,packet,244,UINT32_MAX-100)==0);
+    smp_reassembly_expire(&r,1899);assert(r.length==244);
+    smp_reassembly_expire(&r,1900);assert(!r.length && !r.expected);
     puts("PASS ble reassembly");
 }
 

@@ -36,6 +36,20 @@ size_t et100_reporter_poll(struct et100_reporter *, uint32_t, char *, size_t);
 void et100_scan_configure(const uint16_t[4], uint16_t, const uint8_t[8][6], uint8_t, int);
 void et100_scan_poll(void (*send)(const char *, size_t, void *), void *);
 void et100_scan_start(void);
+/* Ordinary authenticated GATT only; exclusive OTA retains the normal policy. */
+void et100_scan_connected_mode(int enabled);
+enum et100_scan_phase {
+    ET100_SCAN_STOPPED, ET100_SCAN_START_PENDING, ET100_SCAN_ACTIVE,
+    ET100_SCAN_STOP_PENDING, ET100_SCAN_UNCERTAIN
+};
+struct et100_scan_diagnostics {
+    unsigned phase, desired_window, issued_window, active_window;
+    unsigned start_requests, start_success, start_failed, start_timeouts;
+    unsigned stop_requests, stop_failed, stop_timeouts, unexpected_events;
+    unsigned last_start_rc, last_stop_rc, last_start_status, last_end_status;
+};
+/* RAM diagnostics for read-only debugger inspection; no wire format change. */
+extern volatile struct et100_scan_diagnostics et100_scan_diag;
 struct gap_event;
 void et100_scan_event(struct gap_event *);
 #endif
