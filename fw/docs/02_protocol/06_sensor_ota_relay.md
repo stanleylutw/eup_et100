@@ -1,5 +1,7 @@
 # 06 — Sensor OTA relay（v0.8.9）
 
+Version: v0.9.3；最後更新：2026-10-24 Codex（Stanley 授權 Step 7）。以下保留首版來源與驗收限制，後續條目描述現行行為。
+
 日期：2026-10-23；分支 `v0.8.9_sensor_ota_relay`。目前 host／ARM build 通過，M-R1／M-R2 待 Stanley 實測，不宣稱量產可用。
 
 ## 範圍
@@ -33,6 +35,8 @@ wire format、state／step／error 名稱及數值沿用 `eup_gateway/docs/02_pr
 7. **連線失敗（v0.9.1）**：連線逾時後 job 依既有重試；最後仍失敗回 `FAILED`／`CONNECT_FAILED`，不再永久停在 `CONNECTING`。BLE 資源清理最多在 job 內等待 15 s，之後由 GATT worker 背景重試並**保留 ownership**，期間新的 `SENSOROTA` 回 `BUSY`；清理逾時事件為 `CF;…;disconnect_drain_timeout:i=<initiating>,c=<connected>,s=<scan_stop_pending>,stop=<rc>,disc=<rc>`（v0.9.0 以前只有 `disconnect_drain_timeout`，host 請以前綴比對），之後每 10 s 至多重送一次；SYS BLE 項暫為 ERROR。清理永久失敗的自動復原（BLE／整機 reset）尚未實作，需人工重開機。**v0.9.2**：取消連線（`gap_conn_stop()` 成功）後收到的 `CONN_END` 不論 status 都視為取消完成（實機證實 SDK 回 status 0），2 s 內無事件亦視為完成；釋放後有 **2 s quiet 期**，期間不開始新的 relay／手動／自動連線（`SENSOROTA` 回 `BUSY`），遲到的連線一律斷線。診斷 reason 尾端新增 `,e=<conn_end_seen>,st=<conn_end_status>,sr=<stop_requested>`。
 
 `GSENSORINFO` 屬手動 GATT 介面，即使只讀快取，在 relay reservation（含兩個 session 之間）仍回 `AT$PD=BLEGW$GSENSORINFO;0;BUSY;<tok>`；relay 自己讀取 metadata 不受影響。`GSOTAPKG`／`GSENSOROTA*` 查詢照常。reservation 釋放後恢復一般快取查詢。
+
+**v0.9.3 掃描與回報邊界**：一般非 exclusive GATT 認證後可要求低占空比 connected scan，但 Sensor relay／probe 的 exclusive session 不啟用此 profile，傳輸前停掃策略不變。UART／BLE 上傳至 NOR 的主動 Type-1／SYS 回報保護改為實際 SMP busy＋回覆送完後 3 秒，並逐行取得 TX／檢查最新 gate；它不是 relay ownership gate，也不表示 BLE 停掃。套件驗證成功後仍依第 6 項可立即開始 relay，不必等待這 3 秒；未完成上傳的 mutating owner 30 秒與 OTABAUD 30 秒皆獨立保留。完整規則見 [04 §1.1](04_smp_serial_ota.md)，測試及實機待驗收項目見 [24](../04_testing/24_gatt_scan_resume.md)、[25](../04_testing/25_smp_report_resume.md)。
 
 完整 AES／metadata GATT 連線要求 MTU 至少 35，目前請求 MTU 247。Host 的 MTU 23 案例只測 SMP 分段與重組，不代表整套認證流程可在 MTU 23 運作。
 

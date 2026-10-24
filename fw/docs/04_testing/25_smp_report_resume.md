@@ -15,7 +15,7 @@ Stanley 授權同分支補施工單與 Step 4 實作。本報告不是獨立 rev
 - SYS 不再因 baud 非 9600 額外停報；與 Type-1 共用回報門檻，使用目前 baud。SYS 原有 ASCII 輸入未完成、Sensor relay busy 等其他限制保留。
 - OTABAUD 仍依 UART SMP 最後活動後 30 秒回 9600，沒有縮短為 3 秒；NOR upload hold／relay handoff 的 v0.9.1 條件不改。回覆傳送旗標只用於回報保護，不加入 NOR 接管判斷。
 - 沒有為此呼叫停掃描、沒有更動 Part A 一般 GATT 的 connected scan profile。UART 停報不等於 BLE 停掃，也不能宣稱改善 BLE 射頻負載。
-- 3 秒代表解除暫停；個別 Beacon 出現仍受 GTIME／MAXRPT／CID／MAC／RSSI 排程影響。沒有新 Beacon 或 SYS 狀態變更時，不強制製造通知。
+- 3 秒代表解除暫停；個別 Beacon 出現仍受 GTIME／MAXRPT／CID／MAC／RSSI 排程影響，沒有新 Beacon 不捏造資料。SYS 保留暫停後補完整快照的 coalescing 行為，即使狀態未變仍可能送 Type=10；不是新增狀態變更。此敘述於 Step 7 對照程式釐清，未改既有測試數字。
 - 沒改 HTML、SDK、Installer、UUID、線上格式、FlashDB 或其他 repo。
 
 ## 2. 本輪驗證
@@ -55,7 +55,7 @@ App `0.9.3-dev`，包含 Part A＋Part B；此表取代 Part A 報告的歷史�
 ## 4. Stanley 實機驗收（待執行）
 
 1. 以 HTML 及 `fw/tools/evb/smp_serial_ota.py`（smpclient）分別執行 115200 Sensor 套件連續上傳，同時準備符合過濾條件的 Beacon。封包間隔小於 3 秒時，不應插入主動 Type-1／SYS 行；最終回覆送完後約 3 秒解除暫停。
-2. 回報恢復時間以 GTIME 設為 1 秒、適當 MAXRPT 的單一 Beacon 觀察，避免排程造成誤判；SYS 沒有狀態變更時不要求憑空出現。
+2. 回報恢復時間以 GTIME 設為 1 秒、適當 MAXRPT 的單一 Beacon 觀察，避免排程造成誤判；SYS 在解除暫停後可依節流補 Type=10 完整快照，不把它誤當新的狀態變更。
 3. 上傳一半拔線／終止工具，重新連線時確認半包可逾時清除、可讀取 GCHK、Beacon 回報可恢復，並可續傳。不要為本測試刪除已上傳資料。
 4. 上傳完成後持續每秒 SMP 查詢：主動回報應保持暫停；停止查詢後 3 秒解除。改用 ASCII 查詢則不應延長 SMP 緩衝。
 5. 保持 serial 115200，確認停止 SMP 後 3 秒可在目前 baud 接收主動行，30 秒 fallback 前不提早改 baud；最後 UART SMP 後 30 秒仍按既有規則回 9600。HTML 主動切回 baud 的流程另行對照，不與裝置 fallback 混淆。

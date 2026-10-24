@@ -4,7 +4,7 @@
 
 分支：`v0.9.3_gatt_scan_resume`；base：`main`（`a04e0d6`）。
 2026-10-24 Stanley 明確指定 v0.9.3，並授權 Codex 代寫施工單及實作。
-本輪只做 host 測試與 App build；不得操作 EVB／SWD／燒錄，不 commit。
+初始 Step 4 只做 host 測試與 App build，不操作 EVB／SWD／燒錄；原先不 commit，後續依 Stanley 明確授權已提交 `77ba471`。本輪 Step 7 留在原分支，只同步文件、不代為 commit。
 Claude 後續獨立 review、Stanley 實機驗收；host PASS 不代表射頻並行能力已證實。
 
 ## 1. 已查證與未查證
@@ -26,6 +26,7 @@ Claude 後續獨立 review、Stanley 實機驗收；host PASS 不代表射頻並
 - Part B 測試：`fw/tests/test_relay_handoff.c`、`fw/tests/test_smp.c`、`fw/tests/test_smp_ble_activity.c`、`fw/tools/test_evb_serial_host.sh`。
 - Part B 報告：`fw/docs/04_testing/25_smp_report_resume.md`。
 - M1 修正追加：`fw/src/serial_report_tx.h`、`fw/tests/test_serial_report_tx.c`（共用單筆 TX 仲裁與真實 SYS／reporter 回歸）。
+- Step 7 文件追加授權（2026-10-24）：`docs/00_project/11_project_bring_up_status.md`、`fw/docs/00_project/00_et100_firmware_platform_plan.md`、`fw/docs/02_protocol/01_evb_serial_gchk.md`、`fw/docs/02_protocol/02_evb_gatt_client.md`、`fw/docs/02_protocol/04_smp_serial_ota.md`、`fw/docs/02_protocol/06_sensor_ota_relay.md`、`fw/docs/02_protocol/08_system_status.md`、`fw/REVIEW_REPORT.md`；本施工單同步記錄授權與結果。
 
 不改 SDK、Installer、HTML、GATT UUID、UART payload、FlashDB／boot record 或其他 repo。
 
@@ -73,3 +74,14 @@ Claude 後續獨立 review、Stanley 實機驗收；host PASS 不代表射頻並
 - gate 通過後視為仲裁取得一筆完整行的發送權；該 producer 最多送一行，不可在持鎖時再次取得 TX mutex。開始仲裁後的新 SMP 允許該行完成，但下一行必須重新取得發送權並檢查最新狀態。不在 critical section 裡做 UART 輸出。
 - 以小型共用 header 固定「try lock → fresh gate → producer → unlock」順序，production 與 host 使用同一仲裁實作；SYS 暫停仍保留原有 full-snapshot coalescing 行為。
 - 測試真實 SYS／reporter：取得 TX 時注入 SMP、不消耗待送資料；SYS 送出期間注入 SMP，下一筆 Beacon 被阻擋；worker busy／RX pending／half-packet 分別阻擋；SMP 解除後可正常送出。保留原先長回覆／3 秒／NOR 回歸，重跑 build 後再 review。
+
+## Step 7 文件同步
+
+2026-10-24 Stanley 要求留在同一分支，程式已於 `77ba471` 提交；本輪僅更新永久文件及 review 紀錄，供後續另一筆 commit，不 amend、不 merge、不 push。
+
+- 平台計畫／Revision History 與 bring-up 狀態同步至 v0.9.3；一般 GATT connected scan 與 SMP 回報排程分開描述。
+- 同步 serial／GATT／SMP／relay／SYS 的行為與 timeout 定義，保留線上格式、UUID、儲存 schema、OTABAUD 30 秒與 NOR owner 保護不變。
+- `REVIEW_REPORT.md` 如實記錄 Codex 自我複查、已修 M1、Minor 整合測試缺口及待驗收項目，不沿用 v0.9.2 的 Claude PASS 當作本版 review。
+- 無新增量測，不改既有歷史測試數字；最新產物與測試結果仍引用 24／25 報告。無建置／安裝步驟或流程變更，不改 README／comm.md；本 repo 無獨立 Changelog，本次版本記錄集中於平台計畫 Revision History。
+- 完整性搜尋涵蓋 `docs/`、`fw/docs/`、`fw/README.md` 與兩份 comm；舊測試報告保留當時版本語境，不回填為本版實測。25 報告僅釐清 SYS 暫停後仍補 Type=10 的敘述，不新增量測。
+- `python3 fw/tools/check_plan_vs_code.py` 的 3 個 CHECK 全通過；掃描 profile、3 秒 report gate、兩個 30 秒保護另逐項對照 source。`git diff --check` 通過。全部改動為 Markdown，未重跑 firmware build 或接觸硬體。

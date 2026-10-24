@@ -1,9 +1,11 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.9.2
-Last updated: 2026-10-23 Claude
+Version: v0.9.3
+Last updated: 2026-10-24 Codex（Stanley 授權 Step 7）
 
 ## Revision History
+
+2026-10-24 v0.9.3（Codex 自我複查無 Critical／Major；獨立 review／EVB 待驗收）：一般 GATT 認證後、非 exclusive session 要求 interval 40／window 10 的 connected scan；依 START／END 事件確認與切換，失敗不斷開 GATT。SMP 主動回報改為實際收包／排隊／處理／整包回覆＋3 秒緩衝，逐行 TX 仲裁避免 M1 舊快照競態；OTABAUD 30 秒、NOR ownership、線上格式與 UUID／NVS 不變。程式 commit `77ba471`；本版無硬體操作，實際 RF 並行及 serial client 相容性待 Stanley。驗證與產物只見 [24](../04_testing/24_gatt_scan_resume.md)、[25](../04_testing/25_smp_report_resume.md)。
 
 2026-10-23 v0.9.2（Claude review PASS；EVB 實機待 Stanley）：M0 DAP 唯讀證實取消連線後 SDK 回 `CONN_END` status 0，`initiating` 不清除導致 GATT ownership 永不釋放（需重開機）。修正為取消成功後的 CONN_END 不論 status 皆清除（另 2 s 後備），釋放後 2 s quiet 期防延遲連線；診斷加 e/st/sr。D11 自動復原仍待決。
 
@@ -88,6 +90,19 @@ Last updated: 2026-10-23 Claude
 ```
 
 ## 4. Toolchain / Build
+
+### v0.9.3 現行 App 行為
+
+目前分支 App target 為 `0.9.3-dev`，不代表已在 EVB 運行；下列 v0.7／v0.6／v0.5 段落保留歷史 baseline。
+
+- IDLE／WAIT_ADV 要求 scan interval 40／window 30（25 ms／18.75 ms）；一般手動／auto GATT 認證後，非 exclusive READY 要求 window 10（6.25 ms），每 session 最多一筆 connected start。收到成功 START 才算 active，API 回 0 只代表接受請求。
+- profile 切換必須 stop 並等 END；缺 START 3 秒先 stop 同步，不直接重排 start；stop 接受但缺 END 時保留 pending、不盲目重啟。掃描錯誤只留 RAM 診斷，不把正常 GATT 當失敗；cleanup 要求恢復 normal。Sensor relay／probe exclusive 不開 connected scan。實際接收率與 GATT／掃描並行仍待實機。
+- UART／BLE SMP 接收、排隊、處理或整包回覆期間暫停 Type-1／SYS；最後活動／回覆送完後再等 3 秒。半包依既有期限週期性清除；逐筆回報先取得 TX 再查 gate，不消耗被延後的資料，已取得發送權的一行可完成。SYS 在非 9600 時也使用此規則，不自行切 baud。
+- 回報暫停不等於 BLE 停掃；GTIME／MAXRPT 排程不改。OTABAUD idle 30 秒、NOR mutating owner／relay 接管規則、GATT quiet 與既有 boot trial 期限分別獨立，不得合併為同一 timer。未新增 Kconfig、儲存 schema、payload／UUID；只改上述行為。規格見 [GATT](../02_protocol/02_evb_gatt_client.md)、[SMP](../02_protocol/04_smp_serial_ota.md)、[SYS](../02_protocol/08_system_status.md)。
+
+### 2026-10-21 歷史 baseline
+
+本節「目前／最新／本輪」均指當時版本與實測，不是 v0.9.3 的最新板況；現行行為以本節前述 v0.9.3 與 Revision History 為準。
 
 **2026-10-21 文件版 v0.8**：[OTA 儲存規格](../01_firmware/06_ota_storage_design.md) 記錄 Stanley 批准的單 App＋NOR staging 方向，候選 App @0x08020000／1792 KB、Settings 112 KB、boot state 16 KB 唯一權威、Sensor slot 256 KB 但 package 上限 225280 B；三入口 LTE／BLE／RS232（更新115200）。不採晶片內 A/B；依明確指示恢復[08 實測報告](../04_testing/08_evb_internal_flash_size.md)與相關[工具](../../tools/evb/README.md)，未執行。Q43-5 僅確認 ROM／installer 邊界；NOR copy 由自有 installer 實作，Q48-6／VTOR／RAM-code／FlashEnv 遷移仍為 gate。**本輪限 docs/tools，板上仍 0.7.0-dev，現行 source／linker／FAL／SDK 不變，沒有 build／flash。** v0.8 是文件版本，不是已編譯的 firmware 版本。
 

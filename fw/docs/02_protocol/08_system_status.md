@@ -3,7 +3,7 @@
 | 項目 | 定義 |
 |---|---|
 | 狀態 | **v0.9.0-dev 第一階段已實作，待獨立 review／Stanley 實機驗收；未凍結為量產介面** |
-| 日期 | 2026-10-23 |
+| 日期 | 2026-10-24；v0.9.3 回報排程同步（Codex，Stanley 授權） |
 | 英文名稱 | ET-100 System Status Protocol |
 | 用途 | 開機原因通知、完整周邊盤點、周邊狀態變更 |
 | 適用 | App 韌體、RS232 debug、HTML Dash |
@@ -200,7 +200,7 @@ A001 為完整快照；A002 的 error=2 表示狀態服務尚未就緒。
 - 不改 TRIAL 自我確認條件、120 秒期限、boot record 或 INST v1。SYS 不作 OTA 成功判定，也不增加新的開機 gate。
 - 所有輸出由既有 UART TX owner 序列化，完整單行不可交錯；不為 SYS 切換 baud。
 - 主動回報最多每秒兩行，合併後每項只保留最新待報狀態；queue 有界。錯過啟動通知可由完整查詢恢復周邊狀態，但不能恢復已漏接的開機原因。
-- SMP／relay bulk 期間暫停主動 SYS，不回放舊 queue；結束後送最新 Type=10，再繼續 Type=11。查詢回覆優先，忙碌時可回 BUSY。
+- SMP 收包／排隊／處理／整包回覆期間及最後活動／回覆結束後 3 秒暫停主動 SYS；relay bulk 期間仍暫停。不回放舊 queue，解除後補最新 Type=10，再繼續 Type=11（尚未送出的 boot 通知仍依原順序優先）。SYS 每筆先取得 TX 使用權再檢查最新 gate，不使用前一筆回報的暫停快照；已取得發送權的一行可完成。查詢回覆優先，忙碌時可回 BUSY。
 - 不含 PIN、金鑰、APN 密碼、IMSI 或完整 ICCID。量產通知開關／權限須另外審核。
 
 ## 10. HTML、BLE 與版本相容性
@@ -236,7 +236,7 @@ Stanley 已授權 Codex 代寫施工單與實作第一階段。產品 provider�
 | 其他 | UNSUPPORTED | 未替產品板推測 NOT_FITTED，也未新增周邊驅動 |
 
 - boot Type：首輪 boot RAM 快照確定為 TRIAL 才送 2，否則送 0。其他 Type 是已保留的協定定義，第一階段不猜測、不以歷史 last_update 觸發 3。
-- 無新 task、無動態事件 queue；固定目前值／已報值各 33 bytes。serial task 排程主動行，每 500 ms 至多一行；五秒收集後全表。RX 半行／待處理、非 9600、SMP 30 秒活躍窗口、OTA worker 活躍或 Sensor relay 時暫停，恢復補全表。
+- 無新 task、無動態事件 queue；固定目前值／已報值各 33 bytes。serial task 排程主動行，每 500 ms 至多一行；五秒收集後全表。v0.9.3 於 RX ring／overflow、ASCII 半行／discard、UART／BLE SMP 半包、worker queued／processing／sending、最後活動／回覆結束未滿 3 秒或 Sensor relay 時暫停，恢復補全表。半包 expiry 週期性執行，不等下一筆資料。SYS 不再因非 9600 額外停報，也不自行切 baud；OTABAUD 30 秒與 NOR owner 規則不變。細節與逐行 TX 仲裁回歸見 [25 報告](../04_testing/25_smp_report_resume.md)。
 - 目前 provider 是本次初始化或 callback 事件證據，在本次開機有效；第一階段沒有替未實作產品 provider 建立定期量測／STALE timer。未來有時效資料時必須由對應 owner 主動設 STALE。
 - 查詢回覆僅讀 RAM，不重新探測。HTML 在 Dash 提供重新讀取，僅 FR3068 且版本 >=0.9.0（或已收到合法 SYS）才可查；查詢三秒逾時、CRC 異常或離線時不維持正常綠色。
 - host／C→JS byte 格式、mock browser 與 ARM App build 已驗證，詳見 [20 報告](../04_testing/20_system_status.md)。實機、stack high-water 及 UART 並行壓力由 Stanley 驗收，不能以模擬結果代替。

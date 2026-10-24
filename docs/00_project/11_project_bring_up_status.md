@@ -1,10 +1,12 @@
 # ET-100 Project Bring-up — 已完成項目總覽
 
 **起算日期**：2026-10-01
-**最後更新**：2026-10-23
+**最後更新**：2026-10-24
 **維護者**：Stanley（Eupfin） + Claude Code + Codex
 
 > 本檔是跨 HW + FW 的專案層級狀態儀表板。詳細技術文件連結分散在 [`docs/03_hardware/sch_analysis/`](../03_hardware/sch_analysis/) 與 [`fw/`](../../fw/)。
+
+> **v0.9.3（Codex 自我複查無 Critical／Major；獨立 review／EVB 待驗收）**：一般已認證、非 exclusive GATT 連線要求低占空比掃描其他 Beacon，實際 RF 並行尚未證實；Sensor OTA exclusive 不啟用。UART／BLE SMP 的 Beacon／SYS 回報暫停改為收包／排隊／處理／整包回覆期間＋3 秒，逐行 TX 仲裁修正 M1；OTABAUD 與 NOR owner 的 30 秒保護不變。程式已提交 `77ba471`，本輪沒有燒錄／SWD；見 [24 掃描報告](../../fw/docs/04_testing/24_gatt_scan_resume.md)、[25 回報恢復報告](../../fw/docs/04_testing/25_smp_report_resume.md)。
 
 > **v0.9.0（待獨立 review／Stanley 實機）**：App 新增 SYS／GSYSSTAT 33 項周邊狀態快照與 HTML Dash 解碼；僅接已有可靠來源，未實作周邊回 UNSUPPORTED、reset 原因 UNKNOWN。Host／JS／mock UI／ARM／DFU 通過，不代表 EG800／GNSS 等產品周邊已完成。沒有 Codex 燒錄／SWD；[20 報告](../../fw/docs/04_testing/20_system_status.md)列出交付與實機步驟。
 

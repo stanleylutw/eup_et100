@@ -1,7 +1,7 @@
 # DEV1.4 UART3 — Gateway 查詢、CID 與 BLE 回報子集
 
-Version: v0.8.10
-日期：2026-10-21
+Version: v0.9.3
+日期：2026-10-24
 狀態：GCHK、基本 BLE scan／Type 1、CID 切換對照與 CID／GTIME 手動 RST 後保存已由 Stanley 驗證；詳細證據及限制見測試紀錄
 
 ## 用途與接線
@@ -99,9 +99,19 @@ MAC 是 link-layer advertiser address，MSB-first uppercase；不是從 sensor p
 - EUP v1／v2 的長度、version nibble、packet-info offset 沿用 Gateway parser 判斷；同 MAC 已 snapshot 的相同 version＋packet_info 在 1500 ms 內只更新 RSSI/last-seen，避免五包 burst 跨周期重複。未採用 Gateway 的 realtime XYZ batch。
 - CID 更新清空 cache／batch；GTIME 更新取消舊 batch、保留 pending cache並重設周期。host 應等待回覆再送下一命令。
 
-0.5.0-dev 不自動重試掃描；0.6.0-dev 在 IDLE／WAIT_ADV 驅動恢復，至少一秒 backoff、pending 三秒逾時。可經 SWD 查看 `et100_scan_status`（FF 未要求、FE 等待、FD 同步錯誤、0 成功、0x200|status 非同步啟動錯誤、0x100|status 結束）與 reports／accepted counters。這些不是新 UART 欄位。GATT 期間掃描暫停，owner 釋放後恢復；並行及所有 sensor 類型仍待實測。
+歷史上 0.5.0-dev 不自動重試掃描，0.6.0-dev 在 IDLE／WAIT_ADV 驅動恢復並於 GATT 期間停掃。**現行 v0.9.3**：IDLE／WAIT_ADV 維持 interval 40／window 30；一般手動／auto GATT 認證完成、非 exclusive READY 才要求 window 10，cleanup 要求回 normal。每 session 最多一筆 connected start，失敗不在同 session 重試，也不將 GATT 判失敗。Sensor OTA exclusive 不啟用此並行 profile。
+
+開始與停止以 GAP 事件確認，不以 API 回 0 當成功。pending 三秒缺 START 先嘗試 stop，不直接重送 start；stop 接受但缺 END 則保留 pending。RAM 的 `et100_scan_status`／`et100_scan_diag` 與 reports／accepted counters 不增加 UART 欄位，完整狀態值見 [GATT 掃描規則](02_evb_gatt_client.md)。實際 RF 並行與所有 Sensor 類型仍待 Stanley 實測，host／ARM PASS 不代表板上已有其他 Beacon 回報。
+
+### SMP 與主動回報（v0.9.3）
+
+UART／BLE SMP 收包、worker 排隊／處理／整包回覆期間暫停 Type-1；最後活動／回覆送完後再靜默 3 秒，新 SMP 重新延長。UART 半行／半包與 BLE 半包有週期性逾時清除。回報先非阻塞取得 TX mutex，再查最新 gate（含 RX ring／overflow）；每筆重新仲裁，已取得發送權的一行可完成，被延後的回報不先消耗。這是 UART 停報，不是停止 BLE 掃描；恢復後仍依 GTIME／MAXRPT 排程，不保證每台 Beacon 在 3 秒內出現。
+
+SYS 的 SMP 緩衝相同，另保留其 relay／ASCII busy 條件。OTABAUD 回 9600 仍是 UART SMP idle 30 秒，NOR owner／relay 保護不改；三種計時不能混用。規格見 [SMP](04_smp_serial_ota.md)、[SYS](08_system_status.md)，測試與待驗收項目見 [24](../04_testing/24_gatt_scan_resume.md)、[25](../04_testing/25_smp_report_resume.md)。
 
 ## 接收與資源
+
+本節以下是 0.5／0.6 歷史 baseline；現行 ring 為 2048 bytes，支援 OTABAUD 9600／115200，並由 serial task 與 OTA worker 共用 TX mutex，詳見 [SMP 協定](04_smp_serial_ota.md)。不可將下列舊版 512-byte ring／無 runtime baud 敘述套用到 v0.9.3。
 
 ISR 只把 byte 放入 512-byte ring（可存 511 bytes），task 每 10 ms 空閒輪詢並處理完整行。serial task stack 為 1024 words（4 KiB，由 RTOS heap 配置），供 FlashDB 呼叫使用；stack high-water 待驗證。每行最多 127 個 printable bytes；超長或 ring overflow 時丟棄至下一個 LF，再恢復解析。0.6.0-dev 先處理一輪 RX，再送 bounded GATT queue 與 Type 1；GATT dispatch 不阻塞等待 queue。最終 UART transmit 仍為 blocking，大量命令或 Flash erase/GC 仍可能超過 ring，host 應逐筆送命令並等待對應 token。新增 queue／GATT stack 資源見 GATT 規格。
 
