@@ -3,7 +3,7 @@
 | 項目 | 定義 |
 |---|---|
 | 狀態 | **v0.9.0-dev 第一階段已實作，待獨立 review／Stanley 實機驗收；未凍結為量產介面** |
-| 日期 | 2026-10-23 |
+| 日期 | 2026-10-24；v0.9.2 HTML 文件補同步，wire format 不變 |
 | 英文名稱 | ET-100 System Status Protocol |
 | 用途 | 開機原因通知、完整周邊盤點、周邊狀態變更 |
 | 適用 | App 韌體、RS232 debug、HTML Dash |
@@ -207,10 +207,21 @@ A001 為完整快照；A002 的 error=2 表示狀態服務尚未就緒。
 
 - HTML Dash 依 Index 顯示固定「中文名稱 英文／型號」，例如「行動通訊 EG800Q-EU」；型號是板型設計標示，不是偵測結果。協定 English Name／Index 不變，狀態仍依 Status 表解碼，不用自由文字解析或平台猜測。
 - 顯示正常／等待／故障／未裝配／未支援等不同樣式，不能把非零 Status 全當正常或全當錯誤。每個已知 Status 的 UI 類別須在實作前登記。
-- 不改共用 Log 高度或 Flash 圖。BLE cmd ID／capability bit 尚未分配，需先與 gateway／App 協調。
+- SYS 解碼不改共用 Log 高度；v0.9.2 HTML 另有 Flash／NOR 純視覺對齊（見下節），不改實體分區或 OTA 語意。BLE cmd ID／capability bit 尚未分配，需先與 gateway／App 協調。
 - 線上沒有版本欄位。此格式一旦凍結，既有 Type／Index／Status 不得重用或改義；破壞性修改須使用新前綴／新查詢指令，不能悄悄改 SYS。
 - 此版 Type=10 固定 33 項；擴充 Index 數量或欄位須新介面，避免沒有 count／version 時舊工具無法區分完整快照。可於既有 Index 的保留碼新增 Status，舊工具顯示 UNKNOWN_CODE。
 - SYS 與永久 Installer INST v1 獨立，不修改 INST 格式。
+
+### v0.9.2 HTML tester 顯示（`4c67d9d`）
+
+- Dash 排第一並為預設頁；左側圖示導覽提供中文 tooltip。ET-100 Dash 隱藏原 Gateway banner、CAN 遙測及 Sensor cards，保留完整 33 項周邊列表，不隱藏未支援功能。
+- 名稱顯示中文＋英文／型號，狀態區塊僅顯示中文；Index／狀態碼／英文狀態可由 tooltip 查閱。狀態區與 SCH sheet 區固定尺寸，長字可換行；sheet 只顯示數字，無對應時不猜測。電路圖按鈕開啟專案現有主板 PDF；這是設計參考，不是模組偵測證據。
+- 左側「系統資訊」顯示產品、硬體、執行中韌體、裝置 ID、MCU 與 NOR 新版／舊版／Sensor 韌體；已無可靠 RS232 來源的欄位保持「—」，不以 GATT UUID 或預設值冒充讀取結果。Sensor package 取 GSOTAPKG 狀態及版本，不顯示 byte 數。
+- 「GATEWAY 設定」唯讀顯示 CID、MAC 清單、回報週期與最大回報數。查詢採現有 GCHK／GFWINFO／GSOTAPKG／GCID／GLIST／GGTIME／GMAXRPT，不新增線上命令；逾時顯示讀取失敗，非 ET-100 保留裝置篩選。
+- LTE 側錄頁以精簡表格呈現既有 AT 解析結果；GSM_TX／GSM_RX 按鈕只選 serial port，另按「連線」才 open，共用紅色「中斷」關閉。預設 baud 為 9600，單／雙埠依既有模式選取；不將這個側錄 baud 與 ET-100 OTABAUD 混用。
+- Flash／NOR 圖表與流動圖示的樣式對齊不改分區、容量或協定；純 UI 縮小區塊不代表實體 partition 改變。桌機／手機與明暗色測試結果見 [26 補同步報告](../04_testing/26_v092_step7_backfill.md)。
+
+本節僅描述 v0.9.2 UI。韌體仍依 §12 的 SMP 30 秒／非 9600 暫停規則，不能把 v0.9.3 的 connected scan 或 3 秒恢復視為本版已實作。
 
 ## 11. 驗收與實作前 gate
 

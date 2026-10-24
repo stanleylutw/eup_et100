@@ -1,7 +1,7 @@
 # DEV1.4 Gateway-style GATT Client
 
-Version: v0.2
-日期：2026-10-21；韌體：0.6.0-dev
+Version: v0.2.1
+日期：2026-10-24；v0.9.2 生命周期補同步（命令表保留 0.6 baseline）
 狀態：host tests／ARM build 通過；真實 sensor GATT 驗收待 Stanley 操作。
 
 ## 範圍
@@ -46,7 +46,11 @@ GSENSORCMD fields 為 `<MAC>;<CMD>;<sensor_status>;<payload_hex>`；大於 64 by
 
 單一 RAM owner 依序經 WAIT_ADV／CONNECTING／SETUP／AUTH／READY／DRAIN；連線前確認掃描停止。取消後保留 owner，直到 initiating／link／scan-stop 均確認結束，才排入 DC 並釋放。晚到 MASTER 立即清理；舊 generation 的 AP/MR 不再送出。取消／斷線每秒重試；超過六秒仍未確認會回 CF，但不假裝 IDLE。
 
-SDK 的零 status CONN_END 可能早於 MASTER，因此不能直接視為 initiating 已消失。若 SDK 只有這個模糊事件、後續沒有任何確認，owner 可能維持 DRAIN，需要 RST；這是保守保留的已知限制，待實機確認 callback 順序。
+未取消連線時，SDK 的零 status CONN_END 可能早於 MASTER，不能直接視為 initiating 已消失。**v0.9.2 修正**：`gap_conn_stop()` 回成功後，CONN_END 不論 status 都完成取消；SDK 呼叫內同步送達的 END 以 sequence counter 處理。已接受 stop 但無 END 時，滿 2 秒且未連線也可清 initiating；重複 stop 成功不重設計時。
+
+取消 owner 釋放後有 2 秒 quiet，阻擋 relay／reserve／auto／手動新連線；遲來 MASTER 不交給新 session，而沿 DRAIN 清理。未成功取消的零 status 不套用上述釋放捷徑。drain reason 原前綴不變，新增 `e=<conn_end_seen>,st=<conn_end_status>,sr=<stop_requested>`；wire event 格式／UUID 不改。實機時序與重啟驗收仍由 Stanley 執行，見 [23 報告](../04_testing/23_gatt_stop_release.md)。
+
+已知 Minor：relay retry backoff 1200 ms 短於 quiet 2000 ms，quiet 內的 `-EBUSY` 可能消耗一次 attempt；原 review 接受延後修正，本版沒有修改 job retry，也沒有新增 BLE stack／整機自動 reset。
 
 成功 ADV_START 後才允許 scanner。IDLE／WAIT_ADV 驅動掃描恢復；至少一秒重試間隔，pending 超過三秒可重試。`et100_scan_status`：FF 未要求、FE 等待、FD 同步錯誤、0 成功、`0x200|status` 非同步啟動失敗、`0x100|status` 結束。GATT owner 釋放後恢復掃描，自動工作冷卻五秒；原 peripheral profile 保留，但並行仍待實測。
 

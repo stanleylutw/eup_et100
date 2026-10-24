@@ -1,9 +1,11 @@
 # ET-100 Firmware Platform Plan
 
 Version: v0.9.2
-Last updated: 2026-10-23 Claude
+Last updated: 2026-10-24 Codex（Stanley 授權 v0.9.2 Step 7 補同步）
 
 ## Revision History
+
+2026-10-24 v0.9.2 文件補同步（無 firmware／HTML 變更）：補 GATT 通用協定遺漏的 accepted stop、任意 status CONN_END、2 秒後備／quiet 與已知 retry Minor；補 `4c67d9d` 的 Dash 預設頁、圖示導覽、系統／Gateway 唯讀資訊、33 項中文狀態／SCH 頁次與 PDF、GSM 選埠／連線分離、Flash UI 對齊。既有 firmware Claude review 不視為涵蓋後續 UI；mock browser 結果及限制集中於 [26 報告](../04_testing/26_v092_step7_backfill.md)。無硬體操作，本版仍於一般 GATT 期間停掃，SMP 回報保護仍 30 秒。
 
 2026-10-23 v0.9.2（Claude review PASS；EVB 實機待 Stanley）：M0 DAP 唯讀證實取消連線後 SDK 回 `CONN_END` status 0，`initiating` 不清除導致 GATT ownership 永不釋放（需重開機）。修正為取消成功後的 CONN_END 不論 status 皆清除（另 2 s 後備），釋放後 2 s quiet 期防延遲連線；診斷加 e/st/sr。D11 自動復原仍待決。
 
@@ -88,6 +90,16 @@ Last updated: 2026-10-23 Claude
 ```
 
 ## 4. Toolchain / Build
+
+### v0.9.2 現行補充
+
+本分支 App target 為 `0.9.2-dev`，不代表已在 EVB 運行。GATT 取消釋放／quiet 規則見 [02 協定](../02_protocol/02_evb_gatt_client.md)；一般 GATT 連線期間仍停掃，IDLE 後恢復，未啟用 connected scan。UART／BLE SMP 的主動回報活動窗口仍為 30 秒，SYS 保留非 9600／relay／RX 半行等原有暫停條件；沒有縮短為 3 秒。
+
+HTML `4c67d9d` 已以 Dash 為第一／預設頁，圖示側欄與 tooltip、系統／Gateway 唯讀資訊、完整 33 項中文狀態＋固定 SCH 區塊及主板 PDF、GSM 選埠與連線分離、Flash／NOR 視覺一致性；這些是工具顯示，不新增周邊驅動、不更改實體分區／容量或線上格式。系統／設定值只採既有 ASCII 查詢，無來源的 NOR 新版／備份欄位顯示「—」；細節見 [08 §10](../02_protocol/08_system_status.md)，host 測試見 [26](../04_testing/26_v092_step7_backfill.md)。
+
+### 2026-10-21 歷史 baseline
+
+下列「目前／最新／本輪」指當時的版本與證據，不是本版最新板況；不把歷史實測回填為 v0.9.2 硬體驗收。
 
 **2026-10-21 文件版 v0.8**：[OTA 儲存規格](../01_firmware/06_ota_storage_design.md) 記錄 Stanley 批准的單 App＋NOR staging 方向，候選 App @0x08020000／1792 KB、Settings 112 KB、boot state 16 KB 唯一權威、Sensor slot 256 KB 但 package 上限 225280 B；三入口 LTE／BLE／RS232（更新115200）。不採晶片內 A/B；依明確指示恢復[08 實測報告](../04_testing/08_evb_internal_flash_size.md)與相關[工具](../../tools/evb/README.md)，未執行。Q43-5 僅確認 ROM／installer 邊界；NOR copy 由自有 installer 實作，Q48-6／VTOR／RAM-code／FlashEnv 遷移仍為 gate。**本輪限 docs/tools，板上仍 0.7.0-dev，現行 source／linker／FAL／SDK 不變，沒有 build／flash。** v0.8 是文件版本，不是已編譯的 firmware 版本。
 
