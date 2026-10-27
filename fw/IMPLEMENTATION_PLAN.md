@@ -1,35 +1,162 @@
-# IMPLEMENTATION_PLAN — v0.9.4 共用兩行頂欄
+# IMPLEMENTATION_PLAN — v0.9.5 rs232_tester 支援 STM32F407（eup_canbus_32f407）
+
+> 撰寫：Claude Code，2026-10-27（於 eup_canbus_32f407 session 起草，2026-10-27 移入本 repo）。
+> 草稿來源：`~/Firmware/EUP/eup_canbus_32f407/docs/handoff/et100_v0.9.5_tester_f407_IMPLEMENTATION_PLAN.md`。
 
 ## Branch
 
-2026-10-24 Stanley 授權直接實作 UI，並指定 `v0.9.4_tester_header`；base `main`（`9ed327e`）。不改 firmware／SDK／協定，不操作 EVB。2026-10-27 Stanley 另授權 git commit、merge main 與 push origin。
+```bash
+cd ~/Firmware/EUP/eup_et100
+git checkout main
+git checkout -b v0.9.5_tester_f407
+```
 
-## 範圍與規格
+**Base：`main`（`6b68c69`，已含 `v0.9.4_tester_header` merge）。** 不 commit／merge／push，除非 Stanley 另行授權。
 
-- 僅修改 `tools/rs232_tester.html`、`tools/tests/test_tester_header_ui.cjs`、`tools/tests/test_system_status_ui.cjs`、`fw/IMPLEMENTATION_PLAN.md`、`fw/docs/04_testing/27_tester_header.md`；依使用者後續要求新增 `tools/assets/eup-logo.png`，以提供的原始 PNG 取代頂欄 EUP 文字。設定功能擴充另新增 `tools/tests/test_tester_settings_ui.cjs`。
-- 淺灰色全寬共用頂欄取代 sidebar summary 與右側 Header；依後續回饋由深灰改為淺灰，文字／圖示改深色。高度由 64px 經 52px 縮至 42px，移除底部邊框及垂直分區線但保留固定軌道。Logo 使用 38px 顯示框以容納於頂欄內。左側 EUP 垂直置中，裝置／韌體兩行，第二行小一階且灰色。桌機裝置區與 sidebar 350px 對齊。
-- Section 2 暫空，Section 3 固定軌道：無 Log 時留空，有 Log 時顯示筆數／匯出／清除；最右固定連線／中斷、明暗切換。不讓字長、筆數與切頁改變起始位置。斷線清除舊裝置資訊。
-- 保留 BLE／CAN filter、Log 高度、AT filter／pause／search 功能，移到對應 Log 工具列；AT 的筆數／匯出／清除改用頂欄固定區域。原 Gateway Dash banner 不重複出現；依最新要求，ET-100 亦恢復顯示 CAN／Sensor 遙測。
-- 窄螢幕使用固定 breakpoint 軌道，縮短空白區、以圖示保留 Log 動作及 tooltip；不採 viewport font scaling，不讓頂欄增加第三行或遮住連線操作。既有連線／OTA 狀態與 event handler 保留。
+版號：只改 `tools/` 的 host 工具、不改 ET-100 firmware／協定 → patch +1。
 
-## 驗證
+---
 
-捲軸一致性（Stanley 回報 Dashboard 出現粗白色捲軸）：將既有局部規則改為全頁共用的 5px 捲軸、透明軌道／轉角及圓角灰色滑塊，依明暗主題切換滑塊與 hover 色；包含 Dashboard、Log、AT、OTA 與選單。保留圖示列捲動區隱藏捲軸規則，非 WebKit 瀏覽器使用標準 thin／透明軌道 fallback。不改區域尺寸或捲動功能。
+## 1. 目標
 
-ET100 Dashboard 區塊（Stanley 最新要求）：恢復 ET100 的 CAN 車輛資料與感測裝置區，不新增韌體／CAN driver。ET100 系統狀態、CAN、感測裝置各在標題右側加入收摺圖示與 aria-expanded／tooltip；初始僅系統狀態收起，另外兩區展開。收摺只隱藏內容，不清資料／停止查詢；新資料與頁籤往返不改目前收摺狀態，展開後重繪裝置圖表。三區仍以既有 parser／cache 為來源；nRF 保持 CAN／Sensor 顯示，ET100 系統區仍按裝置類型顯示。
+讓同一份 `tools/rs232_tester.html` 能對 **eup_canbus_32f407（STM32F407）** 做 SMP OTA，流程、畫面與 ET-100 相同（上傳 → NOR → 備份 → installer 寫入 → TRIAL → 確認／rollback），並支援 F407 的 **USB CDC** 連線（reset 後自動重連）。ET-100 既有行為**完全不變**。
 
-深色 Logo 描邊（Stanley 最新要求）：改為顯示尺寸固定 1px 純白輪廓，涵蓋黑色與紅色。使用原始 `eup-logo.png`，SVG filter 以 SourceAlpha 向外膨脹 1px，再疊回原圖；紅黃／黑色填色／透明背景保留，無底板／矩形外框，不使用額外描邊 PNG。深色與系統深色偏好啟用 filter，手動淺色維持原圖；38px Logo／42px 頂欄不變。頂欄測試涵蓋描邊來源／半徑／顏色、主題切換及手動覆蓋系統偏好。
+F407 韌體規格來源（唯讀）：
+- `~/Firmware/EUP/eup_canbus_32f407/docs/01_firmware/01_ota_smp_rtos_design.md` §6（身分）、§9（tester 修改點）
+- `~/Firmware/EUP/eup_canbus_32f407/comm.md`「`BLEGW$` 協定」「SMP serial OTA」
+- `~/Firmware/EUP/eup_canbus_32f407/docs/IMPLEMENTATION_PLAN.md`（階段 C：installer、INST、GOTASTAT）
 
-2026-10-26 設定面板（Stanley 指定功能）：左側圖示列底部固定齒輪，原六頁圖示在窄螢幕獨立捲動。依後續回饋移除對話框／遮罩／關閉按鈕，改在左側功能區顯示「紀錄／關於」兩個標準 section；關於使用既有側欄表格樣式。齒輪具選中狀態，切設定只換左側，右側現有 Log／資料／OTA 視圖保持；再按原頁籤可切回。紀錄提供保留上限 1,000／4,000／10,000／20,000 筆（預設 4,000）及連線後清除 Log（預設關閉）；以 `eup.tester.settings.v1` 儲存在本機瀏覽器，無法儲存時提示、仍於本次生效。一般 RX／TX Log DOM 與 AT Log 的 DOM／保留陣列／匯出均受限；降低上限立即裁切，篩選不復活舊資料。僅新 session 成功連線時清該連線 Log，不清 telemetry／設定，不因 AT 第二通道連上再次清除；失敗 open 保留舊紀錄。關於只顯示工具名稱、既有版本與頁面更新時間。不加字級／行距／縮放／裝置設定或硬體操作。
+## 2. 前提（Claude Code 於 main `6b68c69` 確認：下列寫死值與函式皆存在，`getInfo()`／`connect` 監聽為 0 處）
 
-資訊側欄減少線條（Stanley 核准）：所有頁面的側欄 section 移除整寬底線（由系統資訊／Gateway 設定擴展至其餘頁面），保留表格內 1px 行線、輸入框、工作區分隔線與既有區塊留白；明暗模式皆適用。
+| 位置 | 現況（寫死 ET-100） |
+|---|---|
+| `validate()`（約 181.2k 字元處） | 大小 `≤ 0x1c0000`；`project!=='EUP_ET100'`、`!hardware.startsWith('ET100_EVB_')`；manifest `board!=='dev14_fr3068ep_c'`、`soc!=='fr3068e_c'`；SP `≤ 0x20080000`；PC 起點 `0x08020200` |
+| `loadFile()` | manifest 內 image `≤ 0x1c0000` |
+| `parseInst()` | regex `^ET100\$INST;…` |
+| `identify()` | GFWINFO 比對 `file.manifest?.soc \|\| 'fr3068e_c'` |
+| `syncOtaSelfTarget()` | `/fr3068/i.test(hwVer) \|\| project==='EUP_ET100'` → `et100`，否則 `gateway`（nRF ZVERO） |
+| 刪除／儲存 sensor package | 限 `project==='EUP_ET100' && soc==='fr3068e_c'` → F407 自然排除（**保持**） |
+| reset 後流程 | `request(2,0,5)` → `waitInstaller()`（115200 收 INST）→ `reopen(9600)` → 每 5 s 查 image state；180 s 總期限 |
+| Web Serial | 只有 `requestPort()`；**沒有** `navigator.serial` `connect`／`disconnect` 監聽，沒有 `getInfo()` |
 
-深色可讀性修正（Stanley 核准）：系統資訊與 Gateway 設定的項目底色 `#292B30`、內容底色 `#202124`、文字 `#B8BDC7`／`#ECEEF2`、表格分隔線 `#3C4048`、標題 `#D5D9E0`，刷新按鈕採中灰底。後續依指示套用共用深色中性色階至 BLE／CAN／OTA／GATT／AT 表格，保留狀態色與淺色配色。移除先前 Logo 淺灰底板，恢復透明 Logo，42px 頂欄／型號／韌體位置不變。新增跨頁表格元件、狀態色、文字對比至少 4.5:1 與主題色碼驗證。
+## 3. 規格
 
-後續視覺修正（Stanley 核准）：左側功能區改為 `#F7F8FA`，右側維持白色，兩區之間加 `1px #E1E4E8` 分隔線。深色使用 `#202124` 左側、`#191919` 右側及 `#34363B` 分隔線。窄螢幕上下排列時改為底部分隔線；圖示列與頂欄維持無邊框，不加陰影或外層卡片。
+### 3.1 裝置設定表（取代所有寫死值）
 
-2026-10-26 Stanley 同意參考附圖調整外框：頂欄與 48px 圖示列共用背景，內容區左上角 24px 圓角，移除 sidebar／圖示列垂直分隔線，選中圖示使用中性圓角底色。淺色為淺灰外框／白內容，深色為深灰外框／近黑內容；保留 EUP PNG、裝置型號、韌體、42px 頂欄及桌機 350px sidebar。不改協定或控制項行為。
+新增單一常數表，`validate()`、`loadFile()`、`identify()`、`syncOtaSelfTarget()`、`parseInst()` 全部查表：
 
-Playwright mock Web Serial：六頁切換、無／有 Log、UART／AT 不混用筆數或匯出／清除、連線／斷線、長裝置／版本／大量計數、明暗切換；桌機與手機檢查區塊位置、固定高度、文字溢出、截圖與 page errors。重跑既有 sidebar、Dash、SYS、OTA UI 測試；不以 mock 宣稱硬體通過。
+| 欄位 | ET-100 | F407 |
+|---|---|---|
+| `key` | `et100` | `f407` |
+| `project` | `EUP_ET100` | `eup_canbus_32f407` |
+| `hardware` 規則 | `startsWith('ET100_EVB_')` | `=== 'EUP_stm32f407_dk'` |
+| `soc` | `fr3068e_c` | `stm32f407` |
+| manifest `board` | `dev14_fr3068ep_c` | `stm32f407_dk` |
+| 映像大小上限 | `0x1c0000` | `0x60000` |
+| SP 範圍 | `0x20000000 < sp ≤ 0x20080000` | `0x20000000 < sp ≤ 0x20020000` |
+| PC 起點 | `0x08020200` | `0x08020200` |
+| INST 前綴 | `ET100$INST;` | `F407$INST;` |
+| Sensor package／relay | 支援 | **不支援**（相關按鈕隱藏或停用） |
+| 預設 transport | RS232 | 依 §3.3 判斷 USB 或 RS232 |
 
-Dashboard 感測裝置卡片共用 BLE 頁 `sensorListAppearance`：橘色／灰色標頭與上緣使用相同 `--bar-active`／`--bar-sleep`，移除廠牌固定配色。資料新鮮度、篩選與計數亦使用同一判斷；30 秒模式前 3 秒亮橘，65 秒內保留正常文字，超時淡化。以 mock 測試明暗模式、運轉／待機／休眠與 3 秒／GTIME×2／65 秒邊界；不存取硬體。
+- 裝置判斷：`GFWINFO` 的 `project`＋`soc` 對表；判斷不出 → 視為 nRF gateway（現行 ZVERO 路徑，不變）。
+- 檔案判斷：EUPFWV1 `project`／`hardware` ＋ manifest `board`／`soc` 必須與**同一筆**設定相符，且與已連線裝置相同 `key`，否則拒絕（錯誤訊息列出裝置與檔案的 project／hardware／soc）。
+- OTA 面板 F407 沿用 ET-100 面板（`otaMode === 'et100'` 的 UI），標題與按鈕文字改為依裝置顯示「ET-100」或「F407」。
+
+### 3.2 INST 解析
+
+- `parseInst()` 接受設定表中所有前綴；CRC-16/XMODEM 範圍為「行首第一個字元起至 `*` 前」。
+- 解析結果帶 `device` 欄位；只接受與目前裝置相符的前綴。
+- 測試向量（F407 前綴，由本工作計算後寫入測試）：與 ET-100 07 §4 相同內容，僅前綴改為 `F407$INST;`。
+
+### 3.3 USB CDC 模式（F407）
+
+- 連線後以 `port.getInfo()` 判斷：`usbVendorId === 0x0483 && usbProductId === 0x5740` → **USB 模式**；其他（含 USB-RS232 轉接線）→ RS232 模式。
+- USB 模式：
+  - `OTABAUD` 照送（F407 回 `;1;` 但不切換）；`reopen(115200)`／`reopen(9600)` 改為**不關閉 port、不改 baud**。
+  - 送 OS reset 後 port 會斷線（F407 installer 沒有 USB）：
+    1. 不呼叫 `waitInstaller()`，畫面顯示「安裝中（USB 模式無即時進度）」。
+    2. 監聽 `navigator.serial` 的 `connect` 事件，並每 1 s 呼叫 `navigator.serial.getPorts()`；找到 VID/PID 相同的 port 就 `open()`。
+    3. **Web Serial 無法讀 USB 序號**：重新開啟後先送 `BLEGW$GCHK`，確認 identity（UID 24 hex）與 reset 前相同才繼續；不同 → 關閉並繼續等待。
+    4. 之後沿用現有流程：每 5 s 查 SMP image state 與 `GOTASTAT`，同樣的 180 s 總期限與成功／還原判定。
+  - 斷線期間的 read loop 錯誤不可觸發一般的「連線中斷」清除流程（OTA 狀態、Log 保留）。
+- RS232 模式（ET-100、或 F407 經 DB9）：完全沿用現行流程（115200 收 INST → `BOOT` 後切 9600）。
+
+### 3.4 F407 硬體與 Flash／NOR 配置（OTA 視覺化必須依裝置切換）
+
+現行 tester 的 ET-100 OTA 視覺化寫死 ET-100 配置：`et100FlashPartitions`（ROM A／B、Installer 0x08002000 120 KB、App 0x08020000 1792 KB、Settings 0x081E0000、Boot state 0x081FC000）、NOR 分區函式（Journal、Candidate 2 MB、Rollback 2 MB、Sensor OTA、Installer 結果 0x460000）、進度條容量（Rollback 2 MB、App 1792 KB）與「外部 NOR · 16 MB（EVB）」等文字。**F407 若沿用會顯示錯誤的記憶體圖**，必須改為依裝置設定表選擇。
+
+**F407 硬體摘要**（來源：`eup_canbus_32f407/docs/03_hardware/STM32F407VET6_DK_hardware.md`）
+
+| 項目 | 值 |
+|---|---|
+| MCU | STM32F407VET6（Cortex-M4F 168 MHz，Flash 512 KB，SRAM 128 KB + CCM 64 KB） |
+| 外部 NOR | W25Q64（**8 MB**，JEDEC `EF 40 17`；電路圖標 W25Q128，實機為 W25Q64），SPI2 |
+| OTA 介面 | USB CDC（U8，VID/PID `0483:5740`）、USART1 經 MAX232 到 DB9（RS232） |
+
+**F407 內部 Flash（512 KB）** — 取代 `et100FlashPartitions`：
+
+| 名稱 | 位址 | 大小 | 說明 |
+|---|---|---|---|
+| Installer | 0x08000000 | 32 KB | 驗證、安裝與失敗復原（只能 SWD 更新） |
+| Boot state A | 0x08008000 | 16 KB | 記錄安裝、試運行與確認狀態 |
+| Boot state B | 0x0800C000 | 16 KB | 同上（雙 bank 輪替） |
+| Settings（保留） | 0x08010000 | 64 KB | 預留 |
+| App | 0x08020000 | 384 KB | 目前執行的韌體（MCUboot header 0x200，向量表 0x08020200） |
+
+**F407 外部 NOR（8 MB）** — 取代 ET-100 NOR 分區：
+
+| 名稱 | 位址 | 大小 | 說明 |
+|---|---|---|---|
+| Download journal | 0x000000 | 128 KB | 保存下載進度，支援斷點續傳 |
+| Candidate | 0x020000 | 1 MB | 接收並驗證待更新韌體（實際上限 384 KB） |
+| Rollback | 0x120000 | 1 MB | 更新失敗時還原 |
+| Installer 結果（EIR1） | 0x220000 | 8 KB | 安裝結果與中斷計數 |
+| App 已回報旗標 | 0x222000 | 8 KB | 記錄已回報的 `APP` 結果 |
+| Logs／預留 | 0x224000 | 至 0x7FEFFF | 預留 |
+| NOR 自測 | 0x7FF000 | 4 KB | 開發用 `nor test` |
+
+- F407 沒有 Sensor OTA 分區；視覺化不顯示該列。
+- 進度條容量：F407 的 App 與 Rollback 進度以**實際映像大小**（≤ 384 KB）計算，不使用 ET-100 的 1792 KB／2 MB 常數。
+- 標題文字依裝置顯示（例如「F407 Flash 與 NOR OTA 視覺化」「外部 NOR · 8 MB」）。
+- USB 模式沒有 INST 即時進度：視覺化只顯示「上傳 → 安裝中 → 結果」，不顯示備份／擦寫的百分比。
+
+### 3.5 不做
+
+- 不改 ET-100 firmware、協定文件、nRF gateway ZVERO 路徑。
+- 不加 F407 sensor package。
+- 不改 Dashboard／CAN 頁的 F407 顯示（另立工作）。
+
+## 4. 修改範圍
+
+| 檔案 | 動作 |
+|---|---|
+| `tools/rs232_tester.html` | §3 |
+| `tools/tests/test_f407_ota.cjs` | 新增：設定表、F407 Flash／NOR 分區表與視覺化標題（不得出現 ET-100 位址／容量）、`validate()`（F407 正確／錯 project／錯 board／過大／SP 超界）、`parseInst()`（F407 前綴、CRC、錯前綴）、USB 模式重連（模擬 `getPorts()`／`connect`、identity 不符時拒絕）、180 s 期限 |
+| `tools/tests/test_et100_smp.cjs`、`test_et100_ui.cjs` 等既有測試 | 只在介面改名時同步更新；**ET-100 既有案例必須全部照舊通過** |
+| `fw/IMPLEMENTATION_PLAN.md`、`fw/docs/04_testing/28_tester_f407.md` | 本施工單、測試紀錄 |
+
+## 5. 驗證
+
+| # | 項目 | 方法 | 通過條件 |
+|---|---|---|---|
+| T1 | 既有測試 | `node tools/tests/*.cjs` | ET-100 相關全部 PASS（回歸） |
+| T2 | 新測試 | `node tools/tests/test_f407_ota.cjs` | 全 PASS |
+| T3 | F407 身分（實機，Stanley） | Chrome 連 F407 USB（`/dev/cu.usbmodem*`） | 頂欄顯示 `EUP_stm32f407_dk`／`0.2.x`；OTA 面板顯示 F407；記憶體圖為 §3.4 的 512 KB／8 MB 配置 |
+| T4 | F407 USB OTA（實機，Stanley；需 eup_canbus_32f407 **階段 C CP2 完成**） | 載入 F407 `dfu_application.zip` → 開始 OTA | 上傳 → reset → 自動重連 → 30–40 s 內顯示成功；新版 confirmed |
+| T5 | F407 rollback（實機，Stanley） | 載入 `APP_TRIAL_FAIL=1` 的 DFU | 約 120 s 後顯示「已還原」，舊版 confirmed |
+| T6 | 錯誤檔案（實機或模擬） | F407 連線時載入 ET-100 DFU，或反之 | 載入時即拒絕，訊息列出雙方身分 |
+| T7 | ET-100 回歸（實機，Stanley，有 EVB 時） | ET-100 DFU OTA | 行為與 v0.9.4 相同 |
+| T8 | F407 RS232（實機，Stanley，需 USB-RS232 線） | 經 DB9 連 F407 | 與 ET-100 相同流程（含 INST 進度） |
+
+## 6. 時程與相依
+
+- 可與 eup_canbus_32f407 階段 C **平行**：T1–T3、T6 不需 C 完成；T4、T5、T8 需要 C CP2 完成的韌體。
+- F407 端若在階段 C review 時修改了 INST 或 GOTASTAT 格式，需同步回本施工單。
+
+## 7. 實作前確認（2026-10-27 Stanley 核准）
+
+- 後續核准加入 F407 build 捷徑：選單提供 `build/Release/dfu_application.zip` 與 `build/Debug/dfu_application.zip`；以獨立 `eup-f407-root` 記住使用者授權的 F407 專案根目錄，保留本機選檔及 ET-100 原捷徑。測試資料夾隔離、權限與遺失檔案回復；範圍仍為本施工單 HTML／新測試／測試報告。
+
+- F407 不沿用 ET-100 的容量／分區圖：依 F407 設計文件 §4 顯示內部 Flash 512 KB（Installer 32 KB、Boot state A／B 各 16 KB、Settings 64 KB、App 384 KB）及 W25Q64 NOR 8 MB（Journal 128 KB、Candidate／Rollback 各 1 MB、結果紀錄 8 KB、預留與末尾 4 KB 自測區）。ET-100 圖表保持原樣。此項僅修改本表已列的 HTML／新測試／測試紀錄。
+- 實作與驗證紀錄集中於 `fw/docs/04_testing/28_tester_f407.md`；F407 階段 C CP2 及所有實機驗收仍由 Stanley 執行，不以 mock 結果代替。

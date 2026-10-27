@@ -1,6 +1,6 @@
 # 04 — 更新協定：SMP over serial（v0.8.5）與 BLE（v0.8.6）
 
-Version: v0.9.3；最後更新：2026-10-24 Codex（Stanley 授權 Step 7）。本版只有回報排程變更，wire format 不變，實機相容性待驗收。
+Version: v0.9.5；最後更新：2026-10-27 Claude Code（Step 7）。本版只在 §7 補充 HTML tester 的 F407 支援；ET-100 wire format 與行為不變。（v0.9.3：只有回報排程變更，wire format 不變，實機相容性待驗收。）
 
 日期：2026-10-22；分支 `v0.8.5_ota_manager_smp_serial`；實作：Claude Code（comm.md 備用規則）。
 適用：ET-100 RS232 更新入口；EVB 開發用 **UART3**（DAPLink VCOM），與 GCHK ASCII 協定共用同一條 UART。
@@ -163,3 +163,4 @@ App 新增 `BLEGW$GOTASTAT;<tok>`，供查詢實際 boot state 與最後放棄�
 
 - `fw/tools/evb/smp_serial_ota.py`（以 `smpclient` 實作）：`state`、`echo`、`upload <zip|bin> [--test] [--reset]`、`test <hash>`、`confirm`、`reset`、`--baud 115200`。
 - 安裝：`fw/tools/requirements-smp.txt`（`--no-deps`）。
+- `tools/rs232_tester.html`（v0.9.5 起）：以裝置設定表同時支援 ET-100 與 **eup_canbus_32f407（STM32F407）**。F407 使用本文件相同的 SMP wire format，身分／大小／INST 前綴依 F407 設定（project `eup_canbus_32f407`、soc `stm32f407`、上限 0x60000、`F407$INST;`），另支援 F407 USB CDC reset 後自動重連並以 GCHK UID 核對。ET-100 流程不變。細節見 [28 報告](../04_testing/28_tester_f407.md)；F407 端規格以 eup_canbus_32f407 repo 為準。
