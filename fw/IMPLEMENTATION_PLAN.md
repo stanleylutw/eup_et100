@@ -1,4 +1,22 @@
-# IMPLEMENTATION_PLAN — v0.9.5 rs232_tester 支援 STM32F407（eup_canbus_32f407）
+# IMPLEMENTATION_PLAN — v0.9.6 F407 layout v2／Installer USB
+
+日期：2026-10-28；依 Stanley 本輪明確需求實作。分支 `v0.9.6_f407_installer_usb`，base `v0.9.5_tester_f407`／`3f02a8d`，不合併／提交／推送，不操作硬體。
+
+## 本輪範圍與決策
+
+- 僅修改 `tools/rs232_tester.html`、`tools/tests/test_f407_ota.cjs`、本施工單，新增 `fw/docs/04_testing/29_f407_installer_usb.md`。其他 repo／firmware／SDK／ET-100 wire format 不改。
+- F407 圖改為 layout v2：Installer 48 KB、Boot state A `0x0800C000`／16 KB、B `0x08010000`／16 KB、Sector 4 其餘 `0x08014000`／48 KB 不可使用、App 384 KB；移除 F407 Settings，NOR 配置保持 v0.9.5。
+- USB 重連核對 UID 後，以 GCHK fw 的 `-inst` 區分 Installer。Installer 僅收 INST 進度，不查 SMP；BOOT 後預期再斷線，重連 App 再查 SMP／GOTASTAT。INST 在 UID 確認前暫存，錯 UID 的事件不得改變 OTA 狀態；HALT 立即失敗，安靜／未回 App 受總期限限制。
+- 頂欄維持原 App 版本，Installer 身分與 GFWINFO 不寫入 App metadata cache，也不作檔案相容性依據。手動查詢若正連 Installer，明確拒絕，不發 SMP。
+- 採建議的固定期限方案：F407 profile 為 240 秒，ET-100 180 秒不變；不因 BOOT／多次重連重設期限。
+- F407 EUPFWV1 offset 278 的 flags bit0 必須為 1；CRC／SHA 驗證仍保留。ET-100 不檢查此旗標。
+- mock 驗證安裝 USB→Installer→App、TRIAL_TIMEOUT→rollback Installer→舊 App（超過 180 秒仍成功）、無旗標載入拒絕、HALT／總期限、錯 UID／錯 txn、百分比與 layout v2 圖，重跑既有 tester 測試。實機驗收只由 Stanley 操作。
+
+規格已唯讀核對 F407 `common/flash_layout.h`、設計 §4.1／§8.1、`installer/usb_link.c`、`comm.md` 與 `docs/REVIEW_REPORT.md`。F407 實機紀錄為來源 repo 的既有結果，不能計作本次 HTML 實機驗收。
+
+---
+
+## 前一輪 v0.9.5 歷史施工單（已提交 3f02a8d；下文舊期限／layout 由上文覆蓋）
 
 > 撰寫：Claude Code，2026-10-27（於 eup_canbus_32f407 session 起草，2026-10-27 移入本 repo）。
 > 草稿來源：`~/Firmware/EUP/eup_canbus_32f407/docs/handoff/et100_v0.9.5_tester_f407_IMPLEMENTATION_PLAN.md`。

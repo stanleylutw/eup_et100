@@ -7,14 +7,15 @@ vm.runInContext(html.match(/<script id="et100-smp-core">([\s\S]*?)<\/script>/)[1
 const S=context.S,zip=require('../vendor/fflate.min.js'),encoder=new TextEncoder();
 const info={project:'eup_canbus_32f407',hardware:'EUP_stm32f407_dk',soc:'stm32f407'};
 const manifest={type:'application',file:'f407.bin',board:'stm32f407_dk',soc:'stm32f407'};
-async function makeImage({project=info.project,hardware=info.hardware,sp=0x20020000,size=4096}={}) {
+async function makeImage({project=info.project,hardware=info.hardware,sp=0x20020000,size=4096,flags=1}={}) {
   const bytes=new Uint8Array(size),view=new DataView(bytes.buffer),at=544,end=size-40;
   view.setUint32(0,0x96f3b83d,true);view.setUint16(8,512,true);view.setUint32(12,end-512,true);
-  bytes[20]=0;bytes[21]=2;view.setUint16(22,4,true);
+  bytes[20]=0;bytes[21]=2;view.setUint16(22,6,true);
   view.setUint32(512,sp,true);view.setUint32(516,0x08020201,true);
   bytes.set(encoder.encode('EUPFWV1\0'),at);view.setUint16(at+8,1,true);
   bytes.set(encoder.encode(project),at+10);bytes.set(encoder.encode(hardware),at+34);
-  bytes.set(encoder.encode('0.2.4-dev'),at+54);
+  bytes.set(encoder.encode('0.2.6-dev'),at+54);
+  view.setUint32(at+278,flags,true);
   view.setUint32(at+282,S.crc32(bytes.slice(at,at+282)),true);
   bytes.set(Uint8Array.of(7,105,40,0,16,0,32,0),end);
   bytes.set(new Uint8Array(await webcrypto.subtle.digest('SHA-256',bytes.slice(0,end))),end+8);
@@ -25,6 +26,10 @@ async function offline() {
   const bytes=await makeImage(),file=await S.validate(bytes,manifest,info);
   assert.equal(file.device,'f407');assert.equal(file.soc,'stm32f407');
   assert.equal(S.deviceProfile(info).maxSize,0x60000);
+  assert.equal(S.deviceProfile(info).timeoutMs,240000);
+  assert.equal(S.profiles[0].timeoutMs,180000);
+  await assert.rejects(S.validate(await makeImage({flags:0})),/映像不是 layout v2/);
+  await S.validate(await makeImage({flags:3}));
   assert.equal(S.deviceProfile({...info,soc:'fr3068e_c'}),null);
   const zipped=zip.zipSync({'manifest.json':encoder.encode(JSON.stringify({files:[{...manifest,size:bytes.length}]})),[manifest.file]:bytes});
   assert.equal((await S.loadFile('dfu_application.zip',zipped,zip.unzipSync,info)).device,'f407');
@@ -35,7 +40,8 @@ async function offline() {
   await S.validate(await makeImage({size:0x60000}));
   for(const sp of [0x20000000,0x20020008,0x2001ffff])await assert.rejects(S.validate(await makeImage({sp})),/vector/);
   const etInfo={project:'EUP_ET100',hardware:'ET100_EVB_DEV1.4',soc:'fr3068e_c'};
-  const etBytes=await makeImage({...etInfo,sp:0x20080000});
+  const etBytes=await makeImage({...etInfo,sp:0x20080000,flags:0});
+  await S.validate(etBytes);
   for(const [image,device] of [[bytes,etInfo],[etBytes,info]]) {
     await assert.rejects(S.validate(image,null,device),e=>e.message.includes('裝置／檔案硬體不符')&&e.message.includes(device.project)&&e.message.includes('stm32f407'));
   }
@@ -52,14 +58,26 @@ async function offline() {
   client.inst={device:'f407',txn:'8755CE49'};
   client.receiveLine(inst('ET100$INST;1;L;HELLO;8755CE49;0.8.11;PENDING'));
   assert.equal(client.inst.hello,undefined);
+  const installerClient=new S.Client({reopen:async()=>{},token:()=> 'TEST',write:async bytes=>{
+    const command=new TextDecoder().decode(bytes).trim();
+    const body=command.includes('GFWINFO')?
+      'AT$PD=BLEGW$GFWINFO;1;eup_canbus_32f407;EUP_stm32f407_dk;0.2.5-inst;stm32f407;TEST':
+      'AT$PD=BLEGW$GCHK;1;00112233445566778899AABB;ST;EUP_stm32f407_dk;0.2.5-inst;0;TEST';
+    installerClient.receiveLine(body);
+  }});
+  let installerRequests=0;
+  installerClient.request=async()=>{installerRequests++;throw Error('SMP sent to installer');};
+  await assert.rejects(installerClient.identify(file),/Installer.*App/);
+  assert.equal(installerRequests,0,'installer metadata cannot initiate an App comparison or SMP query');
   console.log('PASS F407 synthetic image/ZIP, profile identity, size/SP boundaries and INST vectors:',write,hello);
-  return {bytes,etBytes,zipped};
+  return {bytes,etBytes,zipped,layoutV1:await makeImage({flags:0})};
 }
 async function browserTests(fixtures) {
   const {chromium}=require(process.env.PLAYWRIGHT_MODULE || '/Users/stanley/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
   const browser=await chromium.launch({headless:true,channel:process.env.PLAYWRIGHT_CHANNEL || 'chrome'});
   try {
-    for(const scenario of ['usb','poll-only','event-only','rollback-reboot','timeout','cancel','rs232']) {
+    for(const scenario of ['usb','poll-only','event-only','rollback-reboot','timeout','cancel','rs232',
+      'installer-usb','installer-rollback','installer-halt','installer-timeout']) {
       const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
       page.on('pageerror',e=>errors.push(e.message));
       await page.addInitScript(({scenario})=>{
@@ -67,7 +85,7 @@ async function browserTests(fixtures) {
         const bus=new EventTarget(),listeners=new Set();mock.listeners=listeners;
         const emit=(name,port)=>{const event=new Event(name);Object.defineProperty(event,'port',{value:port});bus.dispatchEvent(event);mock.events++;};
         mock.emit=emit;
-        const makePort=(name,uid)=>({name,uid,
+        const makePort=(name,uid,installer=false)=>({name,uid,installer,
           getInfo:()=>scenario==='rs232'?{usbVendorId:0x0403,usbProductId:0x6001}:{usbVendorId:0x0483,usbProductId:0x5740},
           async open({baudRate}) {
             mock.opens.push([name,baudRate]);this.baud=baudRate;
@@ -80,6 +98,35 @@ async function browserTests(fixtures) {
         const uid='00112233445566778899AABB';
         mock.original=makePort('original',uid);mock.wrong=makePort('wrong','FFEEDDCCBBAA998877665544');
         mock.next=makePort('next',uid);mock.final=makePort('final',uid);
+        mock.installer=makePort('installer',uid,true);mock.rollbackInstaller=makePort('rollback-installer',uid,true);
+        mock.instEvent=(p,event,fields='',src='L',txn=et100Client.inst.txn)=>{
+          const body=`F407$INST;1;${src};${event};${txn}${fields?';'+fields:''}`;
+          mock.reply(p,body+'*'+ET100Smp.crc16(new TextEncoder().encode(body)).toString(16).toUpperCase().padStart(4,'0'));
+        };
+        mock.transition=(from,to)=>{mock.drop(from);mock.ports=[to];emit('connect',to);};
+        mock.instChecks=[];
+        mock.advance=n=>{
+          mock.clock+=n;
+          const p=et100UsbSession?.current;
+          if(!p?.installer||!et100UsbSession.verified||et100UsbSession.disconnected)return;
+          if(scenario==='installer-timeout')return;
+          if(scenario==='installer-halt') {if(!p.halted){p.halted=true;mock.instEvent(p,'HALT','STATE_READ;8');}return;}
+          const events=[['BACKUP','100;200'],['ERASE','100;200'],['WRITE','100;200'],['VERIFY','OK']];
+          const index=p.step || 0;
+          if(index<events.length) {
+            mock.instEvent(p,...events[index]);p.step=index+1;
+          } else {
+            mock.instEvent(p,'RESULT',p===mock.rollbackInstaller?'ROLLED_BACK;9':'INSTALLED;0');
+            mock.instEvent(p,'BOOT',p===mock.rollbackInstaller?'CONFIRMED;9600':'TRIAL;9600');
+            mock.transition(p,p===mock.rollbackInstaller?mock.final:mock.next);
+          }
+          mock.instChecks.push({name:p.name,header:gatewayVersionInfo?.fwVer,cached:dashInfo.fields.GFWINFO?.firmware,
+            stage:et100Visual.stage,inst:et100Visual.inst?.event,
+            phase:document.getElementById('et100-phase').textContent,
+            route:document.querySelector('#et100-route-install small').textContent,
+            progress:Object.values(et100Visual.operations).some(value=>value.done===100&&value.total===200),
+            tags:[...document.querySelectorAll('#et100-viz .et100-stage-tag:not([hidden])')].map(e=>e.textContent)});
+        };
         const serial={requestPort:async()=>mock.original,getPorts:async()=>scenario==='event-only'?[]:mock.ports,
           addEventListener:(name,fn)=>{listeners.add(fn);bus.addEventListener(name,fn);},
           removeEventListener:(name,fn)=>{listeners.delete(fn);bus.removeEventListener(name,fn);}};
@@ -93,12 +140,23 @@ async function browserTests(fixtures) {
           if(text==='\r\n')return;
           if(text.startsWith('BLEGW$')) {
             const f=text.trim().split(';');mock.commands.push([p.name,f[0]]);
-            if(f[0]==='BLEGW$GCHK')mock.reply(p,`AT$PD=BLEGW$GCHK;1;${p.uid};ST;EUP_stm32f407_dk;0.2.3-dev;0;${f[1]}`);
-            else if(f[0]==='BLEGW$GFWINFO')mock.reply(p,`AT$PD=BLEGW$GFWINFO;1;eup_canbus_32f407;EUP_stm32f407_dk;0.2.3-dev;stm32f407;${f[1]}`);
+            if(f[0]==='BLEGW$GCHK') {
+              mock.reply(p,`AT$PD=BLEGW$GCHK;1;${p.uid};ST;EUP_stm32f407_dk;${p.installer?'0.2.5-inst':'0.2.5-dev'};0;${f[1]}`);
+              if(p===mock.wrong&&scenario.startsWith('installer-'))mock.instEvent(p,'HALT','WRONG_UID;8');
+              if(p.installer) {
+                mock.reply(p,'AT$PD=BLEGW$GFWINFO;1;eup_canbus_32f407;EUP_stm32f407_dk;0.2.5-inst;stm32f407;INFO');
+                mock.instEvent(p,'HELLO','0.2.5;PENDING');
+                mock.instEvent(p,'START',p===mock.rollbackInstaller?'ROLLBACK;4096':'INSTALL;4096');
+                mock.instEvent(p,'CHECK','OK');
+                mock.instEvent(p,'HALT','WRONG_TXN;8','L','00000000');
+              }
+            }
+            else if(f[0]==='BLEGW$GFWINFO')mock.reply(p,`AT$PD=BLEGW$GFWINFO;1;eup_canbus_32f407;EUP_stm32f407_dk;0.2.5-dev;stm32f407;${f[1]}`);
             else if(f[0]==='BLEGW$OTABAUD')mock.reply(p,`AT$PD=BLEGW$OTABAUD;1;${f[1]};${f[2]}`);
             else if(f[0]==='BLEGW$GOTASTAT')mock.reply(p,`AT$PD=BLEGW$GOTASTAT;1;CONFIRMED;${et100Client.inst.txn};ROLLED_BACK;9;0.2.3-dev;${f[1]}`);
             return;
           }
+          if(p.installer)throw Error('SMP sent to installer');
           p.decoder??=new ET100Smp.Decoder(packet=>{
             const body=ET100Smp.uncbor(packet.slice(8)),key=`${packet[0]&7}/${packet[4]*256+packet[5]}/${packet[7]}`;
             mock.smp.push([p.name,key]);
@@ -109,6 +167,15 @@ async function browserTests(fixtures) {
                 if(scenario==='rollback-reboot'&&mock.polls===1) {
                   respond({images:[mock.slot(true,false)]});
                   queueMicrotask(()=>{mock.drop(p);mock.ports=[mock.final];emit('connect',mock.final);});return;
+                }
+                if(scenario==='installer-rollback') {
+                  if(p===mock.final){respond({images:[mock.slot()]});return;}
+                  respond({images:[mock.slot(true,false)]});
+                  if(mock.clock>=130000)queueMicrotask(()=>{
+                    mock.instEvent(p,'TRIAL_TIMEOUT','120;STORAGE','A');
+                    mock.transition(p,mock.rollbackInstaller);mock.clock+=50000;
+                  });
+                  return;
                 }
                 respond({images:[scenario==='rollback-reboot'?mock.slot():mock.slot(true,scenario!=='timeout'&&mock.polls>1)]});return;
               }
@@ -125,8 +192,9 @@ async function browserTests(fixtures) {
               } else queueMicrotask(()=>{
                 mock.drop(p);
                 if(!['timeout','cancel'].includes(scenario)) {
-                  mock.ports=[mock.wrong,mock.next];
-                  if(scenario!=='poll-only'){emit('connect',mock.wrong);emit('connect',mock.next);}
+                  const target=scenario.startsWith('installer-')?mock.installer:mock.next;
+                  mock.ports=[mock.wrong,target];
+                  if(scenario!=='poll-only'){emit('connect',mock.wrong);emit('connect',target);}
                 }
               });return;
             }
@@ -186,7 +254,9 @@ async function browserTests(fixtures) {
       assert.match(await page.locator('#et100-nor-map h4').textContent(),/8 MB/);
       assert.equal(await page.locator('#et100-nor-map [data-name="Sensor OTA"]').count(),0);
       const partitions=await page.locator('#et100-flash-map .et100-partition').evaluateAll(rows=>rows.map(r=>[Number(r.dataset.start),Number(r.dataset.bytes)]));
-      assert.deepEqual(partitions,[[0x08000000,0x8000],[0x08008000,0x4000],[0x0800c000,0x4000],[0x08010000,0x10000],[0x08020000,0x60000]]);
+      assert.deepEqual(partitions,[[0x08000000,0xc000],[0x0800c000,0x4000],[0x08010000,0x4000],[0x08014000,0xc000],[0x08020000,0x60000]]);
+      assert.equal(await page.locator('#et100-flash-map [data-name="Settings／KV"]').count(),0);
+      assert.match(await page.locator('#et100-flash-map [data-name="Sector 4 其餘"]').textContent(),/不可使用/);
       const nor=await page.locator('#et100-nor-map .et100-partition').evaluateAll(rows=>rows.map(r=>[r.dataset.name,Number(r.dataset.start),Number(r.dataset.bytes)]));
       assert.deepEqual(nor,[
         ['Download journal',0,0x20000],['Candidate',0x020000,0x100000],['Rollback',0x120000,0x100000],
@@ -199,10 +269,15 @@ async function browserTests(fixtures) {
         await et100LoadFile(new File([new Uint8Array(bytes)],'wrong-et100.bin'));
       },Array.from(fixtures.etBytes));
       assert.match(await page.locator('#et100-file-info').textContent(),/裝置.*eup_canbus_32f407.*檔案.*EUP_ET100/);
+      if(scenario==='usb') {
+        await page.evaluate(async bytes=>et100LoadFile(new File([new Uint8Array(bytes)],'layout-v1.bin')),Array.from(fixtures.layoutV1));
+        assert.match(await page.locator('#et100-file-info').textContent(),/映像不是 layout v2/);
+        assert.equal(await page.locator('#et100-start').isDisabled(),true);
+      }
       await page.evaluate(async bytes=>{
         await et100LoadFile(new File([new Uint8Array(bytes)],'f407.bin'));mockF407.file=et100File;
         et100Client.io.now=()=>mockF407.clock;
-        et100Client.io.sleep=async n=>{mockF407.clock+=n;await new Promise(r=>setTimeout(r,0));};
+        et100Client.io.sleep=async n=>{mockF407.advance(n);await new Promise(r=>setTimeout(r,0));};
         toolSettings.clearOnConnect=true;addLog('sys','F407 KEEP LOG THROUGH USB RESET');
         window.f407Stages=[];
         const stage=et100Client.io.stage;et100Client.io.stage=t=>{f407Stages.push(t);stage(t);};
@@ -218,10 +293,11 @@ async function browserTests(fixtures) {
         text:document.getElementById('et100-result').textContent,clock:mockF407.clock,opens:mockF407.opens,
         smp:mockF407.smp,commands:mockF407.commands,stages:f407Stages,connected,
         session:et100UsbSession!==null,hardware:gatewayVersionInfo?.hwVer,logs:document.getElementById('log').textContent}));
-      if(scenario==='timeout') {assert.equal(result.kind,'error');assert.match(result.text,/180 秒/);assert.ok(result.clock<=180000);}
+      if(['timeout','installer-timeout'].includes(scenario)) {assert.equal(result.kind,'error');assert.match(result.text,/240 秒/);assert.ok(result.clock<=240000);}
+      else if(scenario==='installer-halt') {assert.equal(result.kind,'error');assert.match(result.text,/Installer 停機.*STATE_READ/);}
       else if(scenario==='cancel') {assert.equal(result.kind,'error');assert.equal(result.connected,false);assert.equal(result.opens.some(([n])=>n!=='original'),false);}
       else {
-        assert.equal(result.kind,scenario==='rollback-reboot'?'rollback':'success',JSON.stringify(result));
+        assert.equal(result.kind,['rollback-reboot','installer-rollback'].includes(scenario)?'rollback':'success',JSON.stringify(result));
         assert.equal(result.connected,true);assert.equal(result.hardware,'EUP_stm32f407_dk');
       }
       assert.equal(result.session,false);
@@ -232,13 +308,29 @@ async function browserTests(fixtures) {
       if(scenario==='rs232')assert.deepEqual(result.opens.map(([,b])=>b),[9600,115200,9600]);
       else {
         assert.ok(result.opens.every(([,b])=>b===9600));
-        assert.ok(result.stages.includes('安裝中（USB 模式無即時進度）'));
+        assert.ok(result.stages.includes('等待 USB Installer／App'));
+        assert.ok(!result.stages.some(s=>s.includes('無即時進度')));
         assert.doesNotMatch(result.logs,/讀取錯誤/);
       }
       if(['usb','poll-only','event-only'].includes(scenario)) {
         assert.ok(result.opens.some(([p])=>p==='wrong'));assert.ok(result.opens.some(([p])=>p==='next'));
       }
       if(scenario==='rollback-reboot')assert.ok(result.opens.some(([p])=>p==='final'));
+      if(scenario.startsWith('installer-')) {
+        assert.ok(!result.smp.some(([p])=>p.includes('installer')));
+        const checks=await page.evaluate(()=>mockF407.instChecks);
+        if(['installer-usb','installer-rollback'].includes(scenario))assert.ok(checks.length>0);
+        assert.ok(checks.every(c=>!c.header?.endsWith('-inst')&&!c.cached?.endsWith('-inst')));
+        assert.ok(result.stages.includes('Installer 0.2.5 安裝中'));
+        if(['installer-usb','installer-rollback'].includes(scenario)) {
+          assert.ok(checks.some(c=>c.progress),'INST bytes drive progress');
+          for(const step of ['備份','擦除','寫入'])assert.ok(checks.some(c=>c.phase===step+' 50%'&&c.route===step+' 50%'),step+' percentage must be visible');
+          assert.ok(checks.some(c=>c.tags.includes('備份')));
+          assert.ok(checks.some(c=>c.tags.includes('安裝中')||c.tags.includes('還原中')));
+        }
+        if(scenario==='installer-rollback'){assert.ok(result.clock>180000&&result.clock<240000);assert.match(result.text,/已還原舊版/);}
+        assert.doesNotMatch(result.logs,/ASCII 回應逾時|SMP 回應逾時/);
+      }
       if(scenario==='timeout'||scenario==='cancel') {
         const count=result.opens.length;
         await page.evaluate(()=>{mockF407.ports=[mockF407.next];mockF407.emit('connect',mockF407.next);});

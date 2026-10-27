@@ -3969,11 +3969,12 @@ const ET100Smp = (() => {
   const profiles = Object.freeze([
     Object.freeze({key:'et100',label:'ET-100',project:'EUP_ET100',hardware:h=>h.startsWith('ET100_EVB_'),
       gchkHardware:h=>/fr3068/i.test(h),soc:'fr3068e_c',board:'dev14_fr3068ep_c',maxSize:0x1c0000,
-      spMin:0x20000000,spMax:0x20080000,pcMin:0x08020200,instPrefix:'ET100$INST;',sensor:true}),
+      spMin:0x20000000,spMax:0x20080000,pcMin:0x08020200,instPrefix:'ET100$INST;',sensor:true,timeoutMs:180000}),
     Object.freeze({key:'f407',label:'F407',project:'eup_canbus_32f407',hardware:h=>h==='EUP_stm32f407_dk',
       gchkHardware:h=>h==='EUP_stm32f407_dk',soc:'stm32f407',board:'stm32f407_dk',maxSize:0x60000,
-      spMin:0x20000000,spMax:0x20020000,pcMin:0x08020200,instPrefix:'F407$INST;',sensor:false})
+      spMin:0x20000000,spMax:0x20020000,pcMin:0x08020200,instPrefix:'F407$INST;',sensor:false,timeoutMs:240000,layoutFlags:1})
   ]);
+  const timeoutMessage=profile=>`${(profile?.timeoutMs || 180000)/1000} 秒內未確認新版；結果未知，請查詢裝置（不是更新成功）`;
   const deviceProfile = info => profiles.find(p=>p.project===info?.project&&p.soc===info?.soc) || null;
   function compatible(file, info) {
     const device=deviceProfile(info), image=profiles.find(p=>p.project===file.project&&p.hardware(file.hardware));
@@ -4104,6 +4105,8 @@ const ET100Smp = (() => {
     if(view.getUint16(at+8,true)!==1||!profile) throw Error(`不是支援的 ET-100／F407 韌體：${project} / ${hardware}；soc=${manifest?.soc || '未知'}`);
     if(b.length>profile.maxSize) throw Error(`${profile.label} 映像大小超界`);
     const crc=view.getUint32(at+282,true); if(!crc||crc!==crc32(b.slice(at,at+282))) throw Error('metadata CRC 必須非 0 且正確');
+    if(profile.layoutFlags&&(view.getUint32(at+278,true)&profile.layoutFlags)!==profile.layoutFlags)
+      throw Error('映像不是 layout v2（需 eup_canbus_32f407 v0.2.5 以上 build）');
     if(manifest) {
       if(manifest.board!==profile.board||manifest.soc!==profile.soc) throw Error(`manifest board／soc 不符：${project} / ${hardware} / ${manifest.soc} / ${manifest.board}`);
       if(manifest.size!==undefined&&manifest.size!==b.length) throw Error('manifest size 不符');
@@ -4154,7 +4157,7 @@ const ET100Smp = (() => {
     constructor(io) { this.io=io; this.seq=0; this.pending=null; this.cancelled=false; this.testSent=false; this.running=false; this.decoder=new Decoder(p=>this.receive(p),line=>this.receiveLine(line)); }
     receiveLine(line) {
       this.lineWaiter?.(line);
-      const session=this.inst,event=parseInst(line,session?.device || this.device?.key || 'et100');
+      const session=this.inst,event=this.io.acceptInst?.(line)===false?null:parseInst(line,session?.device || this.device?.key || 'et100');
       if(event&&session) {
         if(event.version!==1) {
           if(!session.warned) this.io.event?.('Installer 協定版本未支援；改以 SMP 確認');
@@ -4233,6 +4236,7 @@ const ET100Smp = (() => {
         hardwareCheck='裝置韌體早於 0.8.7，無法比對硬體';
       } else if(fields[1]==='1'&&fields.length===7&&fields.slice(2,6).every(v=>v.length>0)) {
         fwInfo={project:fields[2],hardware:fields[3],firmware:fields[4],soc:fields[5]};
+        if(deviceProfile(fwInfo)?.key==='f407'&&/-inst$/.test(fwInfo.firmware))throw Error('F407 正在執行 Installer，請等候 App 啟動後再查詢或更新');
         if(file)compatible(file,fwInfo);
         hardwareCheck=file?'裝置／檔案硬體一致':'GFWINFO 已讀取，尚未選擇檔案';
       } else throw Error('GFWINFO 回應格式無效，禁止更新');
@@ -4328,14 +4332,14 @@ const ET100Smp = (() => {
         this.checkCancel(); this.testSent=true; this.io.stage('Test／重啟');
         await this.request(2,1,0,{hash:candidate.hash,confirm:false},60000);
         this.io.event?.('SMP Test ACK（confirm=false）');
-        const deadline=this.io.now()+180000;
+        const deadline=this.io.now()+this.device.timeoutMs;
         this.inst={device:this.device.key,txn:Array.from(file.sha.slice(0,4),v=>v.toString(16).padStart(2,'0')).join('').toUpperCase(),last:this.io.now()};
         const usb=this.device.key==='f407'&&this.io.isUsb?.();
         if(usb)this.io.beginReconnect(before,deadline);
         await this.request(2,0,5,{},30000); reset=true;
         this.io.event?.('SMP Reset ACK（group=0, id=5）');
         if(usb) {
-          this.io.stage('安裝中（USB 模式無即時進度）');
+          this.io.stage('等待 USB Installer／App');
           await this.io.reconnect(deadline);
         } else await this.waitInstaller(deadline);
         await this.io.reopen(9600); high=false; this.decoder.reset();
@@ -4369,7 +4373,7 @@ const ET100Smp = (() => {
           }
           throw Error('裝置已確認，但版本／hash 不符合預期');
         }
-        throw Error('180 秒內未確認新版；結果未知，請查詢裝置（不是更新成功）');
+        throw Error(timeoutMessage(this.device));
       } finally {
         await this.io.endReconnect?.();
         if(high&&!reset) {
@@ -4382,7 +4386,7 @@ const ET100Smp = (() => {
       }
     }
   }
-  return {profiles,deviceProfile,compatible,concat,equal,cbor,uncbor,crc16,crc32,packet,frame,Decoder,validate,loadFile,parseInst,Client};
+  return {profiles,deviceProfile,compatible,timeoutMessage,concat,equal,cbor,uncbor,crc16,crc32,packet,frame,Decoder,validate,loadFile,parseInst,Client};
 })();
 </script>
 <script>
@@ -7414,6 +7418,9 @@ function processFrame(raw) {
     parseGattReply(raw);
     const gchk = parseGchkResponse(raw);
     if (gchk) {
+      if(gchk.valid&&gchk.hwVer==='EUP_stm32f407_dk'&&/-inst$/.test(gchk.fwVer)) {
+        addLog('sys',`F407 Installer ${gchk.fwVer.replace(/-inst$/,'')}，等待 App`);return;
+      }
       gatewayVersionInfo = gchk.valid ? gchk : null;
       if (gchk.valid) syncOtaSelfTarget(gchk);
       flashOtaUpdateBoard(gchk.valid ? gchk.hwVer : '');
@@ -8490,6 +8497,7 @@ function captureDashInfo(name, parts) {
   const values = parts.slice(2, -1);
   let value;
   if (name === 'GFWINFO' && values.length === 4 && values.every(Boolean)) {
+    if(values[0]==='eup_canbus_32f407'&&values[3]==='stm32f407'&&/-inst$/.test(values[2]))return false;
     value = {product: values[0], hardware: values[1], firmware: values[2], soc: values[3]};
     syncOtaSelfTarget({project:values[0],hardware:values[1],soc:values[3]});
   } else if (name === 'GCID' && values.length === 4 && values.every(v => /^(?:[0-9a-f]{4})?$/i.test(v))) {
@@ -9560,7 +9568,7 @@ function et100UsbExpectedLoss(selected) {
 function et100BeginReconnect(identity,deadline) {
   const uid=parseGchkResponse(identity.line)?.imei;
   if(!/^[0-9a-f]{24}$/i.test(uid || ''))throw Error('F407 USB 缺少有效 UID，禁止自動重連');
-  const session=et100UsbSession={uid:uid.toUpperCase(),deadline,current:port,verified:false,disconnected:false,aborted:false,candidates:new Set()};
+  const session=et100UsbSession={uid:uid.toUpperCase(),deadline,current:port,verified:false,phase:'waiting',preIdentityLines:[],disconnected:false,aborted:false,candidates:new Set()};
   session.onConnect=event=>{const candidate=event.port || event.target;if(et100UsbPort(candidate))session.candidates.add(candidate);};
   session.onDisconnect=event=>{if((event.port || event.target)===session.current)session.disconnected=true;};
   navigator.serial.addEventListener?.('connect',session.onConnect);
@@ -9570,7 +9578,7 @@ function et100BeginReconnect(identity,deadline) {
 async function et100UsbBound(session,action,limit=1000,onLate=null) {
   if(session.aborted||session!==et100UsbSession||!connected)throw Error('USB 重連已取消');
   const remaining=Math.min(limit,session.deadline-et100Client.io.now());
-  if(remaining<=0)throw Error('180 秒內未確認新版；結果未知，請查詢裝置（不是更新成功）');
+  if(remaining<=0)throw Error(ET100Smp.timeoutMessage(otaSmpProfile));
   let timer,expired=false;
   const operation=Promise.resolve().then(action).then(value=>{
     if(expired||session.aborted||session!==et100UsbSession){onLate?.();throw Error('USB 重連已取消');}return value;
@@ -9597,13 +9605,17 @@ async function et100Reconnect(deadline) {
   const session=et100UsbSession;
   if(!session||session.aborted||!connected)throw Error('USB 重連已取消');
   session.deadline=deadline;
-  if(session.verified&&!session.disconnected&&port?.readable&&writer&&reader)return;
+  if(session.verified&&session.phase==='app'&&!session.disconnected&&port?.readable&&writer&&reader)return;
   while(et100Client.io.now()<deadline) {
     if(session.aborted||session!==et100UsbSession||!connected)throw Error('USB 重連已取消');
+    if(et100Client.inst?.halt)throw Error(et100Client.inst.halt);
     let ports=[],enumerated=false;
     try{ports=await et100UsbBound(session,()=>navigator.serial.getPorts());enumerated=true;}catch(e){if(session.aborted)throw e;}
     // Do not reopen the old App between Reset ACK and actual USB removal.
     if(!session.disconnected&&enumerated&&!ports.includes(session.current))session.disconnected=true;
+    if(session.verified&&!session.disconnected&&session.phase==='installer') {
+      await et100Client.io.sleep(Math.min(1000,Math.max(0,deadline-et100Client.io.now())));continue;
+    }
     if(session.disconnected) {
       session.verified=false;
       const old=session.current;
@@ -9612,6 +9624,7 @@ async function et100Reconnect(deadline) {
         session.candidates.delete(selected);
         if(!et100UsbPort(selected)||et100UsbUnsettled.has(selected))continue;
         session.current=selected;
+        session.preIdentityLines=[];
         try {
           await et100UsbBound(session,async()=>{
             et100UsbUnsettled.add(selected);
@@ -9628,8 +9641,17 @@ async function et100Reconnect(deadline) {
             Math.max(1,Math.min(1000,deadline-et100Client.io.now())));
           const identity=parseGchkResponse(line);
           if(!identity?.valid||identity.imei.toUpperCase()!==session.uid)throw Error('USB UID 不符，繼續等待原裝置');
-          session.verified=true;processFrame(line);
-          addLog('sys','F407 USB 已重新連線並確認 UID');return;
+          session.phase=/-inst$/.test(identity.fwVer)?'installer':'app';
+          session.verified=true;
+          if(session.phase==='installer') {
+            if(et100Client.inst){et100Client.inst.hello=false;et100Client.inst.boot=false;}
+            et100Client.io.stage(`Installer ${identity.fwVer.replace(/-inst$/,'')} 安裝中`);
+          } else processFrame(line);
+          const buffered=session.preIdentityLines;session.preIdentityLines=[];
+          for(const pendingLine of buffered)et100Client.receiveLine(pendingLine);
+          addLog('sys',`F407 USB ${session.phase==='installer'?'Installer':'App'} 已重新連線並確認 UID`);
+          if(session.phase==='app')return;
+          break;
         } catch(e) {
           session.disconnected=true;
           try{await et100UsbBound(session,()=>et100CloseUsbPort(selected));}catch {}
@@ -9639,7 +9661,7 @@ async function et100Reconnect(deadline) {
     }
     await et100Client.io.sleep(Math.min(1000,Math.max(0,deadline-et100Client.io.now())));
   }
-  throw Error('180 秒內未確認新版；結果未知，請查詢裝置（不是更新成功）');
+  throw Error(ET100Smp.timeoutMessage(otaSmpProfile));
 }
 async function et100EndReconnect() {
   const session=et100UsbSession;if(!session)return;
@@ -9706,6 +9728,13 @@ function et100InstVisual(value) {
       const progress={kind:backup?'backup':mode==='ROLLBACK'?'restore':'install',done,total};
       et100Visual.operations[backup?'backup':'app']=progress;
       if(done<total)et100Visual.transfer=progress;
+    }
+  }
+  if(value.device==='f407'&&value.src==='L'&&['BACKUP','ERASE','WRITE'].includes(value.event)) {
+    const [done,total]=value.fields.map(Number);
+    if(total>0&&done>=0&&done<=total) {
+      document.getElementById('et100-phase').textContent=`${{BACKUP:'備份',ERASE:'擦除',WRITE:'寫入'}[value.event]} ${Math.floor(done/total*100)}%`;
+      et100RenderTransferButton();
     }
   }
   et100RefreshVisual();
@@ -9775,7 +9804,7 @@ const et100PartitionNames = {
   Installer:'Bootloader', App:'主程式', 'Settings／KV':'系統設定', 'Boot state':'更新狀態',
   'Download journal':'下載紀錄', Candidate:'新版韌體暫存', Rollback:'舊版韌體備份',
   'Sensor OTA':'感測器更新套件', 'Installer 結果':'安裝結果紀錄', 'Logs／預留':'日誌與預留空間',
-  'Boot state A':'更新狀態 A', 'Boot state B':'更新狀態 B', 'App 已回報旗標':'App 已回報旗標', 'NOR 自測':'NOR 自測'
+  'Boot state A':'更新狀態 A', 'Boot state B':'更新狀態 B', 'Sector 4 其餘':'Sector 4 其餘（不可使用）', 'App 已回報旗標':'App 已回報旗標', 'NOR 自測':'NOR 自測'
 };
 function et100StoragePartitions(profile) {
   const total = (profile === 'product' ? 32 : 16)*1024*1024;
@@ -9795,10 +9824,10 @@ function et100Capacity(bytes) {
 function et100RenderStorage() {
   const f407=otaSmpProfile.key==='f407';
   const flash=f407 ? [
-    ['Installer',0x08000000,0x8000,'#997640','驗證、安裝與失敗復原'],
-    ['Boot state A',0x08008000,0x4000,'#9B69AC','更新狀態 A'],
-    ['Boot state B',0x0800C000,0x4000,'#9B69AC','更新狀態 B'],
-    ['Settings／KV',0x08010000,0x10000,'#238B78','保存裝置設定'],
+    ['Installer',0x08000000,0xC000,'#997640','驗證、安裝與失敗復原；layout 描述在 0x08000200'],
+    ['Boot state A',0x0800C000,0x4000,'#9B69AC','更新狀態 A（Sector 3）'],
+    ['Boot state B',0x08010000,0x4000,'#9B69AC','更新狀態 B（Sector 4 前 16 KB）'],
+    ['Sector 4 其餘',0x08014000,0xC000,'#738295','不可使用：擦除更新狀態 B 時一併清除'],
     ['App',0x08020000,0x60000,'#0F7AE5','目前執行的韌體']
   ] : et100FlashPartitions;
   const nor=f407 ? [
@@ -9901,7 +9930,12 @@ function et100RefreshVisual() {
     backup:'備份目前版本', 'install-check':'驗證檔案', 'install-verify':'檢查安裝映像',
     waiting:'安裝中', checking:'新版程式檢查中', confirmed:'更新成功', rollback:'推定回滾', error:'流程停止', cancelled:'取消傳輸',
     'sensor-verify':'比對 NOR 套件', stored:'Sensor 套件已儲存', deleted:'Sensor 套件已刪除'};
-  const phase = labels[et100Visual.stage] || '等待中';
+  const progressEvent=otaSmpProfile.key==='f407'&&et100Visual.inst?.src==='L'&&
+    ['backup','waiting'].includes(et100Visual.stage)&&['BACKUP','ERASE','WRITE'].includes(et100Visual.inst?.event) ? et100Visual.inst:null;
+  const [done,total]=progressEvent?.fields.map(Number) || [];
+  const progressText=progressEvent&&total>0&&done>=0&&done<=total?
+    `${{BACKUP:'備份',ERASE:'擦除',WRITE:'寫入'}[progressEvent.event]} ${Math.floor(done/total*100)}%`:null;
+  const phase = progressText || labels[et100Visual.stage] || '等待中';
   document.getElementById('et100-route-state').textContent = phase;
   document.getElementById('et100-route-upload').dataset.active = String(et100Visual.stage === 'upload');
   document.getElementById('et100-route-install').dataset.waiting = String(['reset','waiting'].includes(et100Visual.stage));
@@ -9927,9 +9961,9 @@ function et100RefreshVisual() {
     tag.dataset.kind=tagKind;tag.textContent=tagText;tag.hidden=false;
   }
   const routeLabel=document.getElementById('et100-route-install').querySelector('small');
-  routeLabel.textContent=transfer && transfer.kind!=='upload' ?
+  routeLabel.textContent=progressText || (transfer && transfer.kind!=='upload' ?
     `${{backup:'備份',install:'寫入',restore:'還原'}[transfer.kind]} ${Math.floor(et100Visual.transfer.done/et100Visual.transfer.total*100)}%` :
-    ['reset','waiting'].includes(et100Visual.stage) ? '等待裝置狀態' : '由 installer 執行';
+    ['reset','waiting'].includes(et100Visual.stage) ? '等待裝置狀態' : '由 installer 執行');
   document.querySelector('#et100-flash-map [data-name="App"]').dataset.transferComplete=String(et100Visual.stage==='confirmed');
   const sensorRow=document.querySelector('#et100-nor-map [data-name="Sensor OTA"]');
   if(sensorRow)sensorRow.dataset.transferComplete=String(sensor && et100Visual.stage==='stored');
@@ -10215,8 +10249,17 @@ const et100Client = new ET100Smp.Client({
   reopen: et100Reopen, token: randCode, now: Date.now, sleep: et100Sleep,
   isUsb:()=>et100UsbPort(),beginReconnect:et100BeginReconnect,reconnect:et100Reconnect,endReconnect:et100EndReconnect,
   reconnectCancelled:()=>!connected||!et100UsbSession||et100UsbSession.aborted,
+  acceptInst:line=>{
+    if(!et100UsbSession||et100UsbSession.verified)return true;
+    if(ET100Smp.parseInst(line,'f407')&&et100UsbSession.preIdentityLines.length<64)
+      et100UsbSession.preIdentityLines.push(line);
+    return false;
+  },
   line: line => {
     if(et100UsbSession&&!et100UsbSession.verified) {if(line.trim())addLogRaw('rx',line);return;}
+    if(et100UsbSession?.phase==='installer'&&/^AT\$PD=BLEGW\$(GCHK|GFWINFO);/.test(line)) {
+      addLogTagged('rx',line,'tag-ota','Installer');return;
+    }
     if (ET100Smp.profiles.some(p=>line.startsWith(p.instPrefix))) {
       if(ET100Smp.parseInst(line,otaSmpProfile.key))addLogTagged('rx',line,'tag-ota','INST');
       return;
@@ -10243,7 +10286,7 @@ const et100Client = new ET100Smp.Client({
     if(text==='查詢裝置') {et100Visual.inst=null;et100Visual.transfer=null;et100Visual.installMode=null;et100Visual.operations={};}
     document.getElementById('et100-phase').textContent = text;
     et100Flow(({'上傳':'upload', '驗證 Candidate':'verify', '驗證 Sensor 套件':'sensor-verify', 'Test／重啟':'reset',
-      '安裝中':'waiting', '安裝中（USB 模式無即時進度）':'waiting', '新版程式檢查中':'checking','備份目前版本':'backup',
+      '安裝中':'waiting', '等待 USB Installer／App':'waiting', '新版程式檢查中':'checking','備份目前版本':'backup',
       '驗證檔案':'install-check','檢查安裝映像':'install-verify'})[text] || 'prepare');
     et100Controls(); addLog('sys', `${otaSmpProfile.label}：${text}`);
   },
