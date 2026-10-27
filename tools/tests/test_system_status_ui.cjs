@@ -25,9 +25,94 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || '/Users/stanley/.cache
     await page.locator('[data-tab="dash"]').click();
     await page.waitForFunction(()=>systemStatus.complete);
     assert.equal(await page.locator('.system-status-row').count(),33);
-    for (const selector of ['.dash-topline','.dash-can-strip','#dash-sensors-heading','#dash-devices']) {
-      assert.equal(await page.locator(selector).isVisible(),false,selector+' must not appear on the ET-100 Dash');
+    assert.equal(await page.locator('.dash-topline').isVisible(),false);
+    assert.equal(await page.locator('#system-status-grid').isVisible(),false,'ET100 details default collapsed');
+    for (const selector of ['.dash-can-strip','#dash-sensors-heading','#dash-can','#dash-devices']) {
+      assert.equal(await page.locator(selector).isVisible(),true,selector+' must remain visible on the ET-100 Dash');
     }
+    assert.equal(await page.locator('[data-dash-collapse="system-status-grid"]').getAttribute('aria-expanded'),'false');
+    await page.screenshot({path:'/tmp/et100_dashboard_default_sections.png'});
+    const telemetry=await page.evaluate(()=>{
+      const saved={slots:sensorSlots.slice(),t2:canState.type2,t3:canState.type3};
+      try {
+        const at=Date.now();
+        sensorSlots[0]={frameMac:'EEACB6F5627E',lastMs:at,decoded:{payloadVersion:2,roleMode:2,roleState:2,
+          direction:0,rpm:0,motionMg:128,tempC:20,batteryMV:3600,firmware:'3.6.16',rssi:-40,xMg:0,yMg:0,zMg:128}};
+        canState.type3={lastMs:at,samples:[{speed:60,rpm:1200}]};canState.type2={lastMs:at,fuel:'75'};
+        renderDashboard();
+        const initial={can:document.getElementById('dash-can').textContent,
+          device:document.getElementById('dash-devices').textContent,count:document.getElementById('dash-device-count').textContent};
+        document.querySelector('[data-dash-collapse="dash-devices"]').click();
+        sensorSlots[0].decoded.motionMg=256;renderDashboard();
+        const stayedHidden=document.getElementById('dash-devices').hidden;
+        document.querySelector('[data-dash-collapse="dash-devices"]').click();
+        const canvas=document.querySelector('#dash-devices canvas');
+        return {initial,stayedHidden,updated:document.getElementById('dash-devices').textContent,
+          plotted:canvas.width>0 && [...canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data].some(v=>v!==0)};
+      } finally {
+        saved.slots.forEach((entry,i)=>sensorSlots[i]=entry);canState.type2=saved.t2;canState.type3=saved.t3;renderDashboard();
+      }
+    });
+    assert.match(telemetry.initial.can,/60/);assert.match(telemetry.initial.can,/1200/);assert.match(telemetry.initial.can,/75/);
+    assert.match(telemetry.initial.device,/3\.6\.16/);assert.match(telemetry.initial.device,/128/);
+    assert.equal(telemetry.initial.count,'1 / 1 台');assert.ok(telemetry.stayedHidden && telemetry.plotted);
+    assert.match(telemetry.updated,/256/);
+    const appearances=await page.evaluate(()=>{
+      const saved={slots:sensorSlots.slice(),now:Date.now,gtime:bleGtimeMs,theme:document.documentElement.getAttribute('data-theme')};
+      const at=1000000, results=[];
+      try {
+        Date.now=()=>at;bleGtimeMs=3000;
+        sensorSlots.fill(null);
+        const cases=[
+          ['active',{},0,true,true],['standby',{roleState:0},0,false,false],
+          ['sleep',{roleState:2},0,false,false],['boundary',{},6000,true,true],
+          ['expired',{},6001,false,false],['30s flash',{roleMode:3},2999,true,true],
+          ['30s grey',{roleMode:3},3000,false,true],['30s fresh',{roleMode:3},65000,false,true],
+          ['30s stale',{roleMode:3},65001,false,false],
+          ['minew',{vendor:'minew',roleState:0},0,true,true],
+          ['ligo',{vendor:'ligo',roleMode:3,roleState:0},6001,false,false]
+        ];
+        for(const theme of ['light','dark']) {
+          document.documentElement.setAttribute('data-theme',theme);
+          for(const [name,decoded,age,highlighted,fresh] of cases) {
+            const entry={frameMac:'EEACB6F5627E',lastMs:at-age,decoded:{roleMode:2,roleState:1,...decoded}};
+            sensorSlots[0]=entry;renderDashboard();
+            const card=document.querySelector('.dash-device'),head=card.querySelector('.dash-device-head');
+            const probe=document.createElement('span');probe.style.color=`var(--bar-${highlighted?'active':'sleep'})`;
+            document.body.append(probe);const expectedColor=getComputedStyle(probe).color;probe.remove();
+            results.push({name,theme,highlighted,fresh,active:card.classList.contains('state-active'),
+              stale:card.classList.contains('is-inactive'),recent:dashboardRecent(entry,at),
+              background:getComputedStyle(head).backgroundColor,border:getComputedStyle(card).borderTopColor,expectedColor});
+          }
+        }
+      } finally {
+        Date.now=saved.now;bleGtimeMs=saved.gtime;
+        if(saved.theme===null)document.documentElement.removeAttribute('data-theme');
+        else document.documentElement.setAttribute('data-theme',saved.theme);
+        saved.slots.forEach((entry,i)=>sensorSlots[i]=entry);renderDashboard();
+      }
+      return results;
+    });
+    for(const result of appearances) {
+      const label=result.theme+' '+result.name;
+      assert.equal(result.active,result.highlighted,label);
+      assert.equal(result.stale,!result.fresh,label);
+      assert.equal(result.recent,result.fresh,label);
+      assert.equal(result.background,result.expectedColor,label);
+      assert.equal(result.border,result.expectedColor,label);
+    }
+    for(const id of ['dash-can','dash-devices']) {
+      const button=page.locator(`[data-dash-collapse="${id}"]`);
+      assert.equal(await button.getAttribute('aria-expanded'),'true');
+      await button.click();assert.equal(await page.locator(`#${id}`).isVisible(),false);
+      await page.evaluate(()=>renderDashboard());
+      assert.equal(await button.getAttribute('aria-expanded'),'false','updates must not reopen collapsed sections');
+      await page.locator('[data-tab="ble"]').click();await page.locator('[data-tab="dash"]').click();
+      assert.equal(await page.locator(`#${id}`).isVisible(),false,'tab switching must preserve collapse state');
+      await button.click();assert.equal(await page.locator(`#${id}`).isVisible(),true);
+    }
+    await page.locator('[data-dash-collapse="system-status-grid"]').click();
+    assert.equal(await page.locator('#system-status-grid').isVisible(),true);
     assert.equal(await page.locator('.system-status-row[data-index="5"] .system-status-name-secondary').textContent(),'EG800Q-EU');
     assert.equal(await page.locator('.system-status-row[data-index="8"] .system-status-name-secondary').textContent(),'AG3352Q');
     assert.equal(await page.locator('.system-status-row[data-index="29"] .system-status-name-primary').textContent(),'看門狗');
@@ -100,7 +185,10 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || '/Users/stanley/.cache
       await page.setViewportSize({width,height:900});
       const fits=await page.evaluate(()=>{
         const section=document.getElementById('system-status-section');
-        return section.scrollWidth<=section.clientWidth &&
+        return [...document.querySelectorAll('[data-dash-collapse]')].every(button=>{
+          const r=button.getBoundingClientRect(),s=button.closest('section').getBoundingClientRect();
+          return r.left>=s.left && r.right<=s.right+1 && r.top>=s.top;
+        }) && section.scrollWidth<=section.clientWidth &&
           [...section.querySelectorAll('.system-status-row')].every(r=>r.scrollWidth<=r.clientWidth &&
             [...r.querySelectorAll('span,small')].every(el=>el.scrollWidth<=el.clientWidth+1)) &&
           [...section.querySelectorAll('.system-status-schematic')].every(sheet=>{
@@ -126,6 +214,49 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || '/Users/stanley/.cache
     assert.equal(await page.locator('[data-count="unsupported"]').textContent(),'未支援 26');
     for(const theme of ['light','dark']) {
       await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+      await page.mouse.move(10,10);
+      await page.waitForTimeout(200);
+      for(const selector of ['.dash-page','.sidebar-content','#log','#lte-log-container','.flash-ota-viz']) {
+        assert.deepEqual(await page.locator(selector).first().evaluate(el=>({
+          width:getComputedStyle(el,'::-webkit-scrollbar').width,
+          track:getComputedStyle(el,'::-webkit-scrollbar-track').backgroundColor,
+          thumb:getComputedStyle(el,'::-webkit-scrollbar-thumb').backgroundColor
+        })),{width:'5px',track:'rgba(0, 0, 0, 0)',thumb:theme==='dark'?'rgb(91, 95, 103)':'rgb(174, 180, 189)'});
+      }
+      assert.ok(await page.locator('.dash-page').evaluate(el=>{
+        const old=el.scrollTop;el.scrollTop=el.scrollHeight;
+        const moved=el.scrollHeight<=el.clientHeight || el.scrollTop>0;el.scrollTop=old;return moved;
+      }),'styled Dashboard must remain scrollable');
+      assert.ok(await page.locator('#dash-et100-info > .section').evaluateAll(sections=>
+        sections.every(section=>getComputedStyle(section).borderBottomWidth==='0px')));
+      assert.equal(await page.locator('.dash-sidebar-table th').first().evaluate(e=>getComputedStyle(e).borderBottomWidth),'1px');
+      const colors=await page.evaluate(()=>{
+        const style=selector=>getComputedStyle(document.querySelector(selector));
+        return {logo:style('.gateway-summary-icon img').backgroundColor,
+          labelBg:style('.dash-sidebar-table th').backgroundColor,label:style('.dash-sidebar-table th').color,
+          valueBg:style('.dash-sidebar-table td').backgroundColor,value:style('.dash-sidebar-table td').color,
+          line:style('.dash-sidebar-table th').borderBottomColor,
+          heading:style('.dash-sidebar-heading .section-label').color,
+          refresh:style('.dash-sidebar-refresh').backgroundColor};
+      });
+      if(theme==='dark') {
+        assert.deepEqual(colors,{logo:'rgba(0, 0, 0, 0)',labelBg:'rgb(41, 43, 48)',label:'rgb(184, 189, 199)',
+          valueBg:'rgb(32, 33, 36)',value:'rgb(236, 238, 242)',line:'rgb(60, 64, 72)',
+          heading:'rgb(213, 217, 224)',refresh:'rgb(48, 51, 57)'});
+        const luminance=color=>{
+          const values=color.match(/\d+/g).slice(0,3).map(v=>Number(v)/255)
+            .map(v=>v<=0.04045?v/12.92:((v+0.055)/1.055)**2.4);
+          return values[0]*0.2126+values[1]*0.7152+values[2]*0.0722;
+        };
+        for(const [fg,bg] of [[colors.label,colors.labelBg],[colors.value,colors.valueBg]])
+          assert.ok((luminance(fg)+0.05)/(luminance(bg)+0.05)>=4.5,'sidebar text contrast must be at least 4.5:1');
+      } else {
+        assert.equal(colors.logo,'rgba(0, 0, 0, 0)');
+        assert.equal(colors.labelBg,'rgb(244, 247, 251)');
+        assert.equal(colors.label,'rgb(100, 116, 139)');
+        assert.equal(colors.valueBg,'rgba(0, 0, 0, 0)');
+        assert.equal(colors.refresh,'rgb(244, 247, 251)');
+      }
       await page.waitForTimeout(100);
       await page.screenshot({path:`/tmp/et100_system_status_${theme}.png`});
     }
@@ -151,10 +282,11 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE || '/Users/stanley/.cache
     assert.ok(noProbe);
     await page.evaluate(()=>{gatewayVersionInfo={hwVer:'V1_nrf52840',fwVer:'v0.9.0'};renderSystemStatus();});
     assert.equal(await page.locator('#system-status-section').isVisible(),false);
-    for (const selector of ['.dash-topline','.dash-can-strip','#dash-sensors-heading','#dash-devices']) {
+    assert.equal(await page.locator('.dash-topline').isVisible(),false,'shared top bar replaces the old Gateway banner');
+    for (const selector of ['.dash-can-strip','#dash-sensors-heading','#dash-devices']) {
       assert.equal(await page.locator(selector).isVisible(),true,selector+' must remain on other Gateway dashboards');
     }
     assert.deepEqual(errors,[]);
-    console.log('PASS SYS UI: Dash 33 items, query token/CRC/delta/unknown, boot/offline/timeout, firmware gate and responsive layouts');
+    console.log('PASS SYS UI: restored ET100 CAN/device telemetry/canvas, independent collapse defaults/state, 33 items, token/CRC/delta/unknown, boot/offline/timeout and responsive layouts');
   } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
