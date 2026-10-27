@@ -1,5 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Gateway RS232 Tester</title>
 <style>
   /* ── tokens ── */
@@ -53,7 +54,17 @@
     --fs-xs: 12px;   /* labels, timestamps, chips */
     --fs-sm: 13px;   /* body text, buttons, inputs */
     --fs-md: 15px;   /* input values, sensor data, headings */
-    --top-row-height: 46px;
+    --top-row-height: 42px;
+    --shell-bg: #e5e7eb;
+    --shell-content: #ffffff;
+    --shell-sidebar: #f7f8fa;
+    --shell-divider: #e1e4e8;
+    --shell-text: #26303b;
+    --shell-muted: #596574;
+    --shell-hover: #d7dbe1;
+    --shell-selected: #cdd2da;
+    --scrollbar-thumb: #aeb4bd;
+    --scrollbar-hover: #9098a3;
     /* radii */
     --r-sm: 5px;
     --r:    7px;
@@ -146,6 +157,91 @@
     --sensor-stale-text: #697386;
   }
 
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --shell-bg: #27282d;
+      --shell-content: #191919;
+      --shell-sidebar: #202124;
+      --shell-divider: #34363b;
+      --shell-text: #f0f0f1;
+      --shell-muted: #a8a9af;
+      --shell-hover: #323339;
+      --shell-selected: #3b3c42;
+      --scrollbar-thumb: #5b5f67;
+      --scrollbar-hover: #7b818b;
+      --brand-filter: url("#logo-dark-outline");
+      --surface: #202124;
+      --panel: #292b30;
+      --border: #3c4048;
+      --text: #eceef2;
+      --sub: #b8bdc7;
+      --can-hdr: #d5d9e0;
+      --can-hdr-bg: #292b30;
+      --can-hdr-border: #3c4048;
+      --can-hdr-ts: #b8bdc7;
+      --can-label-bg: #292b30;
+      --can-field-bd: #3c4048;
+      --can-label-clr: #b8bdc7;
+      --sensor-header-bg: #292b30;
+      --sensor-header-text: #d5d9e0;
+      --sensor-header-border: #3c4048;
+      --sensor-table-hdr: #292b30;
+      --sensor-detail-lbl: #b8bdc7;
+      --sensor-detail-val: #eceef2;
+      --detail-bg: #292b30;
+      --detail-lbl: #b8bdc7;
+      --detail-val: #eceef2;
+      --info-label-bg: #292b30;
+      --info-value-bg: #202124;
+      --info-label: #b8bdc7;
+      --info-value: #eceef2;
+      --info-border: #3c4048;
+      --info-heading: #d5d9e0;
+      --info-refresh: #303339;
+    }
+  }
+  :root[data-theme="dark"] {
+    --shell-bg: #27282d;
+    --shell-content: #191919;
+    --shell-sidebar: #202124;
+    --shell-divider: #34363b;
+    --shell-text: #f0f0f1;
+    --shell-muted: #a8a9af;
+    --shell-hover: #323339;
+    --shell-selected: #3b3c42;
+    --scrollbar-thumb: #5b5f67;
+    --scrollbar-hover: #7b818b;
+    --brand-filter: url("#logo-dark-outline");
+    --surface: #202124;
+    --panel: #292b30;
+    --border: #3c4048;
+    --text: #eceef2;
+    --sub: #b8bdc7;
+    --can-hdr: #d5d9e0;
+    --can-hdr-bg: #292b30;
+    --can-hdr-border: #3c4048;
+    --can-hdr-ts: #b8bdc7;
+    --can-label-bg: #292b30;
+    --can-field-bd: #3c4048;
+    --can-label-clr: #b8bdc7;
+    --sensor-header-bg: #292b30;
+    --sensor-header-text: #d5d9e0;
+    --sensor-header-border: #3c4048;
+    --sensor-table-hdr: #292b30;
+    --sensor-detail-lbl: #b8bdc7;
+    --sensor-detail-val: #eceef2;
+    --detail-bg: #292b30;
+    --detail-lbl: #b8bdc7;
+    --detail-val: #eceef2;
+    --info-label-bg: #292b30;
+    --info-value-bg: #202124;
+    --info-label: #b8bdc7;
+    --info-value: #eceef2;
+    --info-border: #3c4048;
+    --info-heading: #d5d9e0;
+    --info-refresh: #303339;
+  }
+
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
@@ -217,23 +313,24 @@
     grid-template-columns: 350px minmax(0, 1fr);
     flex: 1;
     overflow: hidden;
+    background: var(--shell-bg);
   }
 
   /* ── left panel ── */
   .sidebar {
-    background: var(--surface);
-    border-right: 1px solid var(--border);
+    background: var(--shell-bg);
+    border: 0;
     overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 0;
   }
   .sidebar-body { display: grid; grid-template-columns: 48px minmax(0, 1fr); flex: 1; min-height: 0; }
-  .sidebar-content { min-width: 0; min-height: 0; overflow-y: auto; }
+  .sidebar-content { min-width: 0; min-height: 0; overflow-y: auto; background: var(--shell-sidebar); border-right: 1px solid var(--shell-divider); border-radius: 24px 0 0 0; }
   .sidebar > .gateway-summary { flex-shrink: 0; }
   .section {
     padding: 14px 14px 12px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 0;
   }
   .section-label {
     font-size: var(--fs-xs);
@@ -361,20 +458,18 @@
 
   /* ── right panel ── */
   .main-panel {
+    --bg: var(--shell-content);
     display: grid;
-    grid-template-rows: auto minmax(100px, 1fr) minmax(0, 1.4fr);
+    grid-template-rows: minmax(100px, 1fr) minmax(0, 1.4fr);
     overflow: hidden;
     background: var(--bg);
   }
-  .main-panel.log-small { grid-template-rows: auto minmax(65px, .65fr) minmax(0, 1.75fr); }
+  .main-panel.log-small { grid-template-rows: minmax(65px, .65fr) minmax(0, 1.75fr); }
   #log-size-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 28px; padding: 0; flex-shrink: 0; }
   #log-size-btn .dash-icon { width: 16px; height: 16px; margin: 0; }
   #log-size-btn[aria-pressed="true"] { color: var(--accent); }
-  .main-panel.dash-active { grid-template-rows: auto minmax(0, 1fr); }
-  .dash-active > .log-wrap, .dash-active > .parsed-panel,
-  .dash-active header .filter-chip, .dash-active header .counter,
-  .dash-active #export-btn-log, .dash-active #clear-btn-log, .dash-active #log-size-btn,
-  .dash-active header .divider-v { display: none; }
+  .main-panel.dash-active { grid-template-rows: minmax(0, 1fr); }
+  .dash-active > .log-wrap, .dash-active > .parsed-panel { display: none; }
   .dash-page[hidden] { display: none; }
 
   .main-panel.lte-active {
@@ -454,6 +549,7 @@
   .lte-status-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--fs-xs); line-height: 1.4; }
   .lte-status-table th, .lte-status-table td { padding: 7px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; text-align: left; overflow-wrap: anywhere; }
   .lte-status-table th { width: 46%; color: var(--sub); font-weight: 400; background: var(--panel); }
+  .lte-status-table td { background: var(--info-value-bg, transparent); }
   .lte-status-card-val {
     font-family: var(--ui-font);
     font-size: var(--fs-xs);
@@ -469,16 +565,16 @@
   .lte-status-card-val.val-sub { color: var(--sub); }
   .dash-page { min-width: 0; min-height: 0; overflow: auto; padding: 14px; letter-spacing: 0; container-type: inline-size; }
   .dash-sidebar-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
-  .dash-sidebar-heading .section-label { margin-bottom: 0; }
-  .dash-sidebar-refresh { display: grid; place-items: center; width: 28px; height: 28px; padding: 4px; flex: 0 0 28px; }
+  .dash-sidebar-heading .section-label { margin-bottom: 0; color: var(--info-heading, var(--sub)); }
+  .dash-sidebar-refresh { --panel: var(--info-refresh, #f4f7fb); display: grid; place-items: center; width: 28px; height: 28px; padding: 4px; flex: 0 0 28px; }
   .dash-sidebar-refresh svg { width: 16px; height: 16px; }
   .dash-sidebar-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--fs-xs); line-height: 1.4; }
-  .dash-sidebar-table th, .dash-sidebar-table td { padding: 7px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
-  .dash-sidebar-table th { width: 40%; background: var(--panel); color: var(--sub); font-weight: 400; }
+  .dash-sidebar-table th, .dash-sidebar-table td { padding: 7px 6px; border-bottom: 1px solid var(--info-border, var(--border)); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+  .dash-sidebar-table th { width: 40%; background: var(--info-label-bg, var(--panel)); color: var(--info-label, var(--sub)); font-weight: 400; }
+  .dash-sidebar-table td { background: var(--info-value-bg, transparent); color: var(--info-value, var(--text)); }
   .dash-sidebar-table summary { cursor: pointer; }
   .dash-sidebar-table .dash-mac { display: block; margin-top: 4px; font-variant-numeric: tabular-nums; }
   .dash-topline { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; padding: 6px 12px; border-bottom: 1px solid #363b41; background: #363b41; color: #fff; }
-  .dash-page.et100-system-only :is(.dash-topline, .dash-can-strip, #dash-sensors-heading, #dash-devices) { display: none; }
   .dash-gateway-lockup { display: flex; align-items: center; gap: 12px; flex: 1 1 350px; min-width: 0; }
   .dash-gateway-symbol { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; color: var(--accent); background: var(--can-hdr-bg); border-radius: 6px; }
   .dash-gateway-symbol svg { width: 28px; height: 28px; }
@@ -506,18 +602,13 @@
   .dash-section-heading h2 { font-size: 14px; font-weight: 600; }
   .dash-section-heading span { font-size: 12px; color: var(--sub); }
   .dash-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 10px; }
-  .dash-device { display: flex; flex-direction: column; min-width: 0; height: 224px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; border-top: 3px solid var(--accent); }
-  .dash-device[data-vendor="minew"] { border-top-color: #299889; }
-  .dash-device[data-vendor="ligo"] { border-top-color: var(--warn); }
-  .dash-device.is-inactive { border-top-color: var(--bar-sleep); }
+  .dash-device { display: flex; flex-direction: column; min-width: 0; height: 224px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; border-top: 3px solid var(--bar-sleep); }
+  .dash-device.state-active { border-top-color: var(--bar-active); }
   .dash-device.is-inactive :is(h3, dt, dd, small, .dash-mac, .dash-device-aux, .dash-device-aux span, .dash-device-foot, .dash-chart-legend span, .dash-status) { color: var(--sensor-stale-text); }
   .dash-device.is-inactive canvas { filter: grayscale(1); opacity: .45; }
-  .dash-device-head { display: flex; align-items: start; justify-content: space-between; gap: 10px; margin: -8px -10px 0; padding: 8px 10px 6px; background: color-mix(in srgb, #0F7AE5 50%, var(--surface)); border-radius: 3px 3px 0 0; }
-  .dash-device[data-vendor="minew"] .dash-device-head { background: color-mix(in srgb, #299889 50%, var(--surface)); }
-  .dash-device[data-vendor="ligo"] .dash-device-head { background: color-mix(in srgb, #B77820 50%, var(--surface)); }
-  .dash-device.is-inactive .dash-device-head { background: color-mix(in srgb, #64748B 50%, var(--surface)); }
-  .dash-device .dash-device-head :is(h3, .dash-mac, .dash-status) { color: var(--text); }
-  .dash-device.is-inactive .dash-device-head :is(h3, .dash-mac, .dash-status) { color: var(--sub); }
+  .dash-device-head { display: flex; align-items: start; justify-content: space-between; gap: 10px; margin: -8px -10px 0; padding: 8px 10px 6px; background: var(--bar-sleep); border-radius: 3px 3px 0 0; }
+  .dash-device.state-active .dash-device-head { background: var(--bar-active); }
+  .dash-device .dash-device-head :is(h3, .dash-mac, .dash-status) { color: #fff; }
   .dash-device h3 { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
   .dash-device .dash-status { font-size: 11px; gap: 5px; }
   .dash-mac { margin-top: 3px; font-size: 11px; color: var(--sub); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
@@ -538,7 +629,13 @@
   .dash-empty { padding: 44px 16px; text-align: center; color: var(--sub); font-size: 13px; border-block: 1px solid var(--border); }
   .system-status-section[hidden] { display: none; }
   .system-status-section { border-bottom: 1px solid var(--border); padding-bottom: 12px; }
-  .system-status-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .system-status-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; justify-content: flex-end; }
+  .dash-section-tools { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+  .dash-collapse { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; padding: 4px; background: transparent; color: var(--sub); border-radius: 4px; cursor: pointer; }
+  .dash-collapse:hover { background: var(--panel); color: var(--text); }
+  .dash-collapse:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .dash-collapse .dash-icon { width: 18px; height: 18px; margin: 0; }
+  .dash-section-body[hidden] { display: none; }
   #system-status-refresh { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--accent); font-size: 18px; cursor: pointer; }
   #system-status-refresh:disabled { color: var(--sub); cursor: default; opacity: .5; }
   .system-status-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
@@ -565,7 +662,7 @@
   .system-status-value[data-kind="warning"], .system-status-value[data-state="UNKNOWN"], .system-status-value[data-state="UNKNOWN_CODE"] { color: color-mix(in srgb, var(--warn) 60%, var(--text)); background: color-mix(in srgb, var(--warn) 12%, var(--bg)); }
   @container (max-width: 980px) { .system-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(17, 52px); } }
   @container (max-width: 640px) { .system-status-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: repeat(33, 52px); } }
-  .dash-can-strip { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .dash-can-strip { padding: 0 0 12px; border-bottom: 1px solid var(--border); }
   .dash-can-heading h2 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
   .dash-can-heading > span { font-size: 11px; color: var(--sub); overflow-wrap: anywhere; }
   .dash-can { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -578,13 +675,12 @@
   @container (max-width: 820px) { .dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @container (max-width: 540px) {
     .dash-grid { grid-template-columns: minmax(0, 1fr); }
-    .dash-can-strip { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .dash-can { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .dash-can-heading { display: flex; justify-content: space-between; gap: 8px; }
   }
   @media (max-width: 700px) {
     body:has(.dash-active) .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
     body:has(.dash-active) .sidebar { max-height: 210px; }
-    body:has(.dash-active) .gateway-summary { display: none; }
     body:has(.dash-active) #dash-sidebar .section { padding: 8px 16px; }
     body:has(.dash-active) #dash-sidebar .section-label { display: none; }
     body:has(.dash-active) .dash-filter { grid-template-columns: 70px minmax(0, 1fr); align-items: center; }
@@ -936,22 +1032,29 @@
   #parsed-t1 .sensor-header-mac { font-weight: 600; }
 
   /* scrollbar */
-  #log::-webkit-scrollbar, .parsed-body::-webkit-scrollbar, .sidebar::-webkit-scrollbar, .sidebar-content::-webkit-scrollbar, .tab-bar::-webkit-scrollbar, #can-summary::-webkit-scrollbar, #parsed-t1::-webkit-scrollbar { width: 5px; height: 5px; }
-  #log::-webkit-scrollbar-track, .parsed-body::-webkit-scrollbar-track, .sidebar::-webkit-scrollbar-track, .sidebar-content::-webkit-scrollbar-track, .tab-bar::-webkit-scrollbar-track, #can-summary::-webkit-scrollbar-track, #parsed-t1::-webkit-scrollbar-track { background: transparent; }
-  #log::-webkit-scrollbar-thumb, .parsed-body::-webkit-scrollbar-thumb, .sidebar::-webkit-scrollbar-thumb, .sidebar-content::-webkit-scrollbar-thumb, .tab-bar::-webkit-scrollbar-thumb, #can-summary::-webkit-scrollbar-thumb, #parsed-t1::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+  *::-webkit-scrollbar { width: 5px; height: 5px; }
+  *::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 99px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
+  *::-webkit-scrollbar-button { display: none; }
+  @supports not selector(::-webkit-scrollbar) {
+    * { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+  }
 
   /* ── tab bar ── */
   .tab-bar {
     display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 4px;
-    border-right: 1px solid var(--border); overflow-y: auto;
-    background: var(--surface);
+    border: 0; overflow: hidden;
+    background: var(--shell-bg);
     flex-shrink: 0;
   }
-  .tab-btn {
+  .nav-pages { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; min-height: 0; width: 100%; overflow-y: auto; scrollbar-width: none; }
+  .nav-pages::-webkit-scrollbar { display: none; }
+  .tab-btn, .nav-settings-button {
     flex: 0 0 38px; width: 38px; height: 38px; padding: 9px;
-    display: grid; place-items: center; border-radius: 6px;
+    display: grid; place-items: center; border-radius: 10px;
     background: transparent;
-    color: var(--sub);
+    color: var(--shell-muted);
     border: none;
     font-family: var(--ui-font);
     font-size: var(--fs-sm);
@@ -960,10 +1063,15 @@
     cursor: pointer;
     transition: color .15s, background .15s;
   }
-  .tab-btn:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-  .tab-btn.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
-  .tab-btn .dash-icon { width: 20px; height: 20px; margin: 0; }
-  .tab-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .tab-btn:hover, .nav-settings-button:hover { background: var(--shell-hover); }
+  .tab-btn.active, .nav-settings-button.active { color: var(--shell-text); background: var(--shell-selected); }
+  .tab-btn .dash-icon, .nav-settings-button .dash-icon { width: 20px; height: 20px; margin: 0; }
+  .tab-btn:focus-visible, .nav-settings-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .nav-settings-button { margin-top: auto; }
+  .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; font-size: var(--fs-sm); }
+  .settings-row select { width: 116px; flex: 0 0 116px; margin: 0; }
+  .settings-row input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 16px; accent-color: var(--accent); }
+  .settings-error { min-height: 18px; margin-top: 8px; color: var(--err); font-size: var(--fs-xs); }
   .nav-tooltip { position: fixed; z-index: 1000; pointer-events: none; padding: 6px 9px; border-radius: 4px; background: var(--text); color: var(--surface); font-size: 12px; white-space: nowrap; box-shadow: 0 2px 8px #0002; }
   .tab-btn:disabled {
     background: transparent;
@@ -994,6 +1102,7 @@
     color: var(--sub);
   }
   .gateway-summary-icon svg { width: 22px; height: 22px; }
+  .gateway-summary-icon img { display: block; width: 38px; height: 38px; max-width: 100%; object-fit: contain; filter: var(--brand-filter, none); }
   .gateway-summary.ready .gateway-summary-icon { color: var(--accent); }
   .gateway-summary-copy { min-width: 0; }
   .gateway-summary-hardware,
@@ -1016,6 +1125,83 @@
     font-weight: 400;
     line-height: 1.25;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Shared fixed tracks: device, reserved, Log tools, connection controls. */
+  .app-header {
+    display: grid;
+    grid-template-columns: 350px minmax(0, 1fr) 220px 128px;
+    gap: 0;
+    height: var(--top-row-height);
+    min-height: var(--top-row-height);
+    padding: 0;
+    background: var(--shell-bg);
+    border: 0;
+    color: var(--shell-text);
+  }
+  .app-header .gateway-summary {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 10px;
+    height: 100%;
+    min-height: 0;
+    padding: 2px 14px;
+    background: transparent;
+    border: 0;
+  }
+  .app-header .gateway-summary-icon {
+    width: 48px;
+    height: 100%;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0;
+    color: var(--shell-text);
+  }
+  .app-header .gateway-summary-copy { display: grid; grid-template-rows: 20px 18px; min-width: 0; }
+  .header-device-line { display: flex; align-items: center; min-width: 0; gap: 4px; font-size: 13px; }
+  .header-device-line small { flex-shrink: 0; font-size: inherit; }
+  .header-device-line:first-child { font-weight: 600; }
+  .header-device-line:last-child { color: var(--shell-muted); font-size: 12px; }
+  .app-header .gateway-summary-hardware, .app-header .gateway-summary-firmware {
+    color: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    margin: 0;
+    min-width: 0;
+  }
+  .header-reserved, .header-log-section, .header-actions { height: 100%; min-width: 0; }
+  .header-log-section { display: flex; align-items: center; justify-content: flex-end; padding: 0 12px; }
+  .header-log-tools { display: flex; align-items: center; gap: 8px; width: 100%; justify-content: flex-end; }
+  .header-log-tools[hidden] { display: none; }
+  .app-header .counter { width: 68px; min-width: 0; color: var(--shell-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+  .app-header .mini-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 30px; padding: 0 6px; color: var(--shell-text); background: transparent; }
+  .app-header .mini-btn:hover, .app-header #theme-btn:hover { background: var(--shell-hover); }
+  .app-header .mini-btn svg { width: 16px; height: 16px; margin: 0; }
+  .header-actions { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; }
+  .app-header #connect-btn { width: 64px; height: 30px; margin: 0; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; }
+  .app-header #theme-btn { width: 30px; height: 30px; padding: 0; color: var(--shell-muted); flex-shrink: 0; }
+  .log-filters { display: flex; align-items: center; gap: 6px; padding: 4px 12px; border-bottom: 1px solid var(--border); }
+  .log-filters #log-size-btn { margin-left: auto; }
+  .dash-page .dash-topline { display: none; }
+  .lte-toolbar { height: auto; min-height: 40px; flex-wrap: wrap; padding-block: 5px; }
+  @media (max-width: 900px) {
+    .app-header { grid-template-columns: 350px minmax(0, 1fr) 196px 116px; }
+    .header-log-section { padding-inline: 6px; }
+    .header-log-tools { gap: 4px; }
+  }
+  @media (max-width: 700px) {
+    .workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: 240px minmax(0, 1fr); }
+    .sidebar { max-height: 240px; }
+    .sidebar-content { border-right: 0; border-bottom: 1px solid var(--shell-divider); }
+    .main-panel { min-width: 0; }
+    .app-header { grid-template-columns: minmax(0, 1fr) 0 128px 96px; }
+    .app-header .gateway-summary { grid-template-columns: 30px minmax(0, 1fr); gap: 6px; padding-inline: 8px; }
+    .app-header .gateway-summary-icon { width: 30px; font-size: 15px; }
+    .header-actions { gap: 2px; padding-inline: 4px; }
+    .app-header #connect-btn { width: 56px; }
+    .app-header .mini-btn { width: 28px; padding: 0; }
+    .app-header .mini-btn span { display: none; }
+    .app-header .counter { width: 52px; }
+    .header-log-section { padding-inline: 4px; }
   }
 
   /* ── CAN frame tags ── */
@@ -1140,6 +1326,7 @@
     padding: 3px 8px;
     text-align: right;
     color: var(--text);
+    background: var(--info-value-bg, transparent);
     border-bottom: 1px solid var(--border);
   }
   .packed-table td:first-child { text-align: center; color: var(--sub); }
@@ -1279,9 +1466,11 @@
   .ota-debug-table td {
     padding: 4px 8px;
     vertical-align: middle;
+    background: var(--info-value-bg, transparent);
   }
   .ota-debug-table td:first-child {
     color: var(--sub);
+    background: var(--info-label-bg, transparent);
     width: 100px;
     white-space: nowrap;
   }
@@ -1841,10 +2030,11 @@
   }
   .flash-viz-info-label {
     color: var(--sub);
-    background: color-mix(in srgb, var(--can-hdr-bg) 45%, var(--surface));
+    background: var(--info-label-bg, color-mix(in srgb, var(--can-hdr-bg) 45%, var(--surface)));
   }
   .flash-viz-info-value {
     color: var(--text);
+    background: var(--info-value-bg, transparent);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
@@ -2495,10 +2685,10 @@
   }
   @media (max-width: 720px) {
     body:has(#et100-viz:not([hidden])) { height: auto; min-height: 100vh; overflow: auto; }
+    body:has(#et100-viz:not([hidden])) .sidebar-content { border-right: 0; border-bottom: 1px solid var(--shell-divider); }
     body:has(#et100-viz:not([hidden])) .workspace { grid-template-columns: minmax(0, 1fr); height: auto; overflow: visible; }
     body:has(#et100-viz:not([hidden])) .sidebar { width: auto; overflow: visible; }
-    body:has(#et100-viz:not([hidden])) .main-panel { min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 150px auto; overflow: visible; }
-    body:has(#et100-viz:not([hidden])) header { flex-wrap: wrap; height: auto; gap: 6px; padding: 8px; }
+    body:has(#et100-viz:not([hidden])) .main-panel { min-width: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: 150px auto; overflow: visible; }
     body:has(#et100-viz:not([hidden])) .parsed-panel { overflow: visible; }
   }
   .ota-mode button {
@@ -2623,7 +2813,7 @@
     font-variant-numeric: tabular-nums;
   }
   .ota-meta-row:last-child { border-bottom: none; }
-  .ota-meta-label { color: var(--sub); font-weight: 400; }
+  .ota-meta-label { color: var(--sub); font-weight: 400; background: var(--info-label-bg, transparent); }
   .ota-meta-value {
     min-width: 0;
     color: var(--text);
@@ -2850,6 +3040,7 @@
   .gatt-list thead { display: none; }
   .gatt-list tbody tr { display: block; padding: 6px 0; border-bottom: 1px solid var(--border); }
   .gatt-list td { display: block; padding: 2px 0; overflow-wrap: anywhere; }
+  .gatt-list { background: var(--info-value-bg, transparent); }
   .gatt-list td::before { color: var(--sub); margin-right: 6px; }
   .gatt-events-table td:nth-child(1)::before { content: '時間'; }
   .gatt-events-table td:nth-child(2)::before { content: '事件'; }
@@ -2861,36 +3052,74 @@
   .gatt-metadata-table td:nth-child(4)::before { content: 'TLV HEX'; }
 </style>
 
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute;pointer-events:none">
+  <defs>
+    <filter id="logo-dark-outline" x="-15%" y="-15%" width="130%" height="130%" primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feMorphology in="SourceAlpha" operator="dilate" radius="1" result="outline-mask"/>
+      <feFlood flood-color="#ffffff"/>
+      <feComposite in2="outline-mask" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+</svg>
+<header class="app-header" id="app-header" aria-label="裝置與連線">
+    <div class="gateway-summary" id="gateway-summary" aria-live="polite">
+      <div class="gateway-summary-icon" title="EUP AIoT TESTER"><img src="assets/eup-logo.png" alt="EUP"></div>
+      <div class="gateway-summary-copy">
+        <div class="header-device-line"><small>裝置：</small><span class="gateway-summary-hardware" id="gateway-summary-hardware">—</span></div>
+        <div class="header-device-line"><small>韌體：</small><span class="gateway-summary-firmware" id="gateway-summary-firmware">—</span></div>
+      </div>
+    </div>
+    <div class="header-reserved" id="header-section-2" aria-hidden="true"></div>
+    <div class="header-log-section" id="header-section-3">
+      <div class="header-log-tools" id="uart-log-tools" aria-label="裝置 Log 工具" hidden>
+        <span class="counter" id="frame-counter" title="已接收封包">0 筆</span>
+        <button id="export-btn-log" class="mini-btn" title="匯出 Log" aria-label="匯出 Log" data-header-icon="download"><span>匯出</span></button>
+        <button id="clear-btn-log" class="mini-btn" title="清除 Log" aria-label="清除 Log" data-header-icon="trash2"><span>清除</span></button>
+      </div>
+      <div class="header-log-tools" id="at-log-tools" aria-label="AT Log 工具" hidden>
+        <span class="counter" id="lte-counter" title="AT 訊息">0 筆</span>
+        <button class="mini-btn" onclick="lteExportLog()" title="匯出 AT Log" aria-label="匯出 AT Log" data-header-icon="download"><span>匯出</span></button>
+        <button class="mini-btn" onclick="lteClearLog()" title="清除 AT Log" aria-label="清除 AT Log" data-header-icon="trash2"><span>清除</span></button>
+      </div>
+    </div>
+    <div class="header-actions" id="header-actions">
+      <button id="connect-btn">連線</button>
+      <button id="theme-btn" title="切換日／夜模式" aria-label="切換日／夜模式">◐</button>
+    </div>
+    <span id="tester-version" hidden>v.261012.1504</span>
+</header>
+
 <div class="workspace">
   <!-- ── sidebar ── -->
   <aside class="sidebar">
 
-    <div class="gateway-summary" id="gateway-summary" aria-live="polite">
-      <div class="gateway-summary-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="14" width="20" height="8" rx="2"/>
-          <path d="M6 14V6"/>
-          <path d="M18 14V6"/>
-          <line x1="10" y1="18" x2="10.01" y2="18"/>
-          <line x1="14" y1="18" x2="14.01" y2="18"/>
-        </svg>
-      </div>
-      <div class="gateway-summary-copy">
-        <div class="gateway-summary-hardware" id="gateway-summary-hardware">等待 Gateway 資訊</div>
-        <div class="gateway-summary-firmware" id="gateway-summary-firmware">連線後自動讀取</div>
-      </div>
-    </div>
-
     <div class="sidebar-body">
     <nav class="tab-bar" aria-label="功能導覽">
+      <div class="nav-pages">
       <button class="tab-btn active" data-tab="dash" data-nav-icon="layoutDashboard" aria-label="Dash 系統資訊" aria-current="page"></button>
       <button class="tab-btn" data-tab="ble" data-nav-icon="bluetooth" aria-label="BLE 指令"></button>
       <button class="tab-btn" data-tab="can" data-nav-icon="cable" aria-label="CAN 指令"></button>
       <button class="tab-btn" data-tab="ota" data-nav-icon="cloudUpload" aria-label="OTA 韌體更新"></button>
       <button class="tab-btn" data-tab="gatt" data-nav-icon="radio" aria-label="GATT 連線與指令"></button>
       <button class="tab-btn" data-tab="lte" data-nav-icon="terminal" aria-label="AT 指令分析"></button>
+      </div>
+      <button class="nav-settings-button" id="settings-open" aria-label="設定" title="設定" aria-controls="settings-sidebar"></button>
     </nav>
     <div class="sidebar-content">
+
+    <div id="settings-sidebar" hidden>
+      <div class="section" id="settings-records">
+        <div class="section-label">紀錄</div>
+        <label class="settings-row" for="settings-log-limit"><span>Log 保留上限</span><select id="settings-log-limit"><option value="1000">1,000 筆</option><option value="4000">4,000 筆</option><option value="10000">10,000 筆</option><option value="20000">20,000 筆</option></select></label>
+        <label class="settings-row" for="settings-clear-on-connect"><span>連線後清除 Log</span><input id="settings-clear-on-connect" type="checkbox"></label>
+        <div class="settings-error" id="settings-storage-error" role="status"></div>
+      </div>
+      <div class="section" id="settings-about">
+        <div class="section-label">關於</div>
+        <table class="dash-sidebar-table" aria-label="工具資訊"><tbody><tr><th>工具</th><td>EUP AIoT TESTER</td></tr><tr><th>版本</th><td id="settings-tool-version"></td></tr><tr><th>更新時間</th><td id="settings-tool-modified"></td></tr></tbody></table>
+      </div>
+    </div>
 
     <div id="dash-sidebar">
       <div class="section" id="dash-device-filters">
@@ -3445,25 +3674,6 @@
   <!-- ── main panel ── -->
   <div class="main-panel dash-active">
 
-    <header>
-      <div class="brand-lockup">
-        <div class="logo">EUP AIoT TESTER</div>
-        <div class="version-tag" id="tester-version">v.261012.1504</div>
-      </div>
-      <div class="divider-v brand-divider"></div>
-      <button class="filter-chip on" id="filter-ble" title="顯示/隱藏 BLE 訊息">BLE</button>
-      <button class="filter-chip on" id="filter-can" title="顯示/隱藏 CAN 訊息">CAN</button>
-      <div class="divider-v"></div>
-      <div class="header-spacer"></div>
-      <span class="counter" id="frame-counter">0 筆</span>
-      <button id="log-size-btn" class="mini-btn" type="button" aria-pressed="false" aria-controls="log" title="Log：標準（點擊縮小 35%）" aria-label="Log：標準（點擊縮小 35%）"></button>
-      <button id="export-btn-log" class="mini-btn" title="匯出 log.txt">匯出</button>
-      <button id="clear-btn-log" class="mini-btn" title="清除紀錄">清除</button>
-      <div class="divider-v"></div>
-      <button id="connect-btn">連線</button>
-      <button id="theme-btn" title="切換日／夜模式" aria-label="切換日／夜模式">◐</button>
-    </header>
-
     <section class="dash-page" id="dash-page" aria-label="Gateway 即時總覽">
       <div class="dash-topline">
         <div class="dash-gateway-lockup">
@@ -3481,25 +3691,24 @@
           <div class="system-status-actions"><span id="system-status-summary">尚未讀取</span>
             <a id="system-status-pdf" class="qbtn system-status-pdf" href="../docs/03_hardware/QEM800QQA-FYN01AA_MB_SCH_V1.1_20260923_1630.pdf" target="_blank" rel="noopener noreferrer" title="開啟 ET-100 產品主板 V1.1 電路圖 PDF（非 EVB）"><span aria-hidden="true" id="system-status-pdf-icon"></span>電路圖</a>
             <button id="system-status-refresh" type="button" title="重新讀取系統狀態" aria-label="重新讀取系統狀態" onclick="querySystemStatus()">&#8635;</button>
+            <button class="dash-collapse" type="button" data-dash-collapse="system-status-grid" data-section-name="ET-100 系統狀態" aria-controls="system-status-grid" aria-expanded="false" aria-label="展開 ET-100 系統狀態" title="展開 ET-100 系統狀態"></button>
           </div>
         </div>
-        <div id="system-status-grid" class="system-status-grid"></div>
+        <div id="system-status-grid" class="system-status-grid dash-section-body" hidden></div>
       </section>
-      <div class="dash-can-strip">
-        <div class="dash-can-heading"><h2><span id="dash-can-icon" aria-hidden="true"></span>CAN 車輛資料</h2><span id="dash-can-age"></span></div>
-        <dl class="dash-can" id="dash-can"></dl>
-      </div>
-      <div class="dash-section-heading" id="dash-sensors-heading"><h2><span id="dash-sensors-icon" aria-hidden="true"></span>感測裝置</h2><span id="dash-device-count"></span></div>
-      <div class="dash-grid" id="dash-devices"></div>
+      <section class="dash-can-strip" aria-label="CAN 車輛資料">
+        <div class="dash-section-heading"><h2><span id="dash-can-icon" aria-hidden="true"></span>CAN 車輛資料</h2><div class="dash-section-tools"><span id="dash-can-age"></span><button class="dash-collapse" type="button" data-dash-collapse="dash-can" data-section-name="CAN 車輛資料" aria-controls="dash-can" aria-expanded="true" aria-label="收摺 CAN 車輛資料" title="收摺 CAN 車輛資料"></button></div></div>
+        <dl class="dash-can dash-section-body" id="dash-can"></dl>
+      </section>
+      <section id="dash-device-section" aria-label="感測裝置">
+        <div class="dash-section-heading" id="dash-sensors-heading"><h2><span id="dash-sensors-icon" aria-hidden="true"></span>感測裝置</h2><div class="dash-section-tools"><span id="dash-device-count"></span><button class="dash-collapse" type="button" data-dash-collapse="dash-devices" data-section-name="感測裝置" aria-controls="dash-devices" aria-expanded="true" aria-label="收摺 感測裝置" title="收摺 感測裝置"></button></div></div>
+        <div class="dash-grid dash-section-body" id="dash-devices"></div>
+      </section>
     </section>
 
     <!-- AT 分析終端 -->
     <section class="lte-page" id="lte-page" aria-label="AT 分析終端" hidden>
       <header class="lte-toolbar">
-        <div class="brand-lockup">
-          <div class="logo">EG800Q 4G SNIFFER</div>
-        </div>
-        <div class="divider-v brand-divider"></div>
         <button class="filter-chip on" data-lte-filter="all" onclick="lteSetFilter('all', this)" title="全部訊息">全部</button>
         <button class="filter-chip" data-lte-filter="mcu" onclick="lteSetFilter('mcu', this)" title="僅看 MCU 發送">MCU TX</button>
         <button class="filter-chip" data-lte-filter="modem" onclick="lteSetFilter('modem', this)" title="僅看 4G 回應">4G RX</button>
@@ -3508,10 +3717,7 @@
         <div class="divider-v"></div>
         <input type="text" id="lte-search-input" placeholder="過濾關鍵字..." oninput="lteFilterRender()" style="width: 150px; border-radius: 999px; height: 26px; padding: 2px 10px; font-size: var(--fs-xs);">
         <div class="header-spacer" style="flex:1;"></div>
-        <span class="counter" id="lte-counter">0 筆</span>
         <button class="mini-btn" id="lte-pause-btn" onclick="lteTogglePause()" title="暫停/繼續滾動">暫停</button>
-        <button class="mini-btn" onclick="lteClearLog()" title="清除紀錄">清除</button>
-        <button class="mini-btn" onclick="lteExportLog()" title="匯出 log.txt">匯出</button>
       </header>
 
       <div class="lte-log-container" id="lte-log-container"></div>
@@ -3537,6 +3743,11 @@
     </section>
 
     <div class="log-wrap">
+      <div class="log-filters" aria-label="Log 篩選">
+        <button class="filter-chip on" id="filter-ble" title="顯示/隱藏 BLE 訊息">BLE</button>
+        <button class="filter-chip on" id="filter-can" title="顯示/隱藏 CAN 訊息">CAN</button>
+        <button id="log-size-btn" class="mini-btn" type="button" aria-pressed="false" aria-controls="log" title="Log：標準（點擊縮小 35%）" aria-label="Log：標準（點擊縮小 35%）"></button>
+      </div>
       <div id="log"></div>
     </div>
 
@@ -4148,6 +4359,33 @@ function formatTesterVersion(lastModified) {
 const testerVersionElement = document.getElementById('tester-version');
 const testerVersion = formatTesterVersion(document.lastModified);
 if (testerVersionElement && testerVersion) testerVersionElement.textContent = testerVersion;
+document.querySelector('#gateway-summary .gateway-summary-icon').title = `EUP AIoT TESTER ${testerVersionElement.textContent}`;
+
+const TOOL_SETTINGS_KEY = 'eup.tester.settings.v1';
+const TOOL_LOG_LIMITS = [1000, 4000, 10000, 20000];
+const toolSettings = { logLimit: 4000, clearOnConnect: false };
+try {
+  const saved = JSON.parse(localStorage.getItem(TOOL_SETTINGS_KEY));
+  if (saved && typeof saved === 'object') {
+    if (TOOL_LOG_LIMITS.includes(saved.logLimit)) toolSettings.logLimit = saved.logLimit;
+    if (typeof saved.clearOnConnect === 'boolean') toolSettings.clearOnConnect = saved.clearOnConnect;
+  }
+} catch (_) { /* Storage may be unavailable or contain an older malformed record. */ }
+
+function trimLogContainer(container) {
+  while (container && container.children.length > toolSettings.logLimit) container.firstElementChild.remove();
+}
+function trimLteLogEntries() {
+  const excess = lteLogEntries.length - toolSettings.logLimit;
+  if (excess > 0) for (const entry of lteLogEntries.splice(0, excess)) entry.node?.remove();
+}
+function saveToolSettings() {
+  const message = document.getElementById('settings-storage-error');
+  try {
+    localStorage.setItem(TOOL_SETTINGS_KEY, JSON.stringify(toolSettings));
+    message.textContent = '';
+  } catch (_) { message.textContent = '無法儲存至瀏覽器；設定僅於本次使用生效。'; }
+}
 
 function randCode() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -6028,6 +6266,7 @@ function makeLogEntry(dir, innerHTML, tagCls) {
   entry.innerHTML = innerHTML;
   if (!isEntryVisible(proto)) entry.style.display = 'none';
   logEl.appendChild(entry);
+  trimLogContainer(logEl);
   logEl.scrollTop = logEl.scrollHeight;
 }
 
@@ -6108,6 +6347,7 @@ async function restoreAuthorizedSerialPort() {
 }
 
 function setConnected(c) {
+  if (c && !connected && toolSettings.clearOnConnect) clearSerialLog();
   connected = c;
   if (!c) resetSystemStatus('離線');
   connectBtn.textContent = c ? '中斷' : '連線';
@@ -8140,10 +8380,7 @@ function dashboardVendor(decoded) {
 }
 
 function dashboardRecent(entry, nowMs) {
-  const eup = dashboardVendor(entry.decoded) === 'eup';
-  const limit = eup && entry.decoded.roleMode === 3 ? 65000
-    : eup && entry.decoded.roleMode === 1 ? Math.max(6000, bleGtimeMs * 2) : bleGtimeMs * 2;
-  return connected && nowMs - entry.lastMs <= limit;
+  return sensorListAppearance(entry, nowMs).fresh;
 }
 
 /* Lucide icon subset: https://github.com/lucide-icons/lucide
@@ -8161,6 +8398,11 @@ function dashboardRecent(entry, nowMs) {
  */
 function dashboardIcon(name) {
   const shapes = {
+    chevronDown: '<path d="m6 9 6 6 6-6"/>',
+    chevronUp: '<path d="m18 15-6-6-6 6"/>',
+    settings: '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+    trash2: '<path d="M3 6h18M19 6v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M10 11v6M14 11v6"/>',
     cable: '<path d="M17 9h4v4a4 4 0 0 1-4 4h-2M7 15H3v-4a4 4 0 0 1 4-4h2M17 5v4M21 5v4M3 15v4M7 15v4"/>',
     cloudUpload: '<path d="M12 13v8m-4-4 4-4 4 4M20 16a4 4 0 0 0 .88-7.9 5 5 0 0 0-9.72-1.6A4 4 0 0 0 4 16"/>',
     radio: '<circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.48m-8.48 0a6 6 0 0 1 0-8.48m11.31-2.83a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/>',
@@ -8329,7 +8571,6 @@ function renderSystemStatus() {
   const section=document.getElementById('system-status-section');
   const et100=systemStatusSeen || /fr3068/i.test(gatewayVersionInfo?.hwVer || '');
   section.hidden=!et100;
-  document.getElementById('dash-page').classList.toggle('et100-system-only',et100);
   const available=connected && (systemStatusSupported() || systemStatusSeen);
   document.getElementById('system-status-refresh').disabled=!available || systemStatusBusy() || !!systemStatusPending;
   document.getElementById('system-status-summary').textContent=!connected ? '離線' :
@@ -8446,7 +8687,7 @@ function renderDashboard() {
   document.getElementById('dash-devices').innerHTML = visible.map(({entry, slot}) => {
     const d = entry.decoded;
     const kind = dashboardVendor(d);
-    const fresh = dashboardRecent(entry, nowMs);
+    const {highlighted, fresh} = sensorListAppearance(entry, nowMs);
     const mac = entry.frameMac ? entry.frameMac.replace(/(.{2})(?=.)/g, '$1:') : d.mac || '—';
     const title = kind === 'minew' ? `Minew · ${d.model || 'CA Info'}`
       : kind === 'ligo' ? d.hwType || 'LIGO' : 'EUP AIoT';
@@ -8476,7 +8717,7 @@ function renderDashboard() {
       : kind === 'minew' ? '溫度與濕度趨勢，各軸獨立刻度' : '溫度與油量趨勢，各軸獨立刻度';
     chart = `<div class="dash-device-chart"><div class="dash-chart-legend">${legend}</div>`
       + `<canvas data-dash-wave="${slot}" role="img" aria-label="${escHtml(mac)} ${chartLabel}"></canvas></div>`;
-    return `<article class="dash-device${fresh ? '' : ' is-inactive'}" data-vendor="${kind}" data-dash-slot="${slot}"><div class="dash-device-head"><div><h3>${escHtml(title)}</h3><div class="dash-mac">${escHtml(mac)}</div></div>`
+    return `<article class="dash-device${highlighted ? ' state-active' : ''}${fresh ? '' : ' is-inactive'}" data-vendor="${kind}" data-dash-slot="${slot}"><div class="dash-device-head"><div><h3>${escHtml(title)}</h3><div class="dash-mac">${escHtml(mac)}</div></div>`
       + `<span class="dash-status${fresh ? ' is-live' : ''}">${fresh ? '近期資料' : '保留資料'}</span></div>`
       + `<dl class="dash-metrics">${measurements}</dl><div class="dash-device-aux">${aux}</div>${chart}`
       + `<div class="dash-device-foot"><span>裝置 ${slot + 1} · ${escHtml(String(d.firmware ?? '—'))}</span>`
@@ -8604,24 +8845,28 @@ async function send(frame) {
   entry.innerHTML = `<span class="ts">${now()}</span><span class="dir tx">→</span>`
     +`<span class="frame-tag tag-tx">TX</span>`
     +`<span class="raw tx">${escHtml(frame)}</span>`;
-  logEl.appendChild(entry); logEl.scrollTop = logEl.scrollHeight;
+  logEl.appendChild(entry); trimLogContainer(logEl); logEl.scrollTop = logEl.scrollHeight;
   await writer.write(new TextEncoder().encode(full));
 }
 
 // ── tab switching (only switches sidebar command area; log and cards are shared) ──
-const sidebarIds = ['ble-sidebar', 'can-sidebar', 'ota-sidebar', 'gatt-sidebar', 'dash-sidebar', 'lte-sidebar'];
+const sidebarIds = ['ble-sidebar', 'can-sidebar', 'ota-sidebar', 'gatt-sidebar', 'dash-sidebar', 'lte-sidebar', 'settings-sidebar'];
 function activateSidebarTab(nextTab, queryOtaState = true) {
-  activeTab = nextTab;
-  document.querySelectorAll('.tab-btn').forEach(button => {
-    const active = button.dataset.tab === activeTab;
+  document.querySelectorAll('.tab-btn, .nav-settings-button').forEach(button => {
+    const active = (button.dataset.tab || 'settings') === nextTab;
     button.classList.toggle('active', active);
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
   });
   sidebarIds.forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.hidden = id !== `${activeTab}-sidebar`;
+    if (el) el.hidden = id !== `${nextTab}-sidebar`;
   });
+  /* Settings changes only the left controls; keep the active right-hand view. */
+  if (nextTab === 'settings') return;
+  activeTab = nextTab;
+  document.getElementById('uart-log-tools').hidden = nextTab === 'dash' || nextTab === 'lte';
+  document.getElementById('at-log-tools').hidden = nextTab !== 'lte';
   document.getElementById('gatt-panel').hidden = activeTab !== 'gatt';
   document.querySelector('.main-panel').classList.toggle('dash-active', activeTab === 'dash');
   document.querySelector('.main-panel').classList.toggle('lte-active', activeTab === 'lte');
@@ -8644,7 +8889,8 @@ const navTooltip = document.createElement('div');
 navTooltip.className = 'nav-tooltip'; navTooltip.id = 'nav-tooltip';
 navTooltip.setAttribute('role', 'tooltip'); navTooltip.hidden = true;
 document.body.append(navTooltip);
-document.querySelectorAll('.tab-btn').forEach(btn => {
+document.querySelectorAll('.tab-btn, .nav-settings-button').forEach(btn => {
+  if (!btn.dataset.navIcon) btn.dataset.navIcon = 'settings';
   btn.innerHTML = dashboardIcon(btn.dataset.navIcon);
   btn.setAttribute('aria-describedby', navTooltip.id);
   const showHint = () => {
@@ -8659,7 +8905,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('keydown', event => { if (event.key === 'Escape') hideHint(); });
   btn.addEventListener('click', () => {
     hideHint();
-    if (btn.disabled || btn.dataset.tab === activeTab) return;
+    if (btn.id === 'settings-open') { openToolSettings(); return; }
+    if (btn.disabled || (btn.dataset.tab === activeTab && document.getElementById('settings-sidebar').hidden)) return;
     activateSidebarTab(btn.dataset.tab);
   });
 });
@@ -8864,10 +9111,10 @@ function renderGatewaySummary() {
   summary.classList.toggle('ready', ready);
   hardware.textContent = ready
     ? gatewayVersionInfo.hwVer || 'Gateway'
-    : connected ? '尚未取得 Gateway 資訊' : '等待 Gateway 資訊';
+    : connected ? '讀取中' : '—';
   firmware.textContent = ready
     ? gatewayVersionInfo.fwVer || '韌體版本未知'
-    : connected ? '等待 GCHK 回覆' : '連線後自動讀取';
+    : connected ? '讀取中' : '—';
   hardware.title = ready ? gatewayVersionInfo.hwVer || '' : '';
   firmware.title = ready ? gatewayVersionInfo.fwVer || '' : '';
 }
@@ -10838,10 +11085,14 @@ function clearDeviceList() {
   renderDashboard();
 }
 
-function clearLog() {
+function clearSerialLog() {
   logEl.innerHTML = '';
   frameCount = 0;
   counter.textContent = '0 筆';
+}
+
+function clearLog() {
+  clearSerialLog();
   sensorSlots.fill(null);
   selectedSensorSlot = -1;
   renderSensorCards();
@@ -10877,6 +11128,9 @@ function exportLog() {
 document.getElementById('export-btn-log').addEventListener('click', exportLog);
 
 const logSizeButton = document.getElementById('log-size-btn');
+document.querySelectorAll('[data-header-icon]').forEach(button => {
+  button.insertAdjacentHTML('afterbegin', dashboardIcon(button.dataset.headerIcon));
+});
 logSizeButton.innerHTML = dashboardIcon('panels');
 logSizeButton.addEventListener('click', () => {
   const small = document.querySelector('.main-panel').classList.toggle('log-small');
@@ -10894,7 +11148,36 @@ document.getElementById('theme-btn').addEventListener('click', () => {
   document.documentElement.setAttribute('data-theme', theme);
 });
 
+function openToolSettings() {
+  document.getElementById('settings-log-limit').value = String(toolSettings.logLimit);
+  document.getElementById('settings-clear-on-connect').checked = toolSettings.clearOnConnect;
+  document.getElementById('settings-tool-version').textContent = testerVersionElement.textContent;
+  document.getElementById('settings-tool-modified').textContent = new Date(document.lastModified).toLocaleString('zh-TW');
+  activateSidebarTab('settings', false);
+}
+document.getElementById('settings-log-limit').addEventListener('change', event => {
+  const limit = Number(event.target.value);
+  if (!TOOL_LOG_LIMITS.includes(limit)) return;
+  toolSettings.logLimit = limit;
+  trimLogContainer(logEl);trimLteLogEntries();lteFilterRender();saveToolSettings();
+});
+document.getElementById('settings-clear-on-connect').addEventListener('change', event => {
+  toolSettings.clearOnConnect = event.target.checked;saveToolSettings();
+});
+
 // init
+document.querySelectorAll('[data-dash-collapse]').forEach(button => {
+  const body = document.getElementById(button.dataset.dashCollapse);
+  const update = () => {
+    const expanded = !body.hidden;
+    const label = `${expanded ? '收摺' : '展開'} ${button.dataset.sectionName}`;
+    button.setAttribute('aria-expanded', String(expanded));
+    button.setAttribute('aria-label', label);button.title = label;
+    button.innerHTML = dashboardIcon(expanded ? 'chevronUp' : 'chevronDown');
+  };
+  update();
+  button.addEventListener('click', () => { body.hidden = !body.hidden;update();renderDashboard(); });
+});
 renderSensorCards();
 renderCanDashboard();
 renderCanSummaryCards();
@@ -11200,6 +11483,8 @@ async function lteConnectPort(channel) {
     if (selectedPort === ltePort1 || selectedPort === ltePort2) throw new Error('兩個通道不可選擇相同串列埠');
     await selectedPort.open({ baudRate: baudRate, dataBits: 8, stopBits: 1, parity: 'none' });
 
+    if (!ltePort1 && !ltePort2 && toolSettings.clearOnConnect) lteClearLog();
+
     if (channel === 1) {
       ltePort1 = selectedPort;
       lteKeepReading1 = true;
@@ -11330,6 +11615,7 @@ function lteAddLogEntry(dir, text, tagCls, type = '') {
 
   const entry = { time: timeStr, dir: dir, text: text, tagCls: tagCls || 'tag-sys', type: type || 'sys' };
   lteLogEntries.push(entry);
+  trimLteLogEntries();
   lteLineCount++;
 
   const counter = document.getElementById('lte-counter');
@@ -11400,15 +11686,13 @@ function lteRenderLine(entry) {
   `;
 
   container.appendChild(div);
+  entry.node = div;
 
   if (!lteIsPaused) {
     container.scrollTop = container.scrollHeight;
   }
 
-  // DOM prune over 4000 lines
-  if (container.children.length > 4000) {
-    container.removeChild(container.firstChild);
-  }
+  trimLogContainer(container);
 }
 
 function lteSetFilter(filter, el) {
@@ -11424,6 +11708,7 @@ function lteFilterRender() {
   container.innerHTML = '';
 
   for (const entry of lteLogEntries) {
+    entry.node = null;
     lteRenderLine(entry);
   }
 }
