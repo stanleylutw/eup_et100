@@ -165,6 +165,10 @@ ET100$INST;1;L;HELLO;8755CE49;0.8.11;PENDING        → *8208
 
 實作補充：BOOT 行送完、TEMT 清空後保留 300 ms 交接窗口；UART 等待上限不拖住有效 App。HELLO 遺失但收到有效且 txn 匹配的 BOOT 仍可切 9600；HELLO 已收到但 BOOT 遺失時，30 s 無事件後切回 9600，以 SMP 補查，不延長 180 s。未知主版本不可觸發切換；新欄位可略過。試運行逾時、回滾皆可能使整體超過 180 s，此時顯示結果未知，待 App 回來後另查 GOTASTAT／SMP，不自動增加總期限。
 
+**v0.9.5 tester 補充（2026-10-27）**：HTML 的 INST parser 依裝置設定表另接受 eup_canbus_32f407 定義的 `F407$INST;` 前綴（行格式、事件、CRC 規則與本文件 §4–§5 相同，CRC 自行首第一字元計算），只採用與目前連線裝置相符的前綴；ET-100 仍只接受 `ET100$INST;`。F407 經 USB CDC 連線時 installer 無 USB 輸出，HTML 不等待 INST，改為重連並核對 GCHK UID 後以 SMP／`GOTASTAT` 判定，180 s 總期限不變。本協定（ET-100 INST v1）本身未變更。
+
+**v0.9.6 tester 補充（2026-10-28）**：取代上段 F407 USB 敘述。eup_canbus_32f407 v0.2.5 起 installer 在安裝／還原時也以 USB CDC 出現（同 VID/PID、同 UID），回應 GCHK／GFWINFO（fw 欄位 `<ver>-inst`）並送 `F407$INST;` 行。HTML 每次 USB 重連都先核對 GCHK UID，再以 `-inst` 判定 installer 階段：此階段只接收 INST、顯示 BACKUP／ERASE／WRITE 百分比，**不送 SMP／GOTASTAT**；收到 BOOT 後預期再斷線一次，重連到 App 才以 SMP／`GOTASTAT` 判定。UID 確認前收到的 INST 最多暫存 64 行，確認後才處理。F407 總期限為 **240 s**（ET-100 維持 180 s）。ET-100 INST v1 協定本身未變更。
+
 ## 9. 輸出限制
 
 - 每次交易輸出 ≤ 約 6 KB（4 階段 × 12 行 × ≤ 120 B），115200 下 < 0.6 s。
