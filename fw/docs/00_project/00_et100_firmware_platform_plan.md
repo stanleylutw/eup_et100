@@ -1,9 +1,11 @@
 # ET-100 Firmware Platform Plan
 
-Version: v0.9.3
-Last updated: 2026-10-24 Codex（Stanley 授權 Step 7）
+Version: v0.9.7
+Last updated: 2026-10-28 Claude
 
 ## Revision History
+
+2026-10-28 v0.9.7（Claude review PASS；EVB 實機待 Stanley）：新增 CAN J1939（V1.9 CAN box 功能）：F407 `a730897` 的 j1939／app_gateway／app_can_protocol／app_can_bitrate 原樣移植（host manifest 驗證）；EVB CAN3（PA10/PA11，TJA1044 STB 經 R26 下拉）**永遠 bus monitoring**（不 ACK、不發送）；250/500k 與自動偵測、SP 87.5 %；`CAN$` 指令、`AT$PD=67;` Type0–4、FlashDB `0x00030009` 設定、SYS 第 12 項。ET-100 實板 MCAN1／AW9523 另開分支。
 
 2026-10-24 v0.9.3（Codex 自我複查無 Critical／Major；獨立 review／EVB 待驗收）：一般 GATT 認證後、非 exclusive session 要求 interval 40／window 10 的 connected scan；依 START／END 事件確認與切換，失敗不斷開 GATT。SMP 主動回報改為實際收包／排隊／處理／整包回覆＋3 秒緩衝，逐行 TX 仲裁避免 M1 舊快照競態；OTABAUD 30 秒、NOR ownership、線上格式與 UUID／NVS 不變。程式 commit `77ba471`；本版無硬體操作，實際 RF 並行及 serial client 相容性待 Stanley。驗證與產物只見 [24](../04_testing/24_gatt_scan_resume.md)、[25](../04_testing/25_smp_report_resume.md)。
 

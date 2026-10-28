@@ -1,0 +1,108 @@
+{
+  "repo": "eup_canbus_32f407",
+  "commit": "a730897",
+  "files": [
+    {
+      "path": "fw/src/can/app_can_protocol.c",
+      "source": "app/app_can_protocol.c",
+      "sha256": "48279eddd90e344d2a4b7379717c0196fda0982a7406580b03fca15d1ae47353",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/src/can/j1939.h",
+      "source": "app/j1939.h",
+      "sha256": "9f9e5637ac11621e70e7ab5b79ed6349c4f5f99491ca700a64cf0c0ecc1af696",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/src/can/app_gateway.c",
+      "source": "app/app_gateway.c",
+      "sha256": "c3536e316b535bd64c8097ae758c23f344ec26ae194ab819f28c28e1a4a1cf63",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/src/can/app_can_bitrate.h",
+      "source": "app/app_can_bitrate.h",
+      "sha256": "b2fcddc9c2849d1e29357c1c9343a4d5622aadb198a5ffc62dcbf4d6f88b2d86",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/src/can/j1939_sheet_tables_gen.h",
+      "source": "app/j1939_sheet_tables_gen.h",
+      "sha256": "14014ebbcfde0abdbfdc1baa58e17965e6ba3c40e0bd1c8ee6cfdbcbf070966f",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/src/can/app_can_protocol.h",
+      "source": "app/app_can_protocol.h",
+      "sha256": "9251041ea0ceca55b3553ae1e2e4d327f501d0a396129a3f2a589ea264e0ce4f",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/src/can/app_can_bitrate.c",
+      "source": "app/app_can_bitrate.c",
+      "sha256": "f316a0e1a9d4945bb40d3cdfd9834de0c4f56cef8daff3ee04eb089fa55972f4",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/src/can/app_gateway.h",
+      "source": "app/app_gateway.h",
+      "sha256": "780fda3f9d6779b17987cf651f711de598816607ed37fa34aeff7eade4fc1a98",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/src/can/j1939.c",
+      "source": "app/j1939.c",
+      "sha256": "ed2b9cb219b10584d974daa468658da7beea591454c2426f9d2f3651c0c16802",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/tests/test_gateway.c",
+      "source": "tests/host/test_gateway.c",
+      "sha256": "19ba4c3a42d63a99537bd259b7a65eebf31a963c453ce32fd48021a91ac79718",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/tests/test_can_protocol.c",
+      "source": "tests/host/test_can_protocol.c",
+      "sha256": "46744308652e657d1dcabd934f474294395d478a2d14c8fb86bd6c64c55cc439",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/tests/test_can_bitrate.c",
+      "source": "tests/host/test_can_bitrate.c",
+      "sha256": "1bc1f06726cc9391f4c83cd47af018a54bc88c4ce8eac50919b5a6f53ffd8dd6",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/tests/test_demo_frames.c",
+      "source": "tests/host/test_demo_frames.c",
+      "sha256": "8e7d9686fbd499b0b05d6dd38de39a3052a5d80828fa98ad4390103590e1303a",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/tests/app_demo_j1939_frames.h",
+      "source": "app/app_demo_j1939_frames.h",
+      "sha256": "2a185a4f14647bb414d05feca61187acd72350210c2f845077b95a82e6de774c",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/tests/can_v19_fakes/vectors.h",
+      "source": "tests/host/can_v19_fakes/vectors.h",
+      "sha256": "1c45f482978a841ac317a3e3bc3119c02f33618d37f62be902fa7e2af91fc205",
+      "skip_source_comment": true
+    },
+    {
+      "path": "fw/tests/fixtures/j1939_v19_vectors.json",
+      "source": "tests/host/fixtures/j1939_v19_vectors.json",
+      "sha256": "55237058f3af492f1816c50f9d4e250b5e68c641318cfae2449222506fd6da89",
+      "skip_source_comment": false
+    },
+    {
+      "path": "fw/docs/02_protocol/j1939_v19_rules.csv",
+      "source": "docs/02_protocol/j1939_v19_rules.csv",
+      "sha256": "d334bd8a7a97de7f7dc18a4e63758d9d5caeaefda2843983f069598b70177513",
+      "skip_source_comment": false
+    }
+  ]
+}

@@ -6,7 +6,7 @@ LD := $(ET100_FW)/ld/evb_app.ld
 LDFLAGS += -L$(ET100_FW)/installer
 INC_PATH := -I"$(ET100_FW)/include" $(INC_PATH)
 INC_PATH += -I"$(ET100_FW)/third_party/tinycrypt/include"
-ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.9.3-dev\"
+ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.9.7-dev\"
 # DEVELOPMENT builds open an unauthenticated BLE SMP service (06 §6.1); clear for release.
 ET100_SMP_BLE_FLAGS ?= -DET100_SMP_BLE_OPEN=1
 CFLAGS += $(ET100_VERSION_FLAGS) $(ET100_TEST_FLAGS) $(ET100_SMP_BLE_FLAGS)
@@ -53,9 +53,18 @@ $(OBJECT_DIR)/tinycrypt_utils.o: $(ET100_FW)/third_party/tinycrypt/source/utils.
 
 # v0.8.5: OTA manager + SMP over serial (UART3).
 OTA_OBJECTS = system_status cbor_min smp_serial smp_server ota_manager ota_journal nor_qspi1 ota_worker smp_ble eup_meta_protocol eup_meta_service sensor_package sensor_store \
-              sensor_smp_client sensor_ota_compat sensor_ota_job
+              sensor_smp_client sensor_ota_compat sensor_ota_job can_task
 $(BASE_ElF): $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(OTA_OBJECTS))) $(OBJECT_DIR)/candidate.o
 $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(OTA_OBJECTS))): $(OBJECT_DIR)/%.o: $(ET100_FW)/src/%.c
 	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
 $(OBJECT_DIR)/candidate.o: $(ET100_FW)/installer/candidate.c
+	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
+
+INC_PATH += -I"$(ET100_FW)/src/can"
+CAN_OBJECTS = j1939 app_can_protocol app_can_bitrate app_gateway
+$(BASE_ElF): $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(CAN_OBJECTS)))
+$(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(CAN_OBJECTS))): $(OBJECT_DIR)/%.o: $(ET100_FW)/src/can/%.c
+	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
+$(BASE_ElF): $(OBJECT_DIR)/driver_can.o
+$(OBJECT_DIR)/driver_can.o: $(TOP_DIR)/components/drivers/peripheral/Src/driver_can.c
 	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<

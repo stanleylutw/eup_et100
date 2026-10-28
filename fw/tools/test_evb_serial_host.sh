@@ -54,3 +54,4 @@ smp_image=${ET100_SIGNED_IMAGE:-fw/build_serial/output/et100.signed.bin}
 /tmp/et100_sensor_ota_test
 /tmp/et100_test_smp "$smp_image"
 bash fw/tools/test_system_status_host.sh
+bash fw/tools/test_can_host.sh

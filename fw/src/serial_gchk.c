@@ -238,6 +238,13 @@ static void handle_line(struct et100_serial_parser *p)
     int length;
 
     p->line[p->length] = '\0';
+    if (strncmp(p->line,"CAN$",4)==0) {
+        if(p->can_command) {
+            size_t n=p->can_command(p->line,response,sizeof response);
+            if(n)p->send(response,n,p->context);
+        }
+        return;
+    }
     if (strncmp(p->line, "BLEGW$", 6) != 0)
         return;
     command = p->line + 6;
@@ -446,6 +453,7 @@ extern const struct eup_fw_info et100_fw_info;
 #include "semphr.h"
 #include "smp_ble.h"
 #include "serial_report_tx.h"
+#include "can_task.h"
 
 static int storage_initialized;
 
@@ -663,6 +671,7 @@ static void serial_task(void *argument)
     serial_parser.fw_info = &et100_fw_info;
     serial_parser.ota_status = et100_boot_status;
     serial_parser.system_status = et100_sys_query;
+    serial_parser.can_command = et100_can_command;
     struct sensor_store_status pkg;
     if (ota_worker_sensor_status(&pkg)) serial_parser.pkg_status = pkg_status;
     smp_serial_init(&smp_rx);
@@ -754,6 +763,15 @@ static void serial_task(void *argument)
         TickType_t now = xTaskGetTickCount();
         smp_serial_expire(&smp_rx, (uint32_t)now * portTICK_PERIOD_MS);
         int smp_active = smp_seen && (TickType_t)(now - smp_last) < pdMS_TO_TICKS(SMP_IDLE_MS);
+        et100_can_set_paused(report_paused(false,serial_uart));
+        if(report_try_lock(serial_uart)) {
+            char can_line[ET100_CAN_LINE_MAX];
+            bool stop=report_paused(false,serial_uart);
+            et100_can_set_paused(stop);
+            size_t n=et100_can_take_line(can_line,sizeof can_line,stop);
+            if(n)serial_write_locked(can_line,n,serial_uart);
+            report_unlock(serial_uart);
+        }
         et100_report_tx_poll(&report_tx,true,report_system);
         et100_report_tx_poll(&report_tx,false,report_beacon);
         /* OTABAUD fallback: return to 9600 after 30 s without SMP traffic. */

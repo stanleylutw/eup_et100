@@ -46,6 +46,7 @@ struct et100_serial_parser {
     const struct eup_fw_info *fw_info;
     int (*ota_status)(struct inst_snapshot *);
     size_t (*system_status)(const char *, unsigned, char *, size_t);
+    size_t (*can_command)(const char *, char *, size_t);
     /* v0.8.8 sensor package (format of eup_gateway GSOTAPKG/DSOTAPKG). pkg_status
      * NULL answers UNSUPPORTED. DSOTAPKG sets pkg_delete_request; the transport
      * queues the erase and answers with et100_serial_pkg_deleted(). */
