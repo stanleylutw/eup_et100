@@ -6,10 +6,15 @@ LD := $(ET100_FW)/ld/evb_app.ld
 LDFLAGS += -L$(ET100_FW)/installer
 INC_PATH := -I"$(ET100_FW)/include" $(INC_PATH)
 INC_PATH += -I"$(ET100_FW)/third_party/tinycrypt/include"
-ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.9.7-dev\"
+ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.9.8-dev\"
+# Derive CAN's decimal version from the effective firmware version flag,
+# including command-line overrides. Range checks live in can_task.c.
+ET100_VERSION_TEXT = $(subst \",,$(patsubst -DEUP_FIRMWARE_VERSION=%,%,$(filter -DEUP_FIRMWARE_VERSION=%,$(ET100_VERSION_FLAGS))))
+ET100_VERSION_PARTS = $(subst ., ,$(firstword $(subst -, ,$(ET100_VERSION_TEXT))))
+ET100_CAN_VERSION_FLAGS = -DET100_CAN_VERSION_MAJOR=$(word 1,$(ET100_VERSION_PARTS)) -DET100_CAN_VERSION_MINOR=$(word 2,$(ET100_VERSION_PARTS)) -DET100_CAN_VERSION_PATCH=$(word 3,$(ET100_VERSION_PARTS))
 # DEVELOPMENT builds open an unauthenticated BLE SMP service (06 §6.1); clear for release.
 ET100_SMP_BLE_FLAGS ?= -DET100_SMP_BLE_OPEN=1
-CFLAGS += $(ET100_VERSION_FLAGS) $(ET100_TEST_FLAGS) $(ET100_SMP_BLE_FLAGS)
+CFLAGS += $(ET100_VERSION_FLAGS) $(ET100_CAN_VERSION_FLAGS) $(ET100_TEST_FLAGS) $(ET100_SMP_BLE_FLAGS)
 INC_PATH += -I"$(ET100_FW)/common" -I"$(ET100_FW)/installer" -I"$(TOP_DIR)/components/modules/mbedtls/include"
 $(BASE_ElF): $(OBJECT_DIR)/boot_health.o $(OBJECT_DIR)/boot_state.o $(OBJECT_DIR)/mcuboot_image.o $(OBJECT_DIR)/sha256.o $(OBJECT_DIR)/platform_util.o
 $(OBJECT_DIR)/boot_health.o: $(ET100_FW)/src/boot_health.c

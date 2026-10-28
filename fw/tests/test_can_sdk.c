@@ -39,6 +39,8 @@ static char reply[160];
 static void send_line(const char *line,size_t n,void *context){(void)context;assert(n<sizeof reply);memcpy(reply,line,n);reply[n]=0;}
 int main(void)
 {
+    char version_reply[80];
+    snprintf(version_reply,sizeof version_reply,"CAN$GVERSION;1;V1:%u;AB12*",ET100_CAN_VERSION);
     et100_sys_init();initialize(1,0);assert(monitor_calls==0&&tx_calls==0);
     assert(!CAN3->CCCtrl.INIT&&CAN3->CCCtrl.MON&&!CAN3->CCCtrl.FDOE&&!CAN3->CCCtrl.BRSE);
     assert(CAN3->NominalTiming.NBRP==3);assert(CAN3->NominalTiming.NTSEG1==19&&CAN3->NominalTiming.NTSEG2==2);
@@ -56,7 +58,7 @@ int main(void)
     struct et100_serial_parser parser;et100_serial_init(&parser,"C03232325903",send_line,NULL);parser.can_command=et100_can_command;
     const char *query="CAN$GVERSION;AB12\r\n";
     for(const char *p=query;*p;p++)et100_serial_feed(&parser,(uint8_t)*p);
-    et100_can_step(250);bool found=false;while(et100_can_take_line(reply,sizeof reply,false))if(strstr(reply,"CAN$GVERSION;1;V1:97;AB12*"))found=true;
+    et100_can_step(250);bool found=false;while(et100_can_take_line(reply,sizeof reply,false))if(strstr(reply,version_reply))found=true;
     assert(found&&tx_calls==0);
     /* DAP failure fixture: MON alone must not publish a working controller. */
     hold_init=true;initialize(1,0);

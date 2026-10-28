@@ -7,6 +7,13 @@
 #include "et100_fdb_keys.h"
 #include "system_status.h"
 #include <string.h>
+/* Build derives these components from EUP_FIRMWARE_VERSION (no second version). */
+_Static_assert(ET100_CAN_VERSION_MINOR >= 0 && ET100_CAN_VERSION_MINOR < 10,
+               "CAN minor version must be below 10");
+_Static_assert(ET100_CAN_VERSION_PATCH >= 0 && ET100_CAN_VERSION_PATCH < 10,
+               "CAN patch version must be below 10");
+enum { ET100_CAN_VERSION = ET100_CAN_VERSION_MAJOR*100+
+                          ET100_CAN_VERSION_MINOR*10+ET100_CAN_VERSION_PATCH };
 #ifndef ET100_CAN_HOST_TEST
 #include "fr30xx.h"
 #include "FreeRTOS.h"
@@ -37,6 +44,7 @@ static CanConfig_t configuration;
 static CanBitrate_t bitrate;
 static struct et100_can_diagnostics diagnostics;
 static bool storage, paused, ready, recovery, recovery_applied, boot_sent;
+static bool rx_since_invalidate;
 static volatile bool error_pending, off_pending;
 static uint32_t now_ms, boot_ms, recover_since, last_rx;
 #ifndef ET100_CAN_HOST_TEST
@@ -144,6 +152,12 @@ static bool save(const CanConfig_t *c)
     if(et100_can_record_read(verify)&&!memcmp(record,verify,16))return true;
     return et100_can_record_write(record)&&et100_can_record_read(verify)&&!memcmp(record,verify,16);
 }
+static void invalidate_received(void)
+{
+    if(rx_since_invalidate) {
+        AppGateway_Invalidate(now_ms);rx_since_invalidate=false;
+    }
+}
 static int apply(void *context,unsigned kbps,int silent)
 {
     (void)context;(void)silent; /* D2: even a portable NORMAL request stays MON. */
@@ -152,10 +166,10 @@ static int apply(void *context,unsigned kbps,int silent)
     if(bitrate.running&&!recovery&&diagnostics.kbps==kbps)return 1;
     if(!et100_can_hw_apply(kbps)) {
         taskENTER_CRITICAL();tail=head;taskEXIT_CRITICAL();
-        AppGateway_Invalidate(now_ms);status(6);return 0;
+        invalidate_received();status(6);return 0;
     }
     taskENTER_CRITICAL();tail=head;diagnostics.kbps=kbps;taskEXIT_CRITICAL();
-    AppGateway_Invalidate(now_ms);status(recovery?5:2);return 1;
+    invalidate_received();status(recovery?5:2);return 1;
 }
 static void initialize(int storage_ready,uint32_t now)
 {
@@ -164,6 +178,7 @@ static void initialize(int storage_ready,uint32_t now)
     rx_epoch=confidence_epoch=0;deferred_boot.length=0;
     memset(&diagnostics,0,sizeof diagnostics);
     storage=storage_ready!=0;ready=false;recovery=recovery_applied=boot_sent=paused=false;
+    rx_since_invalidate=false;
     error_pending=off_pending=false;now_ms=boot_ms=last_rx=now;
     configuration=CAN_CONFIG_DEFAULT;
     if(storage&&et100_can_record_read(record)) (void)decode(record,&configuration);
@@ -183,7 +198,7 @@ size_t et100_can_command(const char *line,char *failure,size_t capacity)
         commands[command_head]=request;command_head=next;taskEXIT_CRITICAL();return 0;
     }
     CanConfig_t snapshot=configuration;taskEXIT_CRITICAL();
-    return CanProtocol_Reply(&request,&snapshot,97,0,failure,capacity);
+    return CanProtocol_Reply(&request,&snapshot,ET100_CAN_VERSION,0,failure,capacity);
 }
 void et100_can_step(uint32_t now)
 {
@@ -194,7 +209,7 @@ void et100_can_step(uint32_t now)
     if(error)CanBitrate_Observe(&bitrate,now,0);
     if(off) {
         diagnostics.bus_off++;recovery=true;recovery_applied=false;recover_since=now;
-        AppGateway_Invalidate(now);status(4);
+        invalidate_received();status(4);
     } else if(recovery) {
         status(5);
         if(!recovery_applied&&(uint32_t)(now-recover_since)>=100u) {
@@ -229,7 +244,7 @@ void et100_can_step(uint32_t now)
             }
         }
         char response[ET100_CAN_LINE_MAX];
-        size_t length=CanProtocol_Reply(&request,&configuration,97,ok,response,sizeof response);
+        size_t length=CanProtocol_Reply(&request,&configuration,ET100_CAN_VERSION,ok,response,sizeof response);
         (void)enqueue(response,length,false);
     }
     if(!recovery) {
@@ -243,6 +258,7 @@ void et100_can_step(uint32_t now)
                 CanBitrate_Observe(&bitrate,now,0);confidence_epoch=epoch;
             }
             AppGateway_Frame(frame.id,frame.data,frame.dlc,now);
+            rx_since_invalidate=true;
             if(frame.epoch==epoch)CanBitrate_Observe(&bitrate,now,1);
             last_rx=now;
             if(bitrate.running)status(3);
@@ -255,7 +271,7 @@ void et100_can_step(uint32_t now)
     taskENTER_CRITICAL();bool stop=paused;taskEXIT_CRITICAL();
     if(!boot_sent&&!stop&&(uint32_t)(now-boot_ms)>=300000u) {
         char line[ET100_CAN_LINE_MAX];
-        size_t length=AppGateway_BootLine(&configuration,97,line,sizeof line);
+        size_t length=AppGateway_BootLine(&configuration,ET100_CAN_VERSION,line,sizeof line);
         boot_sent=enqueue(line,length,2);
     }
 }
