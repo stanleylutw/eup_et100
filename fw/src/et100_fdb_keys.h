@@ -9,4 +9,5 @@
 #define ET100_FDB_BOOT_HEALTH_KEY 0x00030006U /* boot_health.c TRIAL probe, 4 bytes */
 #define ET100_FDB_REPORT_KEY      0x00030007U /* serial_gchk.c whitelist/MAXRPT, 102 bytes */
 #define ET100_FDB_INST_REPORTED_KEY 0x00030008U /* boot_health.c reported txn, full hash 32 bytes */
+#define ET100_FDB_CAN_KEY          0x00030009U /* can_task.c CAN config, 16 bytes */
 #endif

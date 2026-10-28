@@ -282,7 +282,7 @@ int  event_bus_subscribe(app_event_type_t type, QueueHandle_t inbox);
 | D03 | NFC PN7160 | I²C3（1V8 域） | PB12/PB13 | NFC_1V8_EN、VEN、IRQ、DWL_REQ、WAKE | ⬜ | Sheet 14 NFC antenna matching 實測 |
 | D04 | G-Sensor SC7U22 | I²C0（1V8 域） | — | INT1 wake | ⬜ | datasheet（Q35）|
 | D05 | IO Expander AW9523 | I²C5（3V3 域） | PD6/PD7 | RSTN、INTN | ⬜ | 設 16 ch 功能表 |
-| D06 | CAN J1939 | CAN FD #1 | PB7 TX / PB6 RX | MCU_CAN_STB（經 AW9523）| ⬜ | 二組 CAN pinmux + bit timing（Q07/Q50 相關）|
+| D06 | CAN J1939 | CAN FD #1（MCAN1，依 EVB 原理圖 FR3068E-C 腳位表：PB6=MCAN1_RX、PB7=MCAN1_TX） | PB7 TX / PB6 RX | MCU_CAN_STB（經 AW9523 P1_6）、VIO（AW9523 P0_2） | 🔶 | **v0.9.7**：V1.9 J1939 只聽（bus monitoring）已在 EVB CAN3（PA10/PA11）實作，見 [09 協定](../02_protocol/09_can_j1939.md)；ET-100 實板 MCAN1／AW9523 與 R0521（Q49）待實板 |
 | D07 | SPI Flash XM25QH256D | SPIM（SPIMX2_1） | PD8/9/10/11 + /CS PD9 | /HOLD、/WP pull-up | ⬜ | — |
 | D08 | 1-Wire DS18B20 | GPIO + Timer | 經 Sheet 11 BJT buffer | 1_Wire_Temp_IN/OUT | ⬜ | 自寫 bit-bang（SDK 無） |
 | D09 | 3× RS232 | UART1/2/3 | PB4/5/8/9 等 | MCU_RS232_EN1/2/0（經 AW9523） | ⬜ | EN sequence |

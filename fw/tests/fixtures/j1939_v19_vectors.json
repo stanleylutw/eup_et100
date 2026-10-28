@@ -1,0 +1,378 @@
+{
+  "protocol": "V1.9",
+  "plan": "v1.2",
+  "vectors": [
+    {
+      "name": "Type0",
+      "body": "67;0;V1;26;30;1:1:1:1;0",
+      "checksum": "5B",
+      "wire": "AT$PD=67;0;V1;26;30;1:1:1:1;0*5B\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 15,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26
+      },
+      "inputs": []
+    },
+    {
+      "name": "Type1",
+      "body": "67;1;000000;3;126;1",
+      "checksum": "3C",
+      "wire": "AT$PD=67;1;000000;3;126;1*3C\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 1,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "poll_ms": 0,
+        "last_rx_ms": 0
+      },
+      "inputs": [
+        {
+          "pgn": 61444,
+          "dlc": 8,
+          "spn": 1675,
+          "byte": 7,
+          "bit": 1,
+          "raw": 3
+        },
+        {
+          "pgn": 61445,
+          "dlc": 8,
+          "spn": 523,
+          "byte": 4,
+          "raw": 126
+        },
+        {
+          "pgn": 65265,
+          "dlc": 8,
+          "spn": 70,
+          "byte": 1,
+          "bit": 3,
+          "raw": 1
+        }
+      ]
+    },
+    {
+      "name": "Type1 全缺值",
+      "body": "67;1;000000;;;",
+      "checksum": "0B",
+      "wire": "AT$PD=67;1;000000;;;*0B\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 1,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "poll_ms": 0,
+        "last_rx_ms": null
+      },
+      "inputs": []
+    },
+    {
+      "name": "Type2",
+      "body": "67;2;000000;400;48;5120;185;040;50:140;500",
+      "checksum": "01",
+      "wire": "AT$PD=67;2;000000;400;48;5120;185;040;50:140;500*01\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 2,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "poll_ms": 30000,
+        "last_rx_ms": 30000
+      },
+      "inputs": [
+        {
+          "pgn": 65217,
+          "spn": 917,
+          "raw": 80040,
+          "dlc": 8
+        },
+        {
+          "pgn": 65276,
+          "spn": 96,
+          "raw": 120,
+          "dlc": 8
+        },
+        {
+          "pgn": 65266,
+          "spn": 185,
+          "raw": 5120,
+          "dlc": 8
+        },
+        {
+          "pgn": 65129,
+          "spn": 1637,
+          "raw": 11456,
+          "dlc": 8
+        },
+        {
+          "pgn": 65262,
+          "spn": 175,
+          "raw": 7456,
+          "dlc": 8
+        },
+        {
+          "pgn": 65110,
+          "spn": 1761,
+          "raw": 125,
+          "dlc": 8
+        },
+        {
+          "pgn": 65110,
+          "spn": 3031,
+          "raw": 80,
+          "dlc": 8
+        },
+        {
+          "pgn": 65257,
+          "spn": 250,
+          "raw": 100,
+          "dlc": 8
+        }
+      ]
+    },
+    {
+      "name": "Type2 捨入邊界（里程 raw 199、油量 raw 2、尿素水位 raw 2）",
+      "body": "67;2;000000;0;1;5120;185;040;1:140;500",
+      "checksum": "0C",
+      "wire": "AT$PD=67;2;000000;0;1;5120;185;040;1:140;500*0C\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 2,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "poll_ms": 30000,
+        "last_rx_ms": 30000
+      },
+      "inputs": [
+        {
+          "pgn": 65217,
+          "spn": 917,
+          "raw": 199,
+          "dlc": 8
+        },
+        {
+          "pgn": 65276,
+          "spn": 96,
+          "raw": 2,
+          "dlc": 8
+        },
+        {
+          "pgn": 65266,
+          "spn": 185,
+          "raw": 5120,
+          "dlc": 8
+        },
+        {
+          "pgn": 65129,
+          "spn": 1637,
+          "raw": 11456,
+          "dlc": 8
+        },
+        {
+          "pgn": 65262,
+          "spn": 175,
+          "raw": 7456,
+          "dlc": 8
+        },
+        {
+          "pgn": 65110,
+          "spn": 1761,
+          "raw": 2,
+          "dlc": 8
+        },
+        {
+          "pgn": 65110,
+          "spn": 3031,
+          "raw": 80,
+          "dlc": 8
+        },
+        {
+          "pgn": 65257,
+          "spn": 250,
+          "raw": 100,
+          "dlc": 8
+        }
+      ]
+    },
+    {
+      "name": "Type2 全缺值",
+      "body": "67;2;000000;;;;;;:;",
+      "checksum": "32",
+      "wire": "AT$PD=67;2;000000;;;;;;:;*32\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 2,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "poll_ms": 30000,
+        "last_rx_ms": null
+      },
+      "inputs": []
+    },
+    {
+      "name": "Type3",
+      "body": "67;3;000000;1;3C0384FFFF",
+      "checksum": "7C",
+      "wire": "AT$PD=67;3;000000;1;3C0384FFFF*7C\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 4,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "poll_ms": 10000,
+        "invalidate_ms": 10000,
+        "last_rx_ms": 10000
+      },
+      "inputs": [
+        {
+          "pgn": 65132,
+          "spn": 1624,
+          "byte": 7,
+          "raw": 15360,
+          "dlc": 8
+        },
+        {
+          "pgn": 61444,
+          "spn": 190,
+          "byte": 4,
+          "raw": 7200,
+          "dlc": 8
+        }
+      ]
+    },
+    {
+      "name": "Type4",
+      "body": "67;4;000000;1;17530",
+      "checksum": "34",
+      "wire": "AT$PD=67;4;000000;1;17530*34\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 8,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "poll_ms": 10000,
+        "invalidate_ms": 10000,
+        "last_rx_ms": 10000
+      },
+      "inputs": [
+        {
+          "pgn": 61449,
+          "spn": 1807,
+          "byte": 1,
+          "raw": 62127,
+          "dlc": 8
+        }
+      ]
+    },
+    {
+      "name": "Type4 缺值",
+      "body": "67;4;000000;1;FFFFF",
+      "checksum": "42",
+      "wire": "AT$PD=67;4;000000;1;FFFFF*42\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 8,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "poll_ms": 10000,
+        "invalidate_ms": 10000,
+        "last_rx_ms": null
+      },
+      "inputs": []
+    },
+    {
+      "name": "CAN 查詢回覆",
+      "body": "CAN$GGTIME;1;30;12AB",
+      "checksum": "74",
+      "wire": "AT$PD=CAN$GGTIME;1;30;12AB*74\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 15,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "request": "CAN$GGTIME;12AB",
+        "success": true,
+        "source": "requesting port only"
+      },
+      "inputs": []
+    },
+    {
+      "name": "CAN 設定失敗",
+      "body": "CAN$SCARTYPE;0;0;12AB",
+      "checksum": "48",
+      "wire": "AT$PD=CAN$SCARTYPE;0;0;12AB*48\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 15,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "request": "CAN$SCARTYPE;2;12AB",
+        "success": false,
+        "source": "requesting port only"
+      },
+      "inputs": []
+    },
+    {
+      "name": "TYPE SWITCH 設定失敗（回請求值）",
+      "body": "CAN$STYPESWITCH;0;1:1:1:0;12AB",
+      "checksum": "01",
+      "wire": "AT$PD=CAN$STYPESWITCH;0;1:1:1:0;12AB*01\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 15,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "request": "CAN$STYPESWITCH;1:1:1:0;12AB",
+        "success": false,
+        "source": "requesting port only"
+      },
+      "inputs": []
+    },
+    {
+      "name": "GVERSION",
+      "body": "CAN$GVERSION;1;V1:26;33AB",
+      "checksum": "25",
+      "wire": "AT$PD=CAN$GVERSION;1;V1:26;33AB*25\r\n",
+      "state": {
+        "can_time": null,
+        "cartype": 1,
+        "types": 15,
+        "gtime": 30,
+        "bitrate": 0,
+        "can_firmware_version": 26,
+        "request": "CAN$GVERSION;33AB",
+        "success": true,
+        "source": "requesting port only"
+      },
+      "inputs": []
+    }
+  ],
+  "decisions": "D1-D16"
+}

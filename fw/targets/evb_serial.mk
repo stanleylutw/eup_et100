@@ -6,10 +6,15 @@ LD := $(ET100_FW)/ld/evb_app.ld
 LDFLAGS += -L$(ET100_FW)/installer
 INC_PATH := -I"$(ET100_FW)/include" $(INC_PATH)
 INC_PATH += -I"$(ET100_FW)/third_party/tinycrypt/include"
-ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.9.3-dev\"
+ET100_VERSION_FLAGS ?= -DEUP_FIRMWARE_VERSION=\"0.9.8-dev\"
+# Derive CAN's decimal version from the effective firmware version flag,
+# including command-line overrides. Range checks live in can_task.c.
+ET100_VERSION_TEXT = $(subst \",,$(patsubst -DEUP_FIRMWARE_VERSION=%,%,$(filter -DEUP_FIRMWARE_VERSION=%,$(ET100_VERSION_FLAGS))))
+ET100_VERSION_PARTS = $(subst ., ,$(firstword $(subst -, ,$(ET100_VERSION_TEXT))))
+ET100_CAN_VERSION_FLAGS = -DET100_CAN_VERSION_MAJOR=$(word 1,$(ET100_VERSION_PARTS)) -DET100_CAN_VERSION_MINOR=$(word 2,$(ET100_VERSION_PARTS)) -DET100_CAN_VERSION_PATCH=$(word 3,$(ET100_VERSION_PARTS))
 # DEVELOPMENT builds open an unauthenticated BLE SMP service (06 §6.1); clear for release.
 ET100_SMP_BLE_FLAGS ?= -DET100_SMP_BLE_OPEN=1
-CFLAGS += $(ET100_VERSION_FLAGS) $(ET100_TEST_FLAGS) $(ET100_SMP_BLE_FLAGS)
+CFLAGS += $(ET100_VERSION_FLAGS) $(ET100_CAN_VERSION_FLAGS) $(ET100_TEST_FLAGS) $(ET100_SMP_BLE_FLAGS)
 INC_PATH += -I"$(ET100_FW)/common" -I"$(ET100_FW)/installer" -I"$(TOP_DIR)/components/modules/mbedtls/include"
 $(BASE_ElF): $(OBJECT_DIR)/boot_health.o $(OBJECT_DIR)/boot_state.o $(OBJECT_DIR)/mcuboot_image.o $(OBJECT_DIR)/sha256.o $(OBJECT_DIR)/platform_util.o
 $(OBJECT_DIR)/boot_health.o: $(ET100_FW)/src/boot_health.c
@@ -53,9 +58,18 @@ $(OBJECT_DIR)/tinycrypt_utils.o: $(ET100_FW)/third_party/tinycrypt/source/utils.
 
 # v0.8.5: OTA manager + SMP over serial (UART3).
 OTA_OBJECTS = system_status cbor_min smp_serial smp_server ota_manager ota_journal nor_qspi1 ota_worker smp_ble eup_meta_protocol eup_meta_service sensor_package sensor_store \
-              sensor_smp_client sensor_ota_compat sensor_ota_job
+              sensor_smp_client sensor_ota_compat sensor_ota_job can_task
 $(BASE_ElF): $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(OTA_OBJECTS))) $(OBJECT_DIR)/candidate.o
 $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(OTA_OBJECTS))): $(OBJECT_DIR)/%.o: $(ET100_FW)/src/%.c
 	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
 $(OBJECT_DIR)/candidate.o: $(ET100_FW)/installer/candidate.c
+	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<
+
+INC_PATH += -I"$(ET100_FW)/src/can"
+CAN_OBJECTS = j1939 app_can_protocol app_can_bitrate app_gateway
+$(BASE_ElF): $(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(CAN_OBJECTS)))
+$(addprefix $(OBJECT_DIR)/,$(addsuffix .o,$(CAN_OBJECTS))): $(OBJECT_DIR)/%.o: $(ET100_FW)/src/can/%.c
+	$(CC) $(CFLAGS) $(INC_PATH) -Wall -Wextra -c -o $@ $<
+$(BASE_ElF): $(OBJECT_DIR)/driver_can.o
+$(OBJECT_DIR)/driver_can.o: $(TOP_DIR)/components/drivers/peripheral/Src/driver_can.c
 	$(CC) $(CFLAGS) $(INC_PATH) -c -o $@ $<

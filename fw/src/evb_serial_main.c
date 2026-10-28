@@ -19,6 +19,7 @@
 #include "serial_gchk.h"
 #include "status_led.h"
 #include "system_status.h"
+#include "can_task.h"
 
 /* hardware handlers */
 static UART_HandleTypeDef Uart3_handle;
@@ -332,7 +333,8 @@ int main( void )
 
     et100_sys_init();
     /* init flashdb to store user data */
-    et100_serial_storage_ready(flashdb_init() == 0);
+    const int storage_ready=flashdb_init()==0;
+    et100_serial_storage_ready(storage_ready);
 
     /* Create tasks */
 #if ENABLE_RTOS_MONITOR == 1
@@ -344,6 +346,7 @@ int main( void )
 
     /* initialize AT command */
     app_at_init(&Uart3_handle);
+    et100_can_start(storage_ready);
 
     /*
      * enable pull up of all 3.3v IO, these configuration will be latched by set
